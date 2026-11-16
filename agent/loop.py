@@ -160,7 +160,7 @@ def choose_model(task):
 
 def _call_llm_with_retry(task, llm):
     request = {
-        "system": build_system_prompt(),
+        "system": build_system_prompt(task=task),
         "messages": build_messages(task),
         "tools": [registry.to_api_schema(tool) for tool in registry.tools_for_origin(task.origin)],
         "model": choose_model(task),
@@ -232,7 +232,7 @@ def _run_one_call(task, tool_call, guard_llm, external_waiting):
         # 실행하지 않는다. preview -> 감시 에이전트 -> Approval(pending) -> Task 승인 대기.
         approvals.request_approval(step, guard_llm)
         return True
-    _save_step_result(step, registry.run_tool(tool, task.user, tool_call.input), started)
+    _save_step_result(step, registry.run_tool(tool, task.user, tool_call.input, task=task), started)
     return False
 
 

@@ -29,6 +29,9 @@ class Tool:
     label: Callable  # label(**kwargs) -> str, 타임라인에 보일 한국어 한 줄
     external_content: bool = False  # 외부에서 가져온 글이 결과에 들어가는가(주입 방어 대상)
     preview: Callable | None = None  # EXTERNAL 전용: 실행하지 않고 할 일을 설명
+    # True면 run(user, task=..., **kwargs)로 지금 실행 중인 Task를 넘긴다.
+    # remember처럼 "이 Task가 어디서 시작됐고 무엇을 거쳤는지"를 서버가 검사해야 하는 도구용.
+    needs_task: bool = False
 
 
 _TOOLS: dict[str, Tool] = {}
@@ -72,11 +75,13 @@ def validate_input(tool, tool_input):
     return f"입력 형식이 맞지 않습니다({where}): {first.message}"
 
 
-def run_tool(tool, user, tool_input):
+def run_tool(tool, user, tool_input, task=None):
     """READ와 INTERNAL 도구를 실행한다. 도구가 예외를 던져도 ok=false 결과로 바꿔 돌려준다."""
     if tool.risk_level == RiskLevel.EXTERNAL:
         # 프롬프트가 아니라 코드로 막는다. 외부 행동은 승인 레코드를 확인하는 경로로만 실행된다.
         raise PermissionError(f"{tool.name}은 승인이 필요한 도구라 이 경로로 실행할 수 없습니다.")
+    if tool.needs_task:
+        tool_input = {**tool_input, "task": task}
     return _call(tool, user, tool_input)
 
 

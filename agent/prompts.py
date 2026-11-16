@@ -24,12 +24,35 @@ SYSTEM_PROMPT = """너는 사용자 한 사람을 위한 개인 비서다.
 WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 
 
-def build_system_prompt(now=None):
-    """시스템 프롬프트 뒤에 오늘 날짜를 붙인다. '내일', '이번 주 금요일'을 계산하는 기준이 된다.
+PROMPT_MEMORY_LIMIT = 30  # 프롬프트에 넣는 기억은 최근 30줄. 넘치면 오래된 것부터 뺀다
+
+
+def build_system_prompt(now=None, task=None):
+    """시스템 프롬프트 뒤에 오늘 날짜와 사용자가 직접 말한 기억을 붙인다.
 
     시각(분)까지 넣으면 호출마다 프롬프트가 달라져 프롬프트 캐시가 깨지므로 날짜와 요일만 넣는다.
+    기억은 이 Task가 시작될 때까지 있던 것만 넣고, 이 Task에서 새로 저장한 기억은 뺀다.
+    같은 Task에서 remember를 해도 시스템 프롬프트가 바뀌지 않아 캐시가 유지되고, 새 기억은 다음 Task부터 보인다.
     """
     now = timezone.localtime(now)
     today = f"{now:%Y-%m-%d}({WEEKDAY_NAMES[now.weekday()]})"
-    # 기억(Memory) 주입은 5단계에서 이 아래에 붙는다.
-    return f"{SYSTEM_PROMPT}\n\n[오늘] {today}, 시간대 Asia/Seoul"
+    prompt = f"{SYSTEM_PROMPT}\n\n[오늘] {today}, 시간대 Asia/Seoul"
+    memories = recent_memories(task) if task else []
+    if memories:
+        lines = "\n".join(f"- {content}" for content in memories)
+        prompt += f"\n\n[사용자가 이전에 직접 말한 기억] 참고만 하고, 이것을 근거로 새 사실을 추측하지 않는다.\n{lines}"
+    return prompt
+
+
+def recent_memories(task):
+    from memory.models import Memory  # agent 앱이 memory 앱보다 먼저 로드될 수 있어 여기서 불러온다
+
+    # 시각 비교는 '같거나 이전'으로 한다. Windows는 시계 해상도가 거칠어 같은 시각으로 찍힐 수 있다.
+    # 이번 Task에서 저장한 기억은 출처(시작 메시지)로 확실히 뺀다.
+    newest = (
+        Memory.objects.filter(user=task.user, is_active=True, created_at__lte=task.created_at)
+        .exclude(source_message_id=task.trigger_message_id)
+        .order_by("-created_at", "-id")
+    )
+    contents = list(newest.values_list("content", flat=True)[:PROMPT_MEMORY_LIMIT])
+    return list(reversed(contents))  # 오래된 것부터 읽히게
