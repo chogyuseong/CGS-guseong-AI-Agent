@@ -1,7 +1,8 @@
 # 마이에이전트
 
 개인 AI 비서 웹앱. 화면은 apps/web(Next.js), 에이전트 서버는 apps/api(FastAPI + Pydantic AI + DBOS), DB는 PostgreSQL.
-작업 전에 docs/ARCHITECTURE.md와 docs/DECISIONS.md를 읽는다.
+작업 전에 docs/ARCHITECTURE.md와 docs/DECISIONS.md를 읽는다(DECISIONS.md의 "예정된 결정" 절 포함).
+같은 서비스의 Django판을 참고할 때는 docs/DJANGO-REFERENCE.md를 먼저 본다(읽기 전용, 코드 복사 금지).
 
 ## 절대 원칙
 1. 공식 API가 있는 도구만 만든다. 브라우저 자동화, 크롤링 금지.
@@ -33,13 +34,33 @@
   - `uv run python -m alembic revision --autogenerate -m "설명"`
   - 생성된 파일을 읽고 확인한 뒤 `uv run python -m alembic upgrade head`
 
-### 이 PC의 제약 (Windows, Smart App Control)
-- Python 도구는 `uv run pytest`가 아니라 `uv run python -m pytest`처럼 `python -m`으로 실행한다.
-  uv가 `.venv\Scripts`에 만드는 실행 파일(pytest.exe, alembic.exe, pyright.exe 등)은 서명이 없어 막힌다.
-  ruff는 서명된 바이너리라 `uv run ruff`로 실행된다.
-- 막히면("An Application Control policy has blocked this file") 보호 기능을 끄거나 우회하지 말고 사용자에게 알린다.
+### 이 PC에서 알아 둘 것 (Windows)
+- 도구 버전(2026-11-16 확인): Python 3.12.10(시스템), Node v26.13.0, Docker 29.7.2, Docker Compose v5.4.0, git 2.55,
+  uv 0.13.8, pnpm 10.34.9.
+- uv는 사용자 PATH에 있지만 일부 자동화 셸에는 없다. 그때는
+  `$env:Path = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe;$env:Path"`를 앞에 붙인다.
+- **Smart App Control이 켜져 있다.** 서명 없는 실행 파일은 "An Application Control policy has blocked this file"로 막힌다.
+  - 막히면 보호 기능을 끄거나 우회하지 말고, 무엇이 막혔는지 사용자에게 알리고 대안(같은 도구의 다른 배포 형태 등)을 제안한다.
+  - 지금까지 막힌 것: pnpm 12(네이티브 exe, 그래서 Node로 도는 pnpm 10 사용), argon2-cffi의 DLL(그래서 bcrypt),
+    uv가 `.venv\Scripts`에 만드는 런처(pytest.exe, alembic.exe, pyright.exe 등).
+  - 그래서 Python 도구는 `uv run pytest`가 아니라 `uv run python -m pytest`처럼 `python -m`으로 실행한다.
+    ruff는 서명된 바이너리라 `uv run ruff`로 실행된다.
+  - Biome, Playwright 브라우저, Next.js 네이티브 모듈처럼 실행 파일을 내려받는 도구에서도 같은 일이 생길 수 있다.
 - API 서버와 테스트는 SelectorEventLoop로 돈다(psycopg 비동기가 Windows 기본 루프에서 안 됨). app/event_loop.py 참고.
 - `apps/api/alembic.ini`는 ASCII로만 쓴다(Alembic이 cp949로 읽는다).
+- 포트: 다른 프로젝트의 컨테이너 `cho-web-pj-web-1`이 8000 또는 8001을 쓴다(2026-11-16 밤에는 8001). 그 컨테이너는 건드리지 않는다.
+  포트가 열려 있다고 이 프로젝트의 서버라고 단정하지 말고 프로세스를 확인한다.
+- Downloads 폴더는 `D:\Downloads`다. 명세 원본도 거기 있고, 루트의 `SPEC.md`는 그 복사본이다.
+- Open-Meteo: 2026-11-16 밤 이 PC에서 `api.open-meteo.com`으로 연결이 되지 않았다(다른 사이트는 정상).
+  4단계에서 날씨 도구가 실패하면 코드보다 이 접속부터 확인한다.
+
+## 사용자 작업 방식
+- 모든 응답은 한국어.
+- 한 번에 한 단계만 하고 끝나면 멈춰서 보고한다(명세의 작업 방식).
+- push는 사용자 확인 후에만 한다. push 전에 키 값과 이메일이 커밋에 없는지 검사한다.
+- **저장소 결정이 아직 없다.** GitHub 저장소를 새로 만들지, 기존 저장소(CGS-guseong-AI-Agent)에 Django판을 브랜치로 남기고
+  올릴지 정하지 않았다. 첫 push 전에 사용자에게 묻는다.
+- 비용이 드는 실제 모델 호출(eval 포함)은 예상 비용을 알리고 사용자 확인을 받은 뒤에만 한다.
 
 ## 작업 규칙
 - 테스트를 먼저 쓰고 실패를 확인한 뒤 구현한다.
@@ -51,4 +72,27 @@
 - .env와 .env.django의 값은 화면, 로그, 다른 파일에 출력하지 않는다.
 
 ## 도구 규약
-(add-agent-tool 스킬이 채우고 갱신한다)
+설치된 `add-agent-tool` 스킬은 Django판 기준이다. 이 저장소에서는 아래 규약을 따른다.
+
+1. **등급부터 정한다.** READ(조회만) / INTERNAL(앱 안에서만 바뀌고 되돌릴 수 있음) / EXTERNAL(앱 밖에 흔적).
+   FORBIDDEN(결제, 전화, 발송, 비밀번호)이면 만들지 않는다.
+2. **파일**: 도구 하나 또는 같은 주제의 도구 묶음당 `apps/api/app/tools/<주제>.py` 하나.
+   - 함수 시그니처는 `async def 도구이름(ctx: RunContext[AgentDeps], ...) -> ToolResult`.
+   - 함수 이름이 모델에게 보이는 도구 이름, docstring(한국어)이 도구 설명이다.
+   - 인자는 `Annotated[타입, Field(제약, description=...)]`로 제약을 건다. 잘못된 인자는 Pydantic AI가 모델에게 돌려보낸다.
+   - DB 작업은 도구 함수 밖의 작은 함수로 빼고, `async with ctx.deps.db() as session:`로 짧게 열고 커밋한다.
+   - 모든 조회·수정에 `ctx.deps.user_id` 조건을 건다.
+3. **결과**: 항상 `ToolResult`(`app/agent/results.py`)를 돌려준다. 실패는 `ToolResult.failure("한국어 이유")`.
+   예외를 밖으로 던지지 않는다. 예상 못 한 예외는 `StepTracking.on_tool_execute_error`가 한 곳에서 ok=false로 바꾼다.
+   유일한 예외: EXTERNAL 도구 첫 줄의 `assert_approved(ctx)`가 던지는 `PermissionError`(2단계).
+4. **등록**: `app/agent/toolsets.py`에서 등급에 맞는 toolset 목록에 함수를 넣는다(read_tools / internal_tools / external_tools).
+   등급은 toolset의 metadata로 steps.risk_level에 복사된다. EXTERNAL은 toolset 전체가 requires_approval=True다.
+5. **타임라인 문구**: `LABELS` 딕셔너리에 `"도구이름": lambda args: "…하는 중"`을 넣는다(예: "할 일에 '우유 사기' 추가하는 중").
+6. **외부 콘텐츠 도구**(검색 결과, 일정 제목, 메일 본문을 돌려주는 도구, 4단계부터)는 data를 지시문 무시 안내로 감싸고 6,000자로 자른다.
+7. **테스트**: FunctionModel 대본으로 도구 호출 → step 1개(ok, label) → DB 변화를 확인한다. 실제 모델·외부 API는 부르지 않는다.
+   외부 API 도구는 `tests/fixtures/`의 녹화 응답으로 정상, 타임아웃, 401, 429, 빈 결과를 테스트한다.
+
+## 에이전트 코드 지도 (apps/api/app/agent)
+- `runner.py` task 하나 실행(상태 전환, 하루 비용 검사, 이전 기록, agent.run, 결과 저장)
+- `agent.py` Agent 정의 / `tracking.py` Step 기록 hook / `toolsets.py` 등급별 도구 묶음
+- `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트
