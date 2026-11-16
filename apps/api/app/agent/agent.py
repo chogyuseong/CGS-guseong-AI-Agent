@@ -8,7 +8,7 @@ Agent 하나가 하는 일 (한 번의 agent.run 안에서 반복):
       ▼
     [ResolveModelId] 'anthropic:모델ID' 문자열 → 설정의 API 키로 만든 AnthropicModel
       ▼
-    모델 요청 (instructions = 시스템 프롬프트 + 오늘 날짜, 도구 목록 = origin별 toolset)
+    모델 요청 (instructions = 시스템 프롬프트 + 오늘 날짜 + 기억 최근 30줄, 도구 목록 = origin별 toolset)
       ▼
     응답이 도구 호출이면 → [StepTracking]이 steps를 기록하며 도구 실행 → 결과를 모델에게 돌려주고 다시 위로
       단, EXTERNAL 도구(requires_approval)는 실행하지 않는다 → run 종료, result.output이 DeferredToolRequests
@@ -37,7 +37,7 @@ from pydantic_ai.tools import DeferredToolRequests
 
 from app.agent.deps import AgentDeps
 from app.agent.model_choice import build_model_resolver, build_model_selector
-from app.agent.prompts import SYSTEM_PROMPT, current_date_instruction
+from app.agent.prompts import SYSTEM_PROMPT, current_date_instruction, memory_instruction
 from app.agent.tracking import StepTracking
 from app.config import Settings
 
@@ -55,7 +55,8 @@ def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None 
         name=AGENT_NAME,
         deps_type=AgentDeps,
         output_type=[str, DeferredToolRequests],
-        instructions=[SYSTEM_PROMPT, current_date_instruction],
+        # 기억(memory_instruction)은 마지막에 둔다. 요청마다 DB에서 최근 30줄을 새로 읽는다(prompts.py).
+        instructions=[SYSTEM_PROMPT, current_date_instruction, memory_instruction],
         capabilities=[
             ResolveModelId(build_model_resolver(settings)),
             SelectModel(build_model_selector(settings)),

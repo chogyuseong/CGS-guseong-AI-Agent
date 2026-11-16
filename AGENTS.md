@@ -99,7 +99,8 @@
    등급은 toolset의 metadata로 steps.risk_level에 복사된다. EXTERNAL은 toolset 전체가 requires_approval=True다.
 5. **타임라인 문구**: 도구 파일의 `LABELS` 딕셔너리(→ `toolsets.TOOL_LABELS`)에 `"도구이름": lambda args: "…하는 중"`을 넣는다(예: "할 일에 '우유 사기' 추가하는 중").
 6. **외부 콘텐츠 도구**(검색 결과, 일정 제목, 메일 본문을 돌려주는 도구, 4단계부터)는 `ToolResult.external(content, sources)`로
-   돌려준다(지시문 무시 안내로 감싸고 6,000자로 자름, 출처·조회 시각). 이름을 `toolsets.EXTERNAL_CONTENT_TOOLS`에도 넣는다.
+   돌려준다(지시문 무시 안내로 감싸고 6,000자로 자름, 출처·조회 시각). 이름을 `results.EXTERNAL_CONTENT_TOOLS`에도 넣는다
+   (5단계 remember 검사가 이 목록과 감싸기로 외부 글을 알아본다. `toolsets`에서도 다시 내보낸다).
    외부 HTTP는 `app/tools/http.py`(`get_json`, `request_json`)로만 부르고 `ExternalApiError`를 `ToolResult.failure(error.message)`로 바꾼다.
    키는 `ctx.deps.settings`, 클라이언트는 `ctx.deps.http`. 엔드포인트·한도는 `docs/TOOLS.md`에 적는다.
    preview에 외부 문자열을 넣을 때는 `gcal.quote_external`처럼 「」로 감싸고 40자로 자른다.
@@ -120,7 +121,9 @@
 - `approvals.py` 승인 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`)
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
-- `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트,
+- `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트와 동적 지시문(날짜, 기억 최근 30줄)
+- `results.py` ToolResult, 외부 콘텐츠 감싸기, `EXTERNAL_CONTENT_TOOLS`(remember 검사가 쓰는 목록. 외부 글을 돌려주는 도구를 만들면 여기에 넣는다)
+- 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사), API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어",
   동적 지시문(오늘·이번 주 날짜표)
 - `deps.py` AgentDeps(user_id, task_id, origin, db, settings, http) / `results.py` ToolResult, 외부 콘텐츠 감싸기
 - 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)

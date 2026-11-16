@@ -16,8 +16,10 @@ from tests.fake_push import FakePushSender
 from tests.model_scripts import call, scripted, text
 
 # 등급별 도구 이름(4단계에서 실제 도구가 더해졌다). 예약·감시 task는 READ만, chat task는 세 등급 모두를 받는다.
-READ_TOOL_NAMES = sorted(["get_weather", "list_events", "list_notes", "list_todos", "search_places", "web_search"])
-INTERNAL_TOOL_NAMES = sorted(["add_todo", "complete_todo", "save_note"])
+READ_TOOL_NAMES = sorted(
+    ["get_weather", "list_events", "list_memories", "list_notes", "list_todos", "search_places", "web_search"]
+)
+INTERNAL_TOOL_NAMES = sorted(["add_todo", "complete_todo", "forget", "remember", "save_note"])
 EXTERNAL_TOOL_NAMES = sorted(["create_event", "delete_event", "update_event"])
 
 

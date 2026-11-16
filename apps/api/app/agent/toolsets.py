@@ -21,8 +21,9 @@ from pydantic_ai.tools import ToolDefinition, ToolFuncEither
 from pydantic_ai.toolsets import FunctionToolset
 
 from app.agent.deps import AgentDeps
+from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
 from app.models.enums import RiskLevel, TaskOrigin
-from app.tools import gcal, notes, places, weather, websearch
+from app.tools import gcal, memories, notes, places, weather, websearch
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ read_tools = FunctionToolset[AgentDeps](
     [
         notes.list_todos,
         notes.list_notes,
+        memories.list_memories,
         weather.get_weather,
         places.search_places,
         websearch.web_search,
@@ -63,7 +65,8 @@ read_tools = FunctionToolset[AgentDeps](
     sequential=True,
 )
 internal_tools = FunctionToolset[AgentDeps](
-    [notes.save_note, notes.add_todo, notes.complete_todo],
+    # remember·forget(5단계): 3단계 복구 규칙에 따라 INTERNAL은 at-most-once다(도중에 끊긴 호출은 다시 실행하지 않음).
+    [notes.save_note, notes.add_todo, notes.complete_todo, memories.remember, memories.forget],
     id="internal_tools",
     metadata=risk_metadata(RiskLevel.INTERNAL),
     sequential=True,
@@ -80,14 +83,14 @@ TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
 
 TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     **notes.LABELS,
+    **memories.LABELS,
     "get_weather": weather.get_weather_label,
     "search_places": places.search_places_label,
     "web_search": websearch.web_search_label,
     **gcal.LABELS,
 }
-# 결과가 외부 콘텐츠(남이 쓴 글)인 도구. data를 지시문 무시 안내로 감싸고 6,000자로 자른다(ToolResult.external).
-# 5단계 remember 서버 검사("이 task에서 외부 콘텐츠 도구를 쓰지 않았어야 한다")가 이 목록을 쓴다.
-EXTERNAL_CONTENT_TOOLS = frozenset({"get_weather", "search_places", "web_search", "list_events"})
+# 결과가 외부 콘텐츠(남이 쓴 글)인 도구 목록은 app/agent/results.py의 EXTERNAL_CONTENT_TOOLS다.
+# (5단계 remember 검사가 도구 모듈에서 쓰므로 순환 import를 피해 그쪽으로 옮겼다. 여기서는 다시 내보내기만 한다.)
 # EXTERNAL 도구 이름 → preview 함수(승인 카드 문장). 일정 도구 셋은 app/tools/gcal.py의 PREVIEWS.
 TOOL_PREVIEWS: dict[str, PreviewFunc] = {**gcal.PREVIEWS}
 

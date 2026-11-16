@@ -1,4 +1,4 @@
-# 구조 (4단계 기준)
+# 구조 (5단계 기준)
 
 마이에이전트는 화면(Next.js)과 에이전트 서버(FastAPI)를 나눈 모노레포다.
 1단계까지: 로그인, 모든 테이블, 채팅 메시지 → 에이전트 실행(메모·할 일 도구) → 작업 기록 조회.
@@ -38,9 +38,9 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | `app/event_loop.py` | Windows에서 SelectorEventLoop를 쓰는 이유와 CLI용 `run_async` |
 | `app/models/` | 15개 테이블 |
 | `app/schemas/` | 요청·응답 Pydantic 모델(웹이 OpenAPI로 타입 생성) |
-| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계) |
+| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계), memories(5단계) |
 | `app/agent/` | 에이전트(아래 절) |
-| `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 엔드포인트·한도 요약은 `docs/TOOLS.md` |
+| `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 5단계: `memories.py`(remember 서버 검사, forget, list_memories). 엔드포인트·한도 요약은 `docs/TOOLS.md` |
 | `alembic/` | 마이그레이션. env.py는 동기 엔진(같은 psycopg 3 드라이버) |
 | `tests/` | pytest. DB·DBOS 픽스처는 `tests/conftest.py` 한 곳, 가짜 모델 대본은 `tests/model_scripts.py`(DBOS에 등록된 가짜 모델 하나), 테스트 전용 EXTERNAL 도구는 `tests/fake_tools.py`, 가짜 푸시 전송기는 `tests/fake_push.py`, 가짜 외부 HTTP는 `tests/fake_http.py`, 외부 API 응답은 `tests/fixtures/`(실제 녹화본과 문서 형식으로 만든 것의 구분은 그 폴더의 README.md) |
 
@@ -157,18 +157,18 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `workflows.py` | DBOS 워크플로 `run_task`·`resume_task`, 워크플로 ID 규칙, `WorkflowLauncher`(app.state.launcher), 재개 시작(`start_resume_if_waiting`), 시작 때 고아 task 잇기, DBOS 설정·launch·종료 |
 | `durable.py` | `durable_step(name, fn, *args)`: 워크플로 안이면 DBOS 단계, 밖이면 그냥 실행 |
 | `runner.py` | `run_task`(실행), `resume_task`(승인 뒤 재개)를 단계(claim → prepare → agent.run → finish → notify)로 구성. 승인 대기면 preview·감시·승인 요청 저장. 어떤 예외도 잡아 failed/budget_exceeded로 끝낸다(HTTP를 모름) |
-| `agent.py` | Agent 정의: output_type=[str, DeferredToolRequests], instructions(시스템 프롬프트 + 오늘 날짜), capabilities(ResolveModelId, SelectModel, StepTracking, DBOSDurability) |
+| `agent.py` | Agent 정의: output_type=[str, DeferredToolRequests], instructions(시스템 프롬프트 + 오늘 날짜 + 기억 최근 30줄), capabilities(ResolveModelId, SelectModel, StepTracking, DBOSDurability) |
 | `approvals.py` | 승인 요청 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`) |
 | `guard.py` | 감시 에이전트(도구 없음, AGENT_MODEL_GUARD). 입력 4가지만, 실패는 unsure |
 | `tracking.py` | 도구 실행 hook(wrap_tool_execute)으로 steps 기록, 예상 못 한 예외를 ok=false로 바꿈. 복구 때 끝난 호출은 기록된 결과를 재생, 도중에 끊긴 INTERNAL·EXTERNAL 호출은 다시 실행하지 않고 failed("실행 여부를 확인할 수 없음") |
-| `toolsets.py` | read_tools / internal_tools / external_tools(일정 쓰기 셋, requires_approval, `build_external_toolset`) 와 origin별 조합, step 문구(TOOL_LABELS), 승인 카드 문장(TOOL_PREVIEWS), 외부 콘텐츠 도구 목록(EXTERNAL_CONTENT_TOOLS) |
+| `toolsets.py` | read_tools / internal_tools / external_tools(일정 쓰기 셋, requires_approval, `build_external_toolset`) 와 origin별 조합, step 문구(TOOL_LABELS), 승인 카드 문장(TOOL_PREVIEWS). 외부 콘텐츠 도구 목록(EXTERNAL_CONTENT_TOOLS)은 5단계부터 `results.py`에 있고 여기서 다시 내보낸다 |
 | `model_choice.py` | FAST/SMART 선택 규칙, 설정의 API 키로 AnthropicModel 만들기 |
 | `budget.py` | UsageLimits, 비용 계산(MODEL_PRICES), 하루 비용 검사 |
 | `history.py` | 이전 기록 저장 형식(JSON), 자르기, 실패한 run 기록 정리, 승인 대기 기록 저장·결과 없는 호출 찾기 |
-| `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 동적 지시문(오늘 날짜·요일, 이번 주 날짜표, 다음 주 월요일) |
-| `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장, settings, http), ToolResult(`external()`: 지시문 무시 안내로 감싸고 6,000자로 자름) |
+| `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 동적 지시문(오늘 날짜·요일, 이번 주 날짜표, 다음 주 월요일 / 5단계: 기억 최근 30줄을 요청마다 DB에서 읽어 안내문 + `<user_memories>`로 감쌈, `memory_instruction`) |
+| `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장, settings, http), ToolResult(`external()`: 지시문 무시 안내로 감싸고 6,000자로 자름), EXTERNAL_CONTENT_TOOLS, `is_wrapped_external` |
 
-### 도구 (1단계 + 4단계)
+### 도구 (1단계 + 4단계 + 5단계)
 
 | 도구 | 등급 | 하는 일 |
 | --- | --- | --- |
@@ -184,6 +184,12 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `create_event(title, start, end, location?, description?)` | EXTERNAL | 일정 만들기. 시각은 서울 `YYYY-MM-DDTHH:MM` |
 | `update_event(event_id, title?, start?, end?, location?, description?)` | EXTERNAL | 바꿀 칸만 PATCH |
 | `delete_event(event_id)` | EXTERNAL | 일정 삭제 |
+| `list_memories(limit=50)` | READ | 내 기억, 최근 것부터 |
+| `remember(content)` | INTERNAL | 기억 한 줄 저장(300자). 서버 검사: origin=chat, 출처 메시지 있음, 문맥·이 task에 외부 콘텐츠 없음. 중복은 기존 것 반환, 200개 상한, 비밀번호·카드 번호 거부 (docs/SAFETY.md 5단계) |
+| `forget(memory_id)` | INTERNAL | 내 기억 하나 삭제 |
+
+기억 API(화면용, `app/routers/memories.py`): `GET /api/memories`(목록 + 출처 메시지), `DELETE /api/memories/{id}`(204/404),
+`DELETE /api/memories`(전체, `{deleted}`). 기억을 만드는 API는 없다(remember로만 생긴다).
 
 origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘긴다(일정 쓰기 도구는 자동 작업에 없다).
 외부 API 호출 규칙(타임아웃 10초, GET만 1회 재시도, 쓰기는 재시도 없음, 오류 문장에 키·본문 없음)은 `app/tools/http.py` 한 곳에 있다.
