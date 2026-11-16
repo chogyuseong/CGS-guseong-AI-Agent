@@ -94,3 +94,5 @@ Google 연결: 연결됨. 테스트 상태 앱이라 7일마다 끊김 → 설�
 - git push: 2026-11-16 첫 push (origin main, github.com/chogyuseong/CGS-guseong-AI-Agent).
   push 전 확인한 것: .env는 기록에 없음, .env의 키 값 10개가 전체 커밋 어디에도 없음,
   파일 내용에 이메일 없음(커밋 작성자 정보에만 있음). 다음 push도 사용자 확인 후에만.
+- git push 2회차: 2026-11-16 5단계(기억)까지. .gitignore를 '.env*'로 넓힘
+  (폴더에 '.env agent copy'라는 .env 복사본이 생겨 있었고 기존 규칙에 안 걸렸음. 커밋된 적은 없음).
