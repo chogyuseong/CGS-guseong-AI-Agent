@@ -1,0 +1,28 @@
+# 비밀 값: .env로 시작하는 파일은 전부 막고 예시 파일만 올린다(.env.django 포함)
+.env*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# 테스트 산출물
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# 기타
+.DS_Store
+Thumbs.db
+*.log
