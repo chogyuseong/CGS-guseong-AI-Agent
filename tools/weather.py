@@ -83,6 +83,7 @@ def _summarize(location, target, forecast):
     times = hourly.get("time") or []
     return {
         "place": location["name"],
+        "matched_place": location.get("matched_place", ""),  # 좌표를 잡은 실제 장소(출처 확인용)
         "address": location["address"],
         "date": target.isoformat(),
         "min_c": daily["temperature_2m_min"][0],

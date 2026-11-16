@@ -19,14 +19,19 @@ SERVICE = "카카오"
 def locate(place):
     """장소 이름 하나를 좌표로 바꾼다. 가장 정확도가 높은 결과 1개를 쓴다.
 
-    돌려주는 값: {name, address, latitude, longitude, place_url}
+    키워드 검색은 동네 이름에도 그 동네의 가게나 거리 같은 장소를 돌려준다
+    (예: '성수동' → '서울숲카페거리'). 좌표는 맞지만 이름이 사용자를 헷갈리게 하므로
+    name에는 사용자가 말한 이름을 그대로 두고, 실제로 찾은 장소는 matched_place에 따로 남긴다.
+
+    돌려주는 값: {name, matched_place, address, latitude, longitude, place_url}
     """
     documents = keyword_search(place, size=1)
     if not documents:
         raise ExternalAPIError(f"'{place}' 위치를 찾지 못했습니다. 동네나 역 이름으로 다시 말해 주세요.")
     first = documents[0]
     return {
-        "name": first.get("place_name", place),
+        "name": place,
+        "matched_place": first.get("place_name", ""),
         "address": first.get("road_address_name") or first.get("address_name", ""),
         "latitude": float(first["y"]),  # 카카오는 y가 위도, x가 경도다
         "longitude": float(first["x"]),
