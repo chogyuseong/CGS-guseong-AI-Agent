@@ -115,11 +115,13 @@ components/             BottomTabs, ChatInput, AuthGuard, LoginForm, EmptyScreen
   GoogleConnection.tsx  연결 화면의 Google 영역(상태, 연결 링크, 해제 확인)
   CallbackNotice.tsx    Google에서 돌아왔을 때(?google=...)의 안내, 쿼리 정리
   ExternalContent.tsx   타임라인의 외부 콘텐츠 결과(텍스트로만, http·https 링크만)
+  MemoryList.tsx        기억 탭(목록, 원래 메시지 보기, 한 건 삭제, 전체 삭제 확인)
 lib/api/                schema.d.ts(자동 생성), client.ts
 lib/auth.ts             /api/auth/me, /api/auth/login 훅
 lib/chat.ts             대화·메시지·task 훅, 진행 단계(taskPhase)
 lib/approvals.ts        승인·거절 호출과 오류 문구
 lib/connections.ts      연결 상태·해제 호출, 콜백 결과 코드별 안내
+lib/memories.ts         기억 목록·삭제 호출과 오류 문구, 날짜 표시
 lib/stepOutput.ts       단계 출력에서 외부 콘텐츠 읽기, 안전한 링크 판정
 lib/toolText.ts         도구 칸 이름·시각을 사람이 읽는 글자로
 lib/push.ts             웹 푸시 상태 판정, 구독·해지(브라우저·서버를 인자로 받아 테스트 가능)

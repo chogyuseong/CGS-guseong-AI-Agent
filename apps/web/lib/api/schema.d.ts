@@ -317,6 +317,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Memories */
+        get: operations["list_memories_api_memories_get"];
+        put?: never;
+        post?: never;
+        /** Delete All */
+        delete: operations["delete_all_api_memories_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete One */
+        delete: operations["delete_one_api_memories__memory_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -451,6 +486,56 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * MemoriesDeleted
+         * @description DELETE /api/memories(전체 삭제) 응답. 지운 개수.
+         */
+        MemoriesDeleted: {
+            /** Deleted */
+            deleted: number;
+        };
+        /**
+         * MemoryListOut
+         * @description GET /api/memories 응답. memories는 최근 것부터. limit은 저장할 수 있는 최대 개수(200).
+         */
+        MemoryListOut: {
+            /** Memories */
+            memories: components["schemas"]["MemoryOut"][];
+            /** Limit */
+            limit: number;
+        };
+        /** MemoryOut */
+        MemoryOut: {
+            /** Id */
+            id: number;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            source: components["schemas"]["MemorySourceOut"];
+        };
+        /**
+         * MemorySourceOut
+         * @description 기억의 출처: 그 기억을 만든 task를 시작한 사용자 메시지("원래 메시지 보기").
+         */
+        MemorySourceOut: {
+            /** Message Id */
+            message_id: number;
+            /** Conversation Id */
+            conversation_id: number;
+            /** Task Id */
+            task_id: number | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** MessageCreate */
         MessageCreate: {
@@ -1216,6 +1301,82 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_memories_api_memories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryListOut"];
+                };
+            };
+        };
+    };
+    delete_all_api_memories_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoriesDeleted"];
+                };
+            };
+        };
+    };
+    delete_one_api_memories__memory_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 내 기억 중에 그 id가 없다 */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
