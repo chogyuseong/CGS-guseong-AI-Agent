@@ -10,6 +10,7 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "psycopg[binary]>=3.3.9",
     "pydantic==2.14.3",
+    "pydantic-ai-slim[anthropic]==2.68.0",
     "pydantic-settings==2.16.3",
     "sqlalchemy[asyncio]==2.1.8",
     "uvicorn>=0.54.0",
@@ -33,6 +34,10 @@ target-version = "py312"
 [tool.ruff.lint]
 # E/F: 기본 오류, I: import 정렬, B: 흔한 버그 패턴, UP: 최신 문법, SIM: 단순화, N: 이름 규칙
 select = ["E", "F", "I", "B", "UP", "SIM", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+# 시스템 프롬프트는 명세 문장을 한 줄도 바꾸지 않고 그대로 옮기므로 줄 길이 검사에서 뺀다.
+"app/agent/prompts.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 # 프로젝트 안의 alembic/ 폴더(마이그레이션) 때문에 alembic 패키지를 자체 코드로 착각하지 않게 한다.

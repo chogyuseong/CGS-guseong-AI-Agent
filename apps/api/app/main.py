@@ -11,8 +11,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.agent.agent import build_agent
 from app.config import Settings, get_settings
 from app.db import create_engine_for, create_session_factory
+from app.rate_limit import SlidingWindowRateLimiter
 from app.routers import api_router
 from app.security import add_security_middleware
 
@@ -38,6 +40,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_factory = create_session_factory(engine)
+    # 에이전트는 앱마다 한 번 만든다(3단계 DBOS는 워크플로 시작 전에 Agent가 만들어져 있기를 요구한다).
+    app.state.agent = build_agent(settings)
+    app.state.message_rate_limiter = SlidingWindowRateLimiter()
     add_security_middleware(app, settings)
     app.include_router(api_router)
     return app

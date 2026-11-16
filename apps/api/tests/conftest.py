@@ -1,12 +1,13 @@
 """테스트 공용 픽스처. DB 관련 픽스처는 모두 이 파일에만 둔다.
 
-테스트 DB 전략 (0단계):
+테스트 DB 전략:
 - docker의 postgres 안에 별도 데이터베이스(myagent_test)를 테스트 시작 때 새로 만들고
   Alembic 마이그레이션으로 테이블을 만든다. 마이그레이션 자체도 함께 검증된다.
-- 테스트 하나마다 연결 하나에서 트랜잭션을 열고, 앱의 세션을 그 트랜잭션 안의 SAVEPOINT로 묶은 뒤
-  테스트가 끝나면 통째로 되돌린다. 테스트끼리 데이터가 섞이지 않는다.
+- 테스트 하나마다 연결 하나에서 바깥 트랜잭션을 연다(db_connection). 앱(요청, 에이전트 실행기, 도구)과
+  테스트 코드가 쓰는 세션은 모두 그 연결 위의 SAVEPOINT로 묶이고(session_factory), 테스트가 끝나면 통째로 되돌린다.
 - 3단계에서 DBOS가 자체 연결로 DB에 쓰면 이 "되돌리기" 방식으로는 지울 수 없다.
-  그때는 db_session 픽스처만 "테이블 비우기(TRUNCATE)" 방식으로 바꾸면 된다.
+  그때는 db_connection/session_factory 픽스처만 "테이블 비우기(TRUNCATE)" 방식으로 바꾸면 된다.
+- 실제 LLM 요청은 전역으로 막는다. 테스트는 agent.override(model=FunctionModel(...))로 가짜 모델을 끼운다.
 """
 
 import asyncio
@@ -18,17 +19,23 @@ import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from pydantic import SecretStr
+from pydantic_ai import models
 from pydantic_settings import SettingsConfigDict
 from sqlalchemy import create_engine, make_url, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.agent.agent import MyAgent
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
 from app.models import User
 from app.security import hash_password
+
+# 테스트에서는 실제 LLM 요청을 전역으로 막는다. 가짜 모델(FunctionModel, TestModel)만 쓴다.
+models.ALLOW_MODEL_REQUESTS = False
 
 API_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
@@ -74,21 +81,30 @@ def migrated_database_url() -> str:
 
 
 @pytest.fixture
-async def db_session(migrated_database_url: str) -> AsyncIterator[AsyncSession]:
+async def db_connection(migrated_database_url: str) -> AsyncIterator[AsyncConnection]:
+    """테스트 하나 동안 쓰는 연결. 바깥 트랜잭션을 열어 두었다가 끝나면 되돌린다."""
     engine = create_async_engine(migrated_database_url, poolclass=NullPool)
     async with engine.connect() as connection:
         transaction = await connection.begin()
-        session = AsyncSession(
-            bind=connection,
-            join_transaction_mode="create_savepoint",
-            expire_on_commit=False,
-        )
         try:
-            yield session
+            yield connection
         finally:
-            await session.close()
             await transaction.rollback()
     await engine.dispose()
+
+
+@pytest.fixture
+def session_factory(db_connection: AsyncConnection) -> async_sessionmaker[AsyncSession]:
+    """앱(요청, 에이전트 실행기)이 쓰는 세션 공장. 운영과 같이 세션을 여러 개 만들지만,
+    모두 테스트 연결의 SAVEPOINT 안에서 커밋되므로 테스트가 끝나면 함께 되돌아간다."""
+    return async_sessionmaker(bind=db_connection, join_transaction_mode="create_savepoint", expire_on_commit=False)
+
+
+@pytest.fixture
+async def db_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
+    """테스트 코드가 데이터를 준비하거나 결과를 확인할 때 쓰는 세션."""
+    async with session_factory() as session:
+        yield session
 
 
 class SettingsWithoutEnvFile(Settings):
@@ -107,13 +123,27 @@ def test_settings() -> Settings:
 
 
 @pytest.fixture
-async def client(test_settings: Settings, db_session: AsyncSession) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(test_settings)
+def app(test_settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -> FastAPI:
+    application = create_app(test_settings)
+    # 요청 세션과 에이전트 실행기가 모두 테스트 연결을 쓰게 바꾼다.
+    application.state.session_factory = session_factory
 
     async def override_get_session() -> AsyncIterator[AsyncSession]:
-        yield db_session
+        async with session_factory() as session:
+            yield session
 
-    app.dependency_overrides[get_session] = override_get_session
+    application.dependency_overrides[get_session] = override_get_session
+    return application
+
+
+@pytest.fixture
+def agent(app: FastAPI) -> MyAgent:
+    """앱이 쓰는 에이전트. 테스트는 agent.override(model=FunctionModel(...))로 가짜 모델을 끼운다."""
+    return app.state.agent
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     headers = {"Origin": TEST_ORIGIN}
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver", headers=headers) as http:
@@ -133,3 +163,20 @@ def make_user(db_session: AsyncSession) -> UserFactory:
 
 async def login(client: httpx.AsyncClient, email: str, password: str) -> httpx.Response:
     return await client.post("/api/auth/login", json={"email": email, "password": password})
+
+
+@pytest.fixture
+async def logged_in_user(client: httpx.AsyncClient, make_user: UserFactory) -> User:
+    """로그인까지 마친 사용자 한 명."""
+    user = await make_user("me@example.com", "password-me")
+    response = await login(client, "me@example.com", "password-me")
+    assert response.status_code == 200
+    return user
+
+
+@pytest.fixture
+async def conversation(client: httpx.AsyncClient, logged_in_user: User) -> int:
+    """로그인한 사용자의 대화방 하나를 API로 만들고 id를 돌려준다."""
+    response = await client.post("/api/conversations", json={"title": "테스트 대화"})
+    assert response.status_code == 201
+    return response.json()["id"]

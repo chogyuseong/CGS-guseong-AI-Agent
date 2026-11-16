@@ -89,6 +89,8 @@ class GuardCheck(TimestampedTable):
 class UsageLog(TimestampedTable):
     __tablename__ = "usage_logs"
 
+    # 하루 비용 상한을 사용자별로 합산한다. task가 없는 사용(감시 판정, eval)도 사용자에게 붙인다.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), index=True)
     purpose: Mapped[UsagePurpose] = mapped_column(enum_type(UsagePurpose, "usage_purpose"))
     model: Mapped[str] = mapped_column(String(100))
