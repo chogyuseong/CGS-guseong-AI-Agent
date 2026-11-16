@@ -1,0 +1,176 @@
+마이에이전트: 다른 컴퓨터에서 이어서 개발하기
+작성일 2026-11-17 (기준 커밋 94987b5 "1단계 웹" 바로 다음)
+
+이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
+자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 전체 명세는 SPEC.md에 있다.
+
+
+========================================
+1. 지금 어디까지 했나
+========================================
+
+전체 9단계(0~9단계 중 0, 1 완료). 다음은 2단계.
+
+  0단계 뼈대          완료  DB 테이블 15개, 로그인, 하단 탭, 테스트 환경
+  1단계 에이전트      완료  내부 도구 5개, 채팅 화면, 단계 타임라인, 작업 기록 탭
+  2단계 승인과 감시   시작 전 (다음 차례)
+  3~9단계             시작 전
+
+1단계를 마칠 때 통과한 검사:
+  - API: pytest 42개, ruff, pyright, alembic check
+  - 웹: Biome, tsc, Vitest 17개, Playwright 2개(360px)
+  - 실제 모델 호출 2건 확인(할 일 추가, 모델 전환). 비용 $0.0073
+
+아직 확인하지 못한 것:
+  - 브라우저 화면에서 실제 모델로 메시지를 보내는 흐름(API와 화면을 따로만 확인함)
+  - 폰에서 로그인
+
+정하지 않은 것:
+  - Pydantic AI의 Logfire 안내 배너를 끌지(PYDANTIC_AI_NO_BANNER=1, 끄는 쪽 권장)
+  - 승인 대기 중에도 1초 폴링을 유지할지(2단계에서 결정)
+  - GitHub 저장소를 새로 만들지, 기존 저장소에 올릴지(아직 push한 적 없음)
+
+알려진 문제(고치지 않음):
+  - 답변 끝에 "구글 캘린더에는 넣지 않았습니다"가 매번 붙는다(시스템 프롬프트 문구 탓).
+  - 실행할 때마다 Anthropic 연결을 새로 만든다(재사용 안 함).
+
+
+========================================
+2. 옮겨야 하는 것
+========================================
+
+원격 저장소가 없다. 코드는 직접 옮겨야 한다.
+
+(1) 코드: git 묶음 파일 하나로 옮긴다. 지금 컴퓨터의 프로젝트 폴더에서:
+
+      git bundle create my-agent.bundle --all
+
+    my-agent.bundle을 USB 등으로 옮긴 뒤 새 컴퓨터에서:
+
+      git clone my-agent.bundle my-agent
+      cd my-agent
+      git remote remove origin
+
+    폴더를 통째로 복사해도 되지만, 그때는 node_modules, apps/web/node_modules,
+    apps/web/.next, apps/api/.venv는 빼고 복사한다(새 컴퓨터에서 다시 설치한다).
+
+(2) .env: git에 없으므로 따로 옮긴다. 저장소 루트의 .env 파일 하나.
+    - 메신저, 메일, 클라우드 메모에 붙여 넣지 않는다. USB나 암호 관리자로 옮긴다.
+    - 못 옮겼다면 .env.example을 복사해 값을 다시 채운다.
+      1단계까지 꼭 필요한 값: DATABASE_URL, SESSION_SECRET, APP_ORIGIN, ANTHROPIC_API_KEY
+      (SESSION_SECRET은 새로 만들어도 된다. 로그인이 풀릴 뿐이다.)
+    - .env.django는 옮기지 않아도 된다. 필요한 값은 이미 .env에 들어 있다.
+
+(3) DB 데이터: 옮기지 않는다. 개발용 데이터뿐이라 새로 만든다.
+    계정은 새 컴퓨터에서 다시 만든다(4번 참고).
+
+(4) Claude Code 설정(선택): 저장소 밖에 있어서 따라오지 않는다.
+    같은 방식으로 일하려면 지금 컴퓨터의 아래 파일을 새 컴퓨터의 같은 위치로 복사한다.
+      ~/.claude/CLAUDE.md                 팀 리더 규칙, 모델 사용 기준
+      ~/.claude/agents/*.md               hard-worker, fable-designer 등
+      ~/.claude/settings.json 의 model, effortLevel, fallbackModel, modelSettings
+      PowerShell 프로필의 "# Claude 모델 단축키" 블록(cc, ccb, ccd, ccf, ccff, ccq, ccp)
+    이전 대화 기록은 옮겨지지 않는다. 그래서 이 파일과 docs/가 기억 역할을 한다.
+
+
+========================================
+3. 새 컴퓨터에 깔 것
+========================================
+
+지금 컴퓨터에서 쓴 버전(2026-11-16 확인). 같은 큰 버전이면 된다.
+
+  Python 3.12       apps/api/pyproject.toml이 요구
+  uv 0.13.x         winget install astral-sh.uv
+  Node 26           (pnpm은 corepack 또는 npm으로 10.34.9)
+  pnpm 10.34.9      12는 쓰지 않는다(package.json의 packageManager가 10으로 고정)
+  Docker Desktop    postgres:16 컨테이너용
+  git
+  Chrome            Playwright가 설치된 Chrome을 쓴다(channel: "chrome")
+
+
+========================================
+4. 처음 한 번 실행
+========================================
+
+PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 루트 기준.
+
+  pnpm install
+  pnpm --dir apps/web install
+  cd apps/api
+  uv sync
+  cd ../..
+
+  (.env를 루트에 둔 뒤)
+
+  pnpm db:up
+  pnpm db:migrate
+  pnpm api:create-user --email 이메일 --password 비밀번호
+  pnpm dev
+
+  브라우저에서 http://localhost:3000 을 열고 로그인한다.
+  API 문서는 http://localhost:8000/api/docs
+
+잘 옮겨졌는지 확인:
+
+  pnpm api:test                    42개 통과해야 한다(테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:check                   ruff, pyright 문제 0건
+  pnpm --dir apps/web lint
+  pnpm --dir apps/web typecheck
+  pnpm --dir apps/web test         17개 통과
+  pnpm --dir apps/web e2e          2개 통과(3000, 8000 포트가 비어 있어야 한다)
+
+화면 확인(실제 모델 호출, 요청당 약 $0.004):
+  "우유 사기 할 일에 추가해줘" → "내 할 일 보여줘" → "우유 사기 완료 처리해줘"
+  답변 아래에 단계가 붙고, 작업 기록 탭 맨 위에 방금 요청이 보여야 한다.
+
+
+========================================
+5. 컴퓨터가 바뀌면 달라질 수 있는 것
+========================================
+
+- Smart App Control: 지금 컴퓨터는 켜져 있어서 서명 없는 실행 파일이 막혔다.
+  그래서 스크립트가 `uv run python -m pytest` 같은 python -m 형태이고,
+  Biome은 WASM 스크립트(apps/web/scripts/biome-check.mjs), 비밀번호는 bcrypt,
+  Playwright는 설치된 Chrome을 쓴다. 새 컴퓨터가 막지 않더라도 이 방식은 그대로 동작한다.
+  바꾸지 않는다.
+- 포트: 5432(postgres), 8000(API), 3000(웹). 다른 프로그램이 쓰고 있으면 먼저 확인한다.
+- 폰에서 볼 때: .env의 APP_ORIGIN을 'http://PC의LAN주소:3000'으로 바꾸고 API를 다시 켠다.
+  apps/web/README.md 참고.
+- Mac이나 Linux라면: 루트 package.json의 api 스크립트에 있는
+  `--loop asyncio:SelectorEventLoop`는 Windows용 설정이다. 그대로 둬도 동작한다.
+- AGENTS.md의 "이 PC에서 알아 둘 것"은 지금 컴퓨터 기준이다(uv 경로, 다른 프로젝트 컨테이너,
+  D:\Downloads, Open-Meteo 접속 문제). 새 컴퓨터에서 다르면 그 절을 고친다.
+
+
+========================================
+6. 이어서 할 일: 2단계(승인과 감시 에이전트)
+========================================
+
+읽을 순서:
+  1) AGENTS.md
+  2) docs/ARCHITECTURE.md, docs/DECISIONS.md("예정된 결정"의 2단계 항목 포함), docs/SAFETY.md
+  3) SPEC.md의 "2단계: 승인과 감시 에이전트"
+
+만들 것(명세 기준):
+  - EXTERNAL 도구의 requires_approval, 승인 요청과 결과 처리(DeferredToolRequests / DeferredToolResults)
+  - approvals.py: save_requests, decide, build_results, assert_approved
+  - guard.py: 정해진 네 가지 입력만 받는 감시 에이전트
+  - 승인/거절 API, 화면의 ApprovalCard
+  - 명세의 테스트 1~4, 7, 11, 15
+  - docs/SAFETY.md 갱신
+
+미리 정해 둔 방향(docs/DECISIONS.md):
+  - 승인 API가 expires_at을 직접 검사한다. 만료된 단계의 상태를 따로 둔다.
+  - 승인 뒤 이어서 실행할 때 앞서 쓴 사용량을 이어받는다.
+
+지켜야 하는 것:
+  - 승인을 자동으로 통과시키는 코드는 테스트 밖에 두지 않는다.
+  - 감시 에이전트는 승인을 대신하지 않는다.
+  - 한 번에 한 단계만 하고, 끝나면 멈춰서 보고한다.
+  - 테스트를 먼저 쓰고 실패를 확인한 뒤 구현한다.
+  - 비용이 드는 실제 모델 호출은 예상 비용을 알리고 확인받은 뒤에만 한다.
+  - push는 확인받은 뒤에만. push 전에 키 값과 이메일이 커밋에 없는지 검사한다.
+  - .env 값은 화면, 로그, 다른 파일에 출력하지 않는다.
+
+새 컴퓨터의 Claude Code에 이렇게 말하면 된다:
+  "배포-이어하기.txt와 AGENTS.md를 읽고 2단계 계획부터 보여줘"
