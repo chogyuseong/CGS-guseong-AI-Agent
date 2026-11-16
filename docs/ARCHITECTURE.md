@@ -34,7 +34,7 @@ Task(queued) ──► run_task ──► LLM이 도구 선택 ──► Step �
 | `config` | 설정, URL, 공통 베이스 모델(`TimeStampedModel`) | - |
 | `accounts` | 로그인, 외부 서비스 연결, 설정 화면 | Connection |
 | `chat` | 대화방과 채팅 화면 | Conversation, Message |
-| `agent` | 에이전트 루프, 승인 게이트, 감시 에이전트, 비용 상한, 워커 | Task, Step, Approval, GuardCheck, UsageLog |
+| `agent` | 에이전트 루프, 승인 게이트, 감시 에이전트, 비용 상한, 워커, 사용량 화면(`/usage/`) | Task, Step, Approval, GuardCheck, UsageLog |
 | `tools` | 도구 구현(도구 하나당 파일 하나)과 내부 도구 데이터 | Note, Todo |
 | `memory` | 사용자가 직접 말한 기억 | Memory |
 | `automation` | 예약 작업과 조건 감시 | ScheduledJob, Watch |

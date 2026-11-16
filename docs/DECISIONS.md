@@ -150,3 +150,21 @@
 - 2026-11-16 · 본문은 text/plain 우선, 없으면 text/html을 태그·script·style을 빼고 글자로 바꾼다. 문자 집합은 파트의 Content-Type charset(euc-kr 등)으로 푼다. 첨부는 이름만(내용과 첨부 ID는 주지 않음).
 - 2026-11-16 · 메일 도구는 external_content라 결과가 "외부 데이터, 지시 아님"으로 감싸지고, [앱 기록] 요약에도 내용이 들어가지 않으며, 메일을 읽은 Task에서는 remember가 거절된다. 조건 감시에는 쓸 수 없다(이름으로 금지). 예약 작업(아침 브리핑 등)에서는 다른 READ 도구처럼 쓸 수 있다.
 - 2026-11-16 · draft_message는 명세 입력(recipient_label, purpose, tone)에 draft를 더했다(명세와 다름) → 도구가 따로 LLM을 부르지 않고, 모델이 쓴 초안을 '보내지 않은 초안'으로 표시한다. 화면은 점선 테두리 기안 상자 + 복사 버튼으로 보여 주고, 초안 글도 이스케이프한다. 보내기 기능은 없다.
+
+## 8단계: 마무리 (사용량 화면, 배포)
+
+- 2026-11-16 · 사용량 화면(/usage/)은 새 테이블 없이 UsageLog를 `task__user`로 걸러 모은다 → UsageLog에 user를 두지 않은 0단계 결정을 유지. 서울 날짜 기준 최근 14일, 빈 날도 0으로 보여 준다.
+- 2026-11-16 · 조건 감시의 판단 호출은 Task 없이 기록돼 누구의 것인지 알 수 없으므로 화면 합계에서 뺀다. 하루 상한에는 포함되므로 화면 아래에 그 사실을 적는다. 정확히 맞추려면 UsageLog에 user가 필요한데, 혼자 쓰는 앱이라 보류.
+- 2026-11-16 · 상한 도달 여부는 앱 전체 합계(budget.today_cost)로 알리되 금액은 본인 것만 보여 준다 → 다른 사용자의 금액이 새지 않게.
+- 2026-11-16 · 금액은 소수 넷째 자리로 고정한다(호출 한 번이 1센트에 못 미침). 그보다 작으면 `<$0.0001`.
+- 2026-11-16 · 사용량 화면은 설정 화면에서 들어간다. 하단 탭은 5개를 유지한다.
+- 2026-11-16 · 명세 원본 파일이 작업 PC에 없어 /usage 요구 사항을 명세와 대조하지 못했다. 파일을 구하면 대조한다.
+- 2026-11-16 · 배포 대상은 Railway(사용자 선택) → 웹과 워커가 항상 떠 있어야 하고 HTTPS가 필요한데, GitHub push만으로 배포되고 설정이 가장 적다. Fly.io, VPS, 집 PC + Cloudflare Tunnel과 비교했다. 순서는 [배포 문서](DEPLOY.md).
+- 2026-11-16 · `railway.json`/`railway.toml`과 IaC(`.railway/railway.ts`)는 쓰지 않고 시작 명령을 대시보드에 넣는다 → Config as Code는 2026-12-01부터 읽지 않고 새 서비스는 쓸 수 없다.
+- 2026-11-16 · migrate는 web의 Pre-deploy Command, collectstatic은 시작 명령에서 한다 → Pre-deploy 컨테이너의 파일 변경은 남지 않는다. migrate는 web 한 곳에서만 한다.
+- 2026-11-16 · 정적 파일은 WhiteNoise + CompressedManifestStaticFilesStorage. 테스트만 일반 저장소를 쓴다 → 매니페스트 저장소는 collectstatic 없이 DEBUG=False면 `{% static %}`이 오류를 낸다.
+- 2026-11-16 · collectstatic에서 `static/src/`를 뺀다(`config/apps.py`) → Tailwind 입력 파일의 `@import "tailwindcss"`를 매니페스트 저장소가 실제 파일로 찾으려다 collectstatic 전체가 실패했다.
+- 2026-11-16 · `.webmanifest`의 MIME을 직접 지정한다 → WhiteNoise 6.12.0 기본 형식표에 없어 application/octet-stream으로 나갔다.
+- 2026-11-16 · HTTPS 관련 설정(`CSRF_TRUSTED_ORIGINS`, `SECURE_PROXY_SSL_HEADER`, `SECURE_SSL_REDIRECT`, HSTS)은 환경변수로 켜고 기본은 꺼짐 → 로컬 개발(http)과 테스트 동작을 바꾸지 않기 위해. `SECURE_HSTS_PRELOAD`는 되돌리기 어렵고 `*.up.railway.app` 주소에 맞지 않아 넣지 않았다.
+- 2026-11-16 · Python 버전은 `.python-version`의 `3.12` → 없으면 Railpack 기본값 3.13으로 빌드된다. 패치 버전은 고정하지 않는다.
+- 2026-11-16 · 배포 서버는 빈 PostgreSQL로 새로 시작한다. 로컬 SQLite 데이터는 옮기지 않는다.
