@@ -293,6 +293,15 @@ def test_prompt_contains_history_and_seoul_date(chat_task):
     assert "Asia/Seoul" in sent["system"]
 
 
+def test_prompt_tells_model_not_to_double_confirm_external_actions():
+    """실사용에서 발견: 모델이 채팅으로 '승인해 주시면 등록하겠습니다'라고 먼저 물어
+    사용자가 채팅과 승인 카드에서 두 번 확인했다."""
+    from agent.prompts import SYSTEM_PROMPT
+
+    assert "승인 카드" in SYSTEM_PROMPT
+    assert "따로" in SYSTEM_PROMPT
+
+
 def test_step_pairs_are_replayed_as_tool_use_and_tool_result(chat_task):
     llm = run(chat_task, [call("list_todos", {}, call_id="toolu_A"), answer()])
 
