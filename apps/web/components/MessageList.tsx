@@ -5,6 +5,7 @@ import type { Message } from "@/lib/chat";
 import { parseSuggestions, suggestionMessageIds } from "@/lib/suggestions";
 import { cn } from "@/lib/utils";
 import { PendingTask } from "./PendingTask";
+import { SourceLinks } from "./SourceLinks";
 import { SuggestionChips } from "./SuggestionChips";
 import { TaskSteps } from "./TaskSteps";
 
@@ -12,7 +13,8 @@ type MessageListProps = {
   messages: Message[];
   // 서버 응답을 기다리는 동안 미리 보여 줄 내 메시지. ?는 없어도 된다는 뜻(Optional).
   pendingText?: string;
-  // '예약 작업' 대화방이면 true(6단계). 자동으로 생긴 메시지에 출처를 표시하고 [제안] 버튼을 붙일 수 있다.
+  // '예약 작업' 대화방이면 true(6단계). 자동으로 생긴 메시지(서버 origin이 schedule·watch)에 출처를 표시하고
+  // 예약 작업 결과에 [제안] 버튼을 붙일 수 있다.
   automationRoom?: boolean;
   // [제안] 문장을 이 대화에 일반 메시지로 보낸다. 없으면 버튼을 그리지 않는다.
   onSuggestion?: (text: string) => Promise<unknown>;
@@ -40,7 +42,7 @@ export function MessageList(props: MessageListProps) {
   const answeredTaskIds = new Set(
     messages.filter((message) => message.role === "assistant").map((message) => message.task_id),
   );
-  const automatic = automationRoom ? suggestionMessageIds(messages) : new Set<number>();
+  const withChips = automationRoom ? suggestionMessageIds(messages) : new Set<number>();
   return (
     <div>
       <ul aria-label="메시지 목록" className="flex flex-col gap-3">
@@ -48,8 +50,8 @@ export function MessageList(props: MessageListProps) {
           <Fragment key={message.id}>
             <MessageBubble
               message={message}
-              origin={automationRoom ? automaticOrigin(message, automatic) : null}
-              suggestion={automatic.has(message.id) ? props : undefined}
+              origin={automationRoom ? automaticOriginText(message) : null}
+              suggestion={withChips.has(message.id) ? props : undefined}
             />
             {message.role === "user" &&
               message.task_id !== null &&
@@ -66,11 +68,15 @@ export function MessageList(props: MessageListProps) {
   );
 }
 
-// 자동으로 생긴 메시지의 출처. 예약 작업 결과(내 메시지 없는 task의 답변), 조건 감시 알림(task 없는 답변).
-function automaticOrigin(message: Message, automatic: Set<number>): string | null {
+// 자동으로 생긴 메시지의 출처 표시. 서버가 준 origin으로 정한다(채팅 메시지는 표시하지 않는다).
+const AUTOMATIC_ORIGIN_TEXT: Partial<Record<Message["origin"], string>> = {
+  schedule: "예약 작업 결과",
+  watch: "조건 감시 알림",
+};
+
+function automaticOriginText(message: Message): string | null {
   if (message.role !== "assistant") return null;
-  if (automatic.has(message.id)) return "예약 작업 결과";
-  return message.task_id === null ? "조건 감시 알림" : null;
+  return AUTOMATIC_ORIGIN_TEXT[message.origin] ?? null;
 }
 
 type BubbleProps = {
@@ -102,9 +108,21 @@ function MessageBubble({ message, origin, suggestion }: BubbleProps) {
             disabled={suggestion.sending}
           />
         )}
+        {message.origin === "watch" && <WatchSources sources={message.sources} />}
         {!isUser && message.task_id !== null && <TaskSteps taskId={message.task_id} />}
       </div>
     </li>
+  );
+}
+
+// 조건 감시 알림이 근거로 삼은 출처 링크(서버 messages.sources). 외부 서비스가 준 주소라 http·https만 링크로 만든다.
+// 본문 안의 "출처:" 줄은 모델 출력이라 링크로 만들지 않고 글자 그대로 둔다.
+function WatchSources({ sources }: { sources: readonly string[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="mt-2 border-t pt-2 text-sm whitespace-normal">
+      <SourceLinks sources={sources} />
+    </div>
   );
 }
 

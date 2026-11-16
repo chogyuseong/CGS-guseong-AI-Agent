@@ -43,7 +43,7 @@ for (const { width, height } of WIDTHS) {
       await checkRoom(page, width);
     });
 
-    test("탭 화면: 작업 기록·자동화·기억·설정·연결", async ({ page }) => {
+    test("탭 화면: 작업 기록·자동화·기억·설정·연결·비용", async ({ page }) => {
       await fakeChat(page);
       await fakeTabs(page);
       await loginToChat(page);
@@ -54,6 +54,7 @@ for (const { width, height } of WIDTHS) {
         await expect(page.getByText(/불러오는 중|확인하는 중/)).toHaveCount(0);
         await auditScreen(page, path.slice(1), width);
       }
+      await checkUsage30(page, width);
     });
   });
 }
@@ -63,7 +64,16 @@ const TAB_SCREENS = [
   ["/memory", "기억"],
   ["/settings", "설정"],
   ["/connections", "외부 서비스 연결"],
+  ["/usage", "비용"],
 ] as const;
+
+// 비용 화면은 기간을 30일로 바꿔 가장 긴 표도 본다(TAB_SCREENS의 /usage 다음에 이어서).
+async function checkUsage30(page: Page, width: number) {
+  await page.getByRole("button", { name: "30일" }).click();
+  await expect(page.getByRole("table").getByRole("row")).toHaveCount(31);
+  await expect(page.getByText(/불러오는 중/)).toHaveCount(0);
+  await auditScreen(page, "usage-30", width);
+}
 
 async function checkChat(page: Page, width: number) {
   const list = page.getByRole("list", { name: "메시지 목록" });
@@ -103,6 +113,11 @@ async function checkRoom(page: Page, width: number) {
   const list = page.getByRole("list", { name: "메시지 목록" });
   await expect(list.getByRole("button", { name: LONG_SENTENCE, exact: true })).toBeVisible();
   await auditScreen(page, "room", width);
+  // 감시 알림 아래의 출처 링크(긴 URL 포함)도 화면 안에서 줄을 바꾸는지 본다.
+  const sources = list.getByRole("list", { name: "출처" });
+  await sources.scrollIntoViewIfNeeded();
+  await expect(sources.getByRole("link")).toHaveCount(2);
+  await auditScreen(page, "room-sources", width);
 }
 
 async function checkTasks(page: Page, width: number) {

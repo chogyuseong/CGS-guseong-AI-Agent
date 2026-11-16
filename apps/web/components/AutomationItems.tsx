@@ -13,10 +13,10 @@ import {
   type Watch,
 } from "@/lib/automations";
 import { conversationHref } from "@/lib/memories";
-import { safeHttpUrl } from "@/lib/stepOutput";
 import { toolDisplayName } from "@/lib/toolText";
 import { cn } from "@/lib/utils";
 import { AutomationItem, type Report } from "./AutomationControls";
+import { SourceLinks } from "./SourceLinks";
 
 // 예약·감시 한 건의 내용. 서버가 준 글(요청 문장, 답변, 감시 요약, 출처)은 모두 React 텍스트로만 그린다
 // (HTML로 해석하지 않음). 출처 링크는 http·https 주소만 만들고 새 탭 + rel="noopener noreferrer"로 연다.
@@ -144,39 +144,7 @@ function LastCheck({ watch }: { watch: Watch }) {
         </div>
       )}
       {result.error && <p className="text-destructive wrap-anywhere">{result.error}</p>}
-      <Sources sources={result.sources ?? []} />
+      <SourceLinks sources={result.sources ?? []} />
     </div>
-  );
-}
-
-function Sources({ sources }: { sources: string[] }) {
-  if (sources.length === 0) return null;
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <p className="font-medium text-muted-foreground">출처</p>
-      <ul className="flex min-w-0 flex-col gap-1">
-        {sources.map((source) => (
-          <li key={source} className="min-w-0">
-            <SourceLink value={source} />
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// http·https 절대 주소만 링크로. javascript:·data:·상대 주소는 글자로만 남긴다.
-function SourceLink({ value }: { value: string }) {
-  const href = safeHttpUrl(value);
-  if (href === null) return <span className="wrap-anywhere">{value}</span>;
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-primary underline wrap-anywhere"
-    >
-      {value}
-    </a>
   );
 }

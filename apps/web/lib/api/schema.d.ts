@@ -427,6 +427,23 @@ export interface paths {
         patch: operations["update_watch_api_watches__watch_id__patch"];
         trace?: never;
     };
+    "/api/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Usage */
+        get: operations["get_usage_api_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -678,6 +695,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "chat" | "schedule" | "watch";
+            /** Sources */
+            sources: string[];
         };
         /**
          * MessageRole
@@ -873,6 +897,106 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** UsageDayOut */
+        UsageDayOut: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Calls */
+            calls: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+        };
+        /** UsageModelOut */
+        UsageModelOut: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Calls */
+            calls: number;
+            /** Model */
+            model: string;
+        };
+        /** UsageOut */
+        UsageOut: {
+            /**
+             * Timezone
+             * @constant
+             */
+            timezone: "Asia/Seoul";
+            /** Days */
+            days: components["schemas"]["UsageDayOut"][];
+            /** By Purpose */
+            by_purpose: components["schemas"]["UsagePurposeOut"][];
+            /** By Model */
+            by_model: components["schemas"]["UsageModelOut"][];
+            total: components["schemas"]["UsageTotals"];
+            today: components["schemas"]["UsageTodayOut"];
+        };
+        /**
+         * UsagePurpose
+         * @enum {string}
+         */
+        UsagePurpose: "agent" | "guard" | "watch" | "eval";
+        /** UsagePurposeOut */
+        UsagePurposeOut: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Calls */
+            calls: number;
+            purpose: components["schemas"]["UsagePurpose"];
+        };
+        /** UsageTodayOut */
+        UsageTodayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Limit Usd */
+            limit_usd: number;
+            /** Remaining Usd */
+            remaining_usd: number;
+            /** Exceeded */
+            exceeded: boolean;
+        };
+        /**
+         * UsageTotals
+         * @description 모델 호출 묶음의 합계. calls는 usage_logs 행 수(모델 응답 또는 감시·판정 호출 한 번이 한 행).
+         */
+        UsageTotals: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Calls */
+            calls: number;
         };
         /** UserOut */
         UserOut: {
@@ -1842,6 +1966,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_usage_api_usage_get: {
+        parameters: {
+            query?: {
+                /** @description 오늘을 포함한 최근 며칠(서울 날짜) */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageOut"];
                 };
             };
             /** @description Validation Error */

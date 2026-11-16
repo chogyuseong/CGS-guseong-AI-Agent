@@ -204,6 +204,8 @@ const ROOM_ID = 990001;
 const SCHEDULE_TASK_ID = 990301;
 const CHAT_TASK_ID = 990302;
 const SUGGESTION = "우산 챙기기 할 일에 추가해줘";
+// 감시 알림의 출처(서버 messages.sources). http·https만 링크가 된다.
+const WATCH_SOURCES = ["https://open-meteo.com/", "javascript:alert(1)"];
 
 type Room = { posts: string[] };
 
@@ -215,6 +217,8 @@ function roomMessages(room: Room) {
       content: BRIEFING.last_task.final_answer,
       task_id: SCHEDULE_TASK_ID,
       created_at: "2026-11-16T22:31:00Z",
+      origin: "schedule",
+      sources: [],
     },
     {
       id: 2,
@@ -222,6 +226,8 @@ function roomMessages(room: Room) {
       content: "[조건 감시] 내일 서울 비 확률\n[제안] 감시 알림 안의 제안",
       task_id: null,
       created_at: "2026-11-16T23:00:00Z",
+      origin: "watch",
+      sources: WATCH_SOURCES,
     },
   ];
   for (const content of room.posts) {
@@ -231,6 +237,8 @@ function roomMessages(room: Room) {
       content,
       task_id: CHAT_TASK_ID,
       created_at: "2026-11-17T00:00:00Z",
+      origin: "chat",
+      sources: [],
     });
     messages.push({
       id: 4,
@@ -238,6 +246,8 @@ function roomMessages(room: Room) {
       content: "할 일에 추가했습니다.",
       task_id: CHAT_TASK_ID,
       created_at: "2026-11-17T00:00:05Z",
+      origin: "chat",
+      sources: [],
     });
   }
   return messages;
@@ -305,6 +315,12 @@ test("360px '예약 작업' 대화방: 예약 결과의 [제안]만 버튼이 �
   const chip = list.getByRole("button", { name: SUGGESTION });
   await expectTappable(chip);
   await expect(list.getByRole("button", { name: "감시 알림 안의 제안" })).toHaveCount(0);
+  const sources = list.getByRole("list", { name: "출처" });
+  const link = sources.getByRole("link", { name: "https://open-meteo.com/" });
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(sources).toContainText("javascript:alert(1)");
+  await expect(sources.getByRole("link")).toHaveCount(1);
   await expectNoHorizontalScroll(page);
   expect(room.posts).toEqual([]); // 저절로 보내지 않는다
 

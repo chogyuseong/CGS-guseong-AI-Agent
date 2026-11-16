@@ -45,6 +45,8 @@ function fakeMessages(sent: boolean) {
       content: REQUEST_TEXT,
       task_id: FAKE_TASK_ID,
       created_at: "2026-11-16T12:00:00Z",
+      origin: "chat",
+      sources: [],
     },
     {
       id: 2,
@@ -52,6 +54,8 @@ function fakeMessages(sent: boolean) {
       content: ANSWER_TEXT,
       task_id: FAKE_TASK_ID,
       created_at: "2026-11-16T12:00:03Z",
+      origin: "chat",
+      sources: [],
     },
   ];
 }

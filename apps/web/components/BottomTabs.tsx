@@ -27,7 +27,7 @@ export const TAB_ITEMS: TabItem[] = [
   { href: "/tasks", label: "작업 기록", icon: ListChecks },
   { href: "/automation", label: "자동화", icon: Workflow },
   { href: "/memory", label: "기억", icon: Brain },
-  { href: "/settings", label: "설정", icon: Settings, children: ["/connections"] },
+  { href: "/settings", label: "설정", icon: Settings, children: ["/connections", "/usage"] },
 ];
 
 function matches(pathname: string, href: string): boolean {

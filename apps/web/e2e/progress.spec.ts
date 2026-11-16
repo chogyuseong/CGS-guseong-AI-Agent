@@ -81,6 +81,8 @@ function messages(phase: Phase) {
     content: REQUEST_TEXT,
     task_id: TASK_ID,
     created_at: "2026-11-17T10:00:00Z",
+    origin: "chat",
+    sources: [],
   };
   if (phase !== "done") return [user];
   return [
@@ -91,6 +93,8 @@ function messages(phase: Phase) {
       content: ANSWER_TEXT,
       task_id: TASK_ID,
       created_at: "2026-11-17T10:00:09Z",
+      origin: "chat",
+      sources: [],
     },
   ];
 }

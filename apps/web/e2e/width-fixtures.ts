@@ -104,8 +104,17 @@ function task(id: number, conversationId: number, waiting: boolean) {
   };
 }
 
-function message(id: number, role: string, content: string, taskId: number | null) {
-  return { id, role, content, task_id: taskId, created_at: AT };
+type Origin = "chat" | "schedule" | "watch";
+
+function message(
+  id: number,
+  role: string,
+  content: string,
+  taskId: number | null,
+  origin: Origin = "chat",
+  sources: string[] = [],
+) {
+  return { id, role, content, task_id: taskId, created_at: AT, origin, sources };
 }
 
 function chatMessages() {
@@ -123,8 +132,13 @@ function roomMessages() {
       "assistant",
       `오늘 일정은 2개입니다. ${LONG_WORD}\n[제안] ${LONG_SENTENCE}\n[제안] 우산 챙기기 할 일에 추가해줘`,
       ROOM_TASK,
+      "schedule",
     ),
-    message(2, "assistant", `[조건 감시] 내일 서울 비 확률\n${LONG_URL}`, null),
+    message(2, "assistant", `[조건 감시] 내일 서울 비 확률\n${LONG_URL}`, null, "watch", [
+      LONG_URL,
+      "https://open-meteo.com/",
+      "javascript:alert(1)",
+    ]),
   ];
 }
 
@@ -219,8 +233,51 @@ function memory(id: number) {
   return { id, content, created_at: AT, source: { ...source, content: `${content} 기억해` } };
 }
 
-// 자동화·기억·설정(알림)·연결 탭.
+// 비용 화면(GET /api/usage?days=N). 오늘은 한도를 넘은 상태(안내 상자까지 보이게), 긴 모델 이름,
+// 아주 작은 금액('미만' 표기)과 큰 토큰 수를 넣는다.
+function usageTotals(cost: number, tokens: number, calls: number) {
+  const input = Math.floor(tokens * 0.9);
+  return {
+    input_tokens: input,
+    output_tokens: tokens - input,
+    total_tokens: tokens,
+    cost_usd: cost,
+    calls,
+  };
+}
+
+export function fakeUsage(days: number) {
+  const list = Array.from({ length: days }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 10, 17 - (days - 1 - index))).toISOString().slice(0, 10);
+    const cost = index % 3 === 0 ? 0 : index % 3 === 1 ? 0.000004 : 0.0123 * (index + 1);
+    return { date, ...usageTotals(cost, cost === 0 ? 0 : 1_234_567, cost === 0 ? 0 : 12) };
+  });
+  const total = usageTotals(1.2345, 12_345_678, 120);
+  return {
+    timezone: "Asia/Seoul",
+    days: list,
+    by_purpose: ["agent", "guard", "watch", "eval"].map((purpose, index) => ({
+      purpose,
+      ...usageTotals(index === 3 ? 0 : 0.4, index === 3 ? 0 : 4_000_000, index === 3 ? 0 : 40),
+    })),
+    by_model: [
+      { model: "claude-haiku-5-5", ...total },
+      { model: `very-long-model-name-${LONG_WORD}`, ...usageTotals(0.000004, 10, 1) },
+    ],
+    total,
+    today: { date: "2026-11-17", cost_usd: 1.0012, limit_usd: 1, remaining_usd: 0, exceeded: true },
+  };
+}
+
+// 자동화·기억·설정(알림)·연결·비용 화면.
 export async function fakeTabs(page: Page) {
+  await page.route(
+    (url) => url.pathname === "/api/usage",
+    (route) => {
+      const days = Number(new URL(route.request().url()).searchParams.get("days") ?? 14);
+      return route.fulfill({ status: 200, json: fakeUsage(days) });
+    },
+  );
   const schedules = [schedule(1, "아침 브리핑", true), schedule(2, LONG_SENTENCE, false)];
   const watches = [watch(9), watch(10)];
   await page.route("**/api/schedules", (route) =>

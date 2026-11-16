@@ -111,7 +111,15 @@ describe("openScheduleTaskIds: 답변이 아직 없는 예약 작업 task", () =
     { ...base, id: 7, conversation_id: 5, origin: "schedule" as const, status: "queued" as const },
   ];
   const answered = [
-    { id: 1, role: "assistant" as const, content: "끝", task_id: 5, created_at: base.created_at },
+    {
+      id: 1,
+      role: "assistant" as const,
+      content: "끝",
+      task_id: 5,
+      created_at: base.created_at,
+      origin: "schedule" as const,
+      sources: [],
+    },
   ];
 
   it("이 대화방의 끝나지 않은 예약 task 중 답변이 없는 것만, 오래된 것(id 작은 것)부터", () => {

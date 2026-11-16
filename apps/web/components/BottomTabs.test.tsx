@@ -41,4 +41,10 @@ describe("BottomTabs", () => {
     expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "채팅" })).not.toHaveAttribute("aria-current");
   });
+
+  it("비용 화면(/usage)도 설정 탭 안의 화면으로 표시한다", () => {
+    pathname = "/usage";
+    render(<BottomTabs />);
+    expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("aria-current", "page");
+  });
 });

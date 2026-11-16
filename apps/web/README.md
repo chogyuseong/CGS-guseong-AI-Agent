@@ -111,6 +111,7 @@ app/
   (tabs)/layout.tsx     로그인 확인(AuthGuard) + 하단 탭
   (tabs)/chat|tasks|automation|memory|settings/page.tsx
   (tabs)/connections/page.tsx  외부 서비스 연결(Google). 설정 탭에서 들어간다
+  (tabs)/usage/page.tsx 비용(9단계). 설정 탭에서 들어간다
   manifest.ts           PWA 설정(/manifest.webmanifest)
 components/             BottomTabs, ChatInput, AuthGuard, LoginForm, ui/(shadcn)
   PendingTask.tsx       답변 전 task 진행 표시(폴링: 진행 중 1초, 승인 대기 3초, 끝나면 멈춤)
@@ -125,6 +126,9 @@ components/             BottomTabs, ChatInput, AuthGuard, LoginForm, ui/(shadcn)
   AutomationItems.tsx   예약·감시 한 건의 내용(반복·간격, 다음 실행, 마지막 실행 결과, 출처 링크)
   AutomationControls.tsx 항목 틀(켜기·끄기 스위치, 삭제 확인), 안내 줄, 불러오기 오류
   SuggestionChips.tsx   예약 작업 답변의 [제안] 줄 버튼(누를 때만 그 문장을 채팅으로 보냄)
+  SourceLinks.tsx       출처 주소 목록(http·https만 새 탭 링크, 그 밖은 글자). 감시 결과·감시 알림이 같이 씀
+  UsageReport.tsx       비용 화면(기간 선택, 오늘 쓴 금액·한도·남은 금액, 한도 초과 안내, 빈 상태)
+  UsageSections.tsx     비용 화면의 일별 표(CSS 막대)·용도별·모델별 합계
 lib/api/                schema.d.ts(자동 생성), client.ts
 lib/auth.ts             /api/auth/me, /api/auth/login 훅
 lib/chat.ts             대화·메시지·task 훅, 진행 단계(taskPhase)
@@ -132,7 +136,8 @@ lib/approvals.ts        승인·거절 호출과 오류 문구
 lib/connections.ts      연결 상태·해제 호출, 콜백 결과 코드별 안내
 lib/memories.ts         기억 목록·삭제 호출과 오류 문구, 날짜 표시
 lib/automations.ts      예약·감시 목록·켜기/끄기·삭제 호출, 409 코드별 문구, 시각·간격 표시, '예약 작업' 대화방 판정
-lib/suggestions.ts      답변에서 [제안] 줄 찾기, 칩을 붙일 메시지(예약 작업 결과) 고르기
+lib/suggestions.ts      답변에서 [제안] 줄 찾기, 칩을 붙일 메시지(예약 작업 결과, 서버 origin 기준) 고르기
+lib/usage.ts            /api/usage 호출, 금액·토큰·날짜 표기, 용도 이름, 한도 사용률
 lib/stepOutput.ts       단계 출력에서 외부 콘텐츠 읽기, 안전한 링크 판정
 lib/toolText.ts         도구 칸 이름·시각을 사람이 읽는 글자로
 lib/push.ts             웹 푸시 상태 판정, 구독·해지(브라우저·서버를 인자로 받아 테스트 가능)
