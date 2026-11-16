@@ -1,0 +1,21 @@
+{
+  "kind": "calendar#events",
+  "etag": "\"p32frd7noga69g0o\"",
+  "summary": "me@example.com",
+  "description": "",
+  "updated": "2026-11-16T08:01:22.418Z",
+  "timeZone": "Asia/Seoul",
+  "accessRole": "owner",
+  "defaultReminders": [
+    {
+      "method": "email",
+      "minutes": 30
+    },
+    {
+      "method": "popup",
+      "minutes": 30
+    }
+  ],
+  "nextSyncToken": "CJ-2nviCjJgDEJ-2nviCjJgDGAUgpLGM5gMopLGM5gM=",
+  "items": []
+}

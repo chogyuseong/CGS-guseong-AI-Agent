@@ -1,0 +1,33 @@
+{
+  "kind": "calendar#event",
+  "etag": "\"3589632160899358\"",
+  "id": "t1shmq0jgtfon78md7578qcuco",
+  "status": "confirmed",
+  "htmlLink": "https://www.google.com/calendar/event?eid=dDFzaG1xMGpndGZvbjc4bWQ3NTc4cWN1Y28gcmJ0amQ2ODk1QG0",
+  "created": "2026-11-16T08:01:18.000Z",
+  "updated": "2026-11-16T08:01:20.449Z",
+  "summary": "[마이에이전트 테스트] 저녁 약속 (수정)",
+  "location": "서울 성동구 성수동",
+  "creator": {
+    "email": "me@example.com",
+    "self": true
+  },
+  "organizer": {
+    "email": "me@example.com",
+    "self": true
+  },
+  "start": {
+    "dateTime": "2027-01-15T19:00:00+09:00",
+    "timeZone": "Asia/Seoul"
+  },
+  "end": {
+    "dateTime": "2027-01-15T21:00:00+09:00",
+    "timeZone": "Asia/Seoul"
+  },
+  "iCalUID": "me@example.com",
+  "sequence": 0,
+  "reminders": {
+    "useDefault": true
+  },
+  "eventType": "default"
+}
