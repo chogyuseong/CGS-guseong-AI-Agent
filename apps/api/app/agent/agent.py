@@ -37,7 +37,12 @@ from pydantic_ai.tools import DeferredToolRequests
 
 from app.agent.deps import AgentDeps
 from app.agent.model_choice import build_model_resolver, build_model_selector
-from app.agent.prompts import SYSTEM_PROMPT, current_date_instruction, memory_instruction
+from app.agent.prompts import (
+    SYSTEM_PROMPT,
+    automation_instruction,
+    current_date_instruction,
+    memory_instruction,
+)
 from app.agent.tracking import StepTracking
 from app.config import Settings
 
@@ -56,7 +61,8 @@ def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None 
         deps_type=AgentDeps,
         output_type=[str, DeferredToolRequests],
         # 기억(memory_instruction)은 마지막에 둔다. 요청마다 DB에서 최근 30줄을 새로 읽는다(prompts.py).
-        instructions=[SYSTEM_PROMPT, current_date_instruction, memory_instruction],
+        # automation_instruction(6단계)은 예약·감시 task에만 "자동 실행, 조회만, 행동은 [제안] 줄로"를 붙인다.
+        instructions=[SYSTEM_PROMPT, current_date_instruction, automation_instruction, memory_instruction],
         capabilities=[
             ResolveModelId(build_model_resolver(settings)),
             SelectModel(build_model_selector(settings)),

@@ -121,7 +121,16 @@
 - `approvals.py` 승인 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`)
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
-- `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트와 동적 지시문(날짜, 기억 최근 30줄)
+- `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트
+- `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch)와 1분 검사 예약 등록
+
+## 자동화 코드 지도 (apps/api/app/automation, 6단계)
+- `check.py` 1분 검사(브리핑 기본 예약, 만료 승인 정리, 만료 감시 끄기, 할 일 찾기) / 예약 실행 / 감시 실행 본문
+- `store.py` 예약·감시 만들기·켜기·끄기·지우기와 서버 제한(활성 10개, 중복, 간격, 만료), '예약 작업' 대화방, 아침 브리핑
+- `watchable.py` 감시에 쓸 수 있는 도구(read_tools, 메일 제외) 검사와 실행 / `watch.py` 감시 판정 에이전트 / `rules.py` 제한 값·서울 시각
+- 도구는 `app/tools/automation.py`, 화면 API는 `app/routers/automations.py`. 자동 작업에는 READ 도구만 간다(절대 원칙 4).
+- 시간이 걸린 테스트는 `run_check(services, now)`에 시각을 넣는다. 테스트에서 DBOS 예약(`apply_schedules`)을 등록하지 않는다
+  (테스트 DB에서 매분 검사가 돌게 된다).와 동적 지시문(날짜, 기억 최근 30줄)
 - `results.py` ToolResult, 외부 콘텐츠 감싸기, `EXTERNAL_CONTENT_TOOLS`(remember 검사가 쓰는 목록. 외부 글을 돌려주는 도구를 만들면 여기에 넣는다)
 - 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사), API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어",
   동적 지시문(오늘·이번 주 날짜표)

@@ -64,14 +64,19 @@ async def list_connections(request: Request, user: CurrentUser, session: DbSessi
             connected=row is not None,
             calendar=google_auth.CALENDAR_SCOPE in scopes,
             scopes=scopes,
-            connected_at=row.updated_at if row else None,
+            # 6단계: 처음 연결한 시각(행을 만든 시각). 토큰 갱신(updated_at)으로는 바뀌지 않는다.
+            # 연결된 채로 [다시 연결]하면 같은 행을 고치므로 그대로, 연결 해제 뒤 다시 연결하면 새 시각이다.
+            connected_at=row.created_at if row else None,
         )
     ]
 
 
 @router.get("/google/start", response_class=RedirectResponse, status_code=status.HTTP_302_FOUND)
-async def google_start(request: Request, user: CurrentUser) -> RedirectResponse:
+async def google_start(request: Request, session: DbSession) -> RedirectResponse:
+    """화면이 링크 이동으로 여는 주소라 로그인하지 않았으면 JSON 401 대신 연결 화면으로 돌려보낸다(6단계)."""
     settings: Settings = request.app.state.settings
+    if await session_user(request, session) is None:
+        return error_redirect(settings, "not_logged_in")
     if not google_auth.google_available(settings):
         return error_redirect(settings, "not_configured")
     url, pending = google_auth.new_authorization(settings)

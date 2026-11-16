@@ -23,7 +23,7 @@ from pydantic_ai.toolsets import FunctionToolset
 from app.agent.deps import AgentDeps
 from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
 from app.models.enums import RiskLevel, TaskOrigin
-from app.tools import gcal, memories, notes, places, weather, websearch
+from app.tools import automation, gcal, memories, notes, places, weather, websearch
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,8 @@ read_tools = FunctionToolset[AgentDeps](
         places.search_places,
         websearch.web_search,
         gcal.list_events,
+        automation.list_schedules,  # 6단계
+        automation.list_watches,  # 6단계
     ],
     id="read_tools",
     metadata=risk_metadata(RiskLevel.READ),
@@ -66,7 +68,18 @@ read_tools = FunctionToolset[AgentDeps](
 )
 internal_tools = FunctionToolset[AgentDeps](
     # remember·forget(5단계): 3단계 복구 규칙에 따라 INTERNAL은 at-most-once다(도중에 끊긴 호출은 다시 실행하지 않음).
-    [notes.save_note, notes.add_todo, notes.complete_todo, memories.remember, memories.forget],
+    # 자동화 생성·삭제(6단계)도 INTERNAL이다(명세). 자동 작업(예약·감시)에는 이 묶음이 없어 스스로 늘릴 수 없다.
+    [
+        notes.save_note,
+        notes.add_todo,
+        notes.complete_todo,
+        memories.remember,
+        memories.forget,
+        automation.create_schedule,
+        automation.delete_schedule,
+        automation.create_watch,
+        automation.delete_watch,
+    ],
     id="internal_tools",
     metadata=risk_metadata(RiskLevel.INTERNAL),
     sequential=True,
@@ -88,6 +101,7 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "search_places": places.search_places_label,
     "web_search": websearch.web_search_label,
     **gcal.LABELS,
+    **automation.LABELS,
 }
 # 결과가 외부 콘텐츠(남이 쓴 글)인 도구 목록은 app/agent/results.py의 EXTERNAL_CONTENT_TOOLS다.
 # (5단계 remember 검사가 도구 모듈에서 쓰므로 순환 import를 피해 그쪽으로 옮겼다. 여기서는 다시 내보내기만 한다.)

@@ -1,0 +1,84 @@
+"""감시에 쓸 수 있는 도구와 그 실행.
+
+감시는 등록할 때(create_watch, 화면에서 다시 켤 때)와 실행할 때 두 번 도구를 검사한다.
+- 도구는 read_tools(READ 등급 묶음)에 있는 것만, 메일 도구와 자동화 목록 도구는 뺀다(명세 watch 제한).
+  INTERNAL·EXTERNAL 도구는 read_tools에 없으므로 이름이 무엇이든 찾을 수 없다.
+- 실행 때 다시 검사하므로 DB의 tool_name이 어떤 이유로 바뀌어 있어도 READ가 아닌 도구는 실행되지 않는다.
+- 인자는 도구의 Pydantic 검증기(모델이 부를 때와 같은 규칙)로 검사한다.
+
+read_tools는 app/agent/toolsets.py에 있고 toolsets가 자동화 도구(app/tools/automation.py → store → 이 모듈)를
+import하므로, 순환 import를 피해 함수 안에서 불러온다.
+"""
+
+import logging
+from typing import Any
+
+from pydantic import ValidationError
+from pydantic_ai import RunContext
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.tools import Tool
+from pydantic_ai.usage import RunUsage
+
+from app.agent.deps import AgentDeps
+from app.agent.results import ToolResult
+from app.automation import rules
+
+logger = logging.getLogger(__name__)
+
+TOOL_FAILED_MESSAGE = "감시 도구를 실행하지 못했습니다."
+
+
+class WatchToolError(Exception):
+    """감시에 쓸 수 없는 도구이거나 인자가 틀렸다. message는 사용자·모델에게 보일 한국어 문장."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+def watchable_tool(tool_name: str) -> Tool[AgentDeps]:
+    """감시에 쓸 수 있는 도구를 돌려준다. 아니면 WatchToolError."""
+    from app.agent.toolsets import read_tools  # 순환 import 회피(모듈 설명)
+
+    if tool_name in rules.MAIL_TOOLS:
+        raise WatchToolError("메일 도구로는 감시를 만들 수 없습니다.")
+    tool = read_tools.tools.get(tool_name)
+    if tool is None or tool_name in rules.NOT_WATCHABLE_TOOLS:
+        names = ", ".join(sorted(set(read_tools.tools) - rules.NOT_WATCHABLE_TOOLS))
+        raise WatchToolError(f"감시에는 조회(READ) 도구만 쓸 수 있습니다. 쓸 수 있는 도구: {names}")
+    return tool
+
+
+def validated_input(tool: Tool[AgentDeps], tool_input: dict[str, Any]) -> dict[str, Any]:
+    """도구 인자 검증기로 검사한 인자. 틀리면 WatchToolError."""
+    try:
+        return tool.function_schema.validator.validate_python(tool_input)
+    except ValidationError as error:
+        fields = ", ".join(str(item["loc"][0]) for item in error.errors() if item["loc"]) or "입력"
+        raise WatchToolError(f"감시 도구({tool.name})의 입력이 올바르지 않습니다: {fields}") from None
+
+
+def check_watch_tool(tool_name: str, tool_input: dict[str, Any]) -> None:
+    """등록 전 검사: 도구 종류, 인자 모양, 인자 크기."""
+    if len(rules.input_key(tool_input)) > rules.MAX_TOOL_INPUT_CHARS:
+        raise WatchToolError("감시 도구 입력이 너무 깁니다.")
+    validated_input(watchable_tool(tool_name), tool_input)
+
+
+def tool_context(deps: AgentDeps, tool_name: str) -> RunContext[AgentDeps]:
+    """도구 함수에 넘길 RunContext. READ 도구는 ctx.deps만 쓴다(모델은 부르지 않으므로 TestModel은 자리 채우기)."""
+    return RunContext(deps=deps, model=TestModel(), usage=RunUsage(), tool_name=tool_name, tool_call_id="watch")
+
+
+async def run_watch_tool(deps: AgentDeps, tool_name: str, tool_input: dict[str, Any]) -> ToolResult:
+    """감시 도구를 실행한다. 검사에 걸리거나 예외가 나면 ok=false. 예외를 밖으로 내지 않는다."""
+    try:
+        tool = watchable_tool(tool_name)
+        args = validated_input(tool, tool_input)
+        result = await tool.function_schema.call(args, tool_context(deps, tool_name))
+    except WatchToolError as error:
+        return ToolResult.failure(error.message)
+    except Exception:
+        logger.warning("감시 도구 실행 실패: tool=%s", tool_name, exc_info=True)
+        return ToolResult.failure(TOOL_FAILED_MESSAGE)
+    return result if isinstance(result, ToolResult) else ToolResult.failure(TOOL_FAILED_MESSAGE)

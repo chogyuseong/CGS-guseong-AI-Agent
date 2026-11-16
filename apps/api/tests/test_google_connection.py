@@ -243,3 +243,34 @@ async def test_disconnect_requires_origin(client: httpx.AsyncClient, logged_in_u
     response = await client.delete("/api/connections/google", headers={"Origin": "http://evil.example"})
 
     assert response.status_code == 403
+
+
+# ---- 6단계: 4단계 화면 작업자가 찾은 문제 ----
+
+
+async def test_start_without_login_redirects_to_page(client: httpx.AsyncClient, fake_http: FakeHttp) -> None:
+    """브라우저 링크 이동으로 여는 주소라 JSON 401 대신 연결 화면으로 돌려보낸다(콜백과 같은 방식)."""
+    response = await client.get("/api/connections/google/start")
+
+    assert response.status_code == 302
+    assert response.headers["location"] == error_redirect("not_logged_in")
+    assert fake_http.requests == []
+
+
+async def test_connected_at_is_first_connection_time_not_token_refresh(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp, db_session: AsyncSession
+) -> None:
+    """토큰을 갱신해도(updated_at이 바뀌어도) connected_at은 처음 연결한 시각(created_at) 그대로다."""
+    fake_http.route("POST", TOKEN_URL, fixture_response("google_token_exchange.json"))
+    query = await start(client)
+    await callback(client, code="auth-code-123", state=query["state"][0])
+    row = await stored(db_session, logged_in_user)
+    assert row is not None
+    first_connected = row.created_at
+    row.updated_at = first_connected.replace(year=first_connected.year + 1)  # 토큰 갱신을 흉내 낸다
+    await db_session.commit()
+
+    listed = (await client.get("/api/connections")).json()[0]
+
+    assert listed["connected_at"] is not None
+    assert listed["connected_at"].startswith(first_connected.isoformat()[:19])

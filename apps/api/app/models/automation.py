@@ -22,6 +22,9 @@ class ScheduledJob(TimestampedTable):
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    # 6단계 추가: 마지막 실행이 만든 task. 자동화 화면의 "마지막 실행 결과"와, 같은 실행 시각의 task를 두 번 만들지
+    # 않는 검사(복구 때 claim 단계가 다시 실행돼도 같은 task를 돌려준다)에 쓴다. task를 지우면 null.
+    last_task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
 
 
 class Watch(TimestampedTable):

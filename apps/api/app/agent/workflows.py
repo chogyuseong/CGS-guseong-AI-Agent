@@ -25,14 +25,17 @@ DBOS는 워크플로 코드가 바뀌면 옛 워크플로를 복구하지 않으
 
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 
-from dbos import DBOS, DBOSConfig, SetWorkflowID, WorkflowHandleAsync
+from dbos import DBOS, DBOSConfig, ScheduleInput, SetWorkflowID, WorkflowHandleAsync
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent import approvals, runner
+from app.agent.durable import durable_step
 from app.agent.runner import RunServices
+from app.automation import check
 from app.config import Settings
 from app.models import Message, Task
 from app.models.enums import TaskOrigin, TaskStatus
@@ -46,6 +49,8 @@ DBOS_APP_NAME = "myagent"
 # DBOS 시스템 테이블은 앱과 같은 DB의 별도 스키마에 둔다(앱 테이블, Alembic과 섞이지 않는다).
 DBOS_SYSTEM_SCHEMA = "dbos"
 RESUME_SUFFIX = re.compile(r"-resume-(\d+)$")
+# 6단계: 1분 검사 DBOS 예약의 이름. DBOS가 실행마다 워크플로 ID를 "sched-{이름}-{예정 시각}"으로 정한다.
+AUTOMATION_SCHEDULE_NAME = "automation-check"
 
 _app_state: Any = None
 
@@ -86,6 +91,44 @@ async def resume_task_workflow(task_id: int) -> None:
     await runner.resume_task(current_services(), task_id)
 
 
+# ---- 6단계: 자동화 워크플로 (본문은 app/automation/check.py) ----
+
+
+async def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+@DBOS.workflow(name="automation_check")
+async def automation_check_workflow(scheduled_at: datetime, context: Any) -> None:
+    """DBOS 예약 실행이 매분 부른다. 지금 시각은 단계로 기록해 복구 때도 같은 시각으로 다시 계산한다."""
+    now = await durable_step("check_clock", utc_now)
+    await check.run_check(current_automation_services(), now)
+
+
+@DBOS.workflow(name="run_schedule")
+async def run_schedule_workflow(job_id: int, run_at: str, checked_at: str) -> None:
+    services = current_services()
+    await check.run_scheduled_job(services, job_id, datetime.fromisoformat(run_at), datetime.fromisoformat(checked_at))
+
+
+@DBOS.workflow(name="run_watch")
+async def run_watch_workflow(watch_id: int, run_at: str, checked_at: str) -> None:
+    services = current_automation_services()
+    await check.run_watch(services, watch_id, datetime.fromisoformat(run_at), datetime.fromisoformat(checked_at))
+
+
+def automation_services_from_state(state: Any) -> check.AutomationServices:
+    return check.AutomationServices(
+        run=services_from_state(state), watch_agent=state.watch_agent, launcher=state.launcher
+    )
+
+
+def current_automation_services() -> check.AutomationServices:
+    if _app_state is None:
+        raise RuntimeError("bind_app_state가 불리지 않았다(create_app 전에 워크플로가 시작됨)")
+    return automation_services_from_state(_app_state)
+
+
 # ---- 워크플로 ID ----
 
 
@@ -98,6 +141,19 @@ def resume_workflow_id(task_id: int, current_workflow_id: str | None) -> str:
     match = RESUME_SUFFIX.search(current_workflow_id or "")
     number = int(match.group(1)) + 1 if match else 1
     return f"task-{task_id}-resume-{number}"
+
+
+def moment_key(moment: datetime) -> str:
+    """예정 시각을 워크플로 ID에 넣을 글자로(UTC, 마이크로초까지). 같은 예정 시각이면 항상 같은 글자다."""
+    return moment.astimezone(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+
+
+def schedule_workflow_id(job_id: int, run_at: datetime) -> str:
+    return f"schedule-{job_id}-{moment_key(run_at)}"
+
+
+def watch_workflow_id(watch_id: int, run_at: datetime) -> str:
+    return f"watch-{watch_id}-{moment_key(run_at)}"
 
 
 # ---- 시작 ----
@@ -116,6 +172,19 @@ class WorkflowLauncher:
     async def start_resume(self, task_id: int, current_workflow_id: str | None) -> WorkflowHandleAsync[None]:
         with SetWorkflowID(resume_workflow_id(task_id, current_workflow_id)):
             return await DBOS.start_workflow_async(resume_task_workflow, task_id)
+
+    async def start_schedule(self, job_id: int, run_at: datetime, checked_at: datetime) -> WorkflowHandleAsync[None]:
+        """예약 한 건의 이 예정 시각 실행. 같은 (예약 id, 예정 시각)은 같은 ID라 한 번만 실행된다."""
+        with SetWorkflowID(schedule_workflow_id(job_id, run_at)):
+            return await DBOS.start_workflow_async(
+                run_schedule_workflow, job_id, run_at.isoformat(), checked_at.isoformat()
+            )
+
+    async def start_watch(self, watch_id: int, run_at: datetime, checked_at: datetime) -> WorkflowHandleAsync[None]:
+        with SetWorkflowID(watch_workflow_id(watch_id, run_at)):
+            return await DBOS.start_workflow_async(
+                run_watch_workflow, watch_id, run_at.isoformat(), checked_at.isoformat()
+            )
 
 
 async def start_resume_if_waiting(
@@ -175,6 +244,24 @@ def launch_dbos(settings: Settings) -> None:
     """
     DBOS(config=dbos_config(settings))
     DBOS.launch()
+    register_automation_schedule()
+
+
+def automation_schedule() -> ScheduleInput:
+    """1분 검사의 DBOS 예약 설정. 놓친 분을 몰아 실행하지 않는다(automatic_backfill=False):
+    밀린 예약·감시는 DB의 next_run_at으로 다음 검사가 찾고, 따라잡기 규칙은 check.claim_schedule_run이 정한다."""
+    return {
+        "schedule_name": AUTOMATION_SCHEDULE_NAME,
+        "workflow_fn": automation_check_workflow,
+        "schedule": "* * * * *",
+        "cron_timezone": "Asia/Seoul",
+        "automatic_backfill": False,
+    }
+
+
+def register_automation_schedule() -> None:
+    """DBOS.launch() 뒤에 부른다. 같은 이름이면 덮어쓰므로(upsert) 서버를 다시 켤 때마다 불러도 하나다."""
+    DBOS.apply_schedules([automation_schedule()])
 
 
 def shutdown_dbos() -> None:

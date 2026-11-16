@@ -387,13 +387,20 @@ async def send_push(services: RunServices, info: TaskInfo, kind: PushKind) -> in
     return await services.notifier.notify(info.user_id, kind, f"/chat/{info.conversation_id}")
 
 
-async def complete(services: RunServices, info: TaskInfo, prepared: Prepared) -> None:
-    """prepare 결과로 run을 실행(또는 바로 끝내기)하고, 결과를 저장한 뒤 푸시를 보낸다."""
+async def complete(
+    services: RunServices, info: TaskInfo, prepared: Prepared, done_kind: PushKind | None = None
+) -> None:
+    """prepare 결과로 run을 실행(또는 바로 끝내기)하고, 결과를 저장한 뒤 푸시를 보낸다.
+
+    done_kind: 완료(task_done) 푸시 대신 보낼 고정 문구 종류(6단계: 아침 브리핑은 briefing).
+    """
     outcome = prepared.outcome
     if prepared.run_input is not None:
         outcome = await execute_agent(services, info, prepared.run_input)
     assert outcome is not None
     kind = await durable_step("finish_task", finish, services, info, outcome, prepared.previous)
+    if kind == PushKind.TASK_DONE and done_kind is not None:
+        kind = done_kind
     if kind is not None:
         await durable_step("notify", send_push, services, info, kind)
 
@@ -402,20 +409,29 @@ async def complete(services: RunServices, info: TaskInfo, prepared: Prepared) ->
 
 
 async def prepare_run(services: RunServices, info: TaskInfo, prompt: str) -> Prepared:
+    """하루 비용 검사와 이전 기록. 6단계: 예약·감시 task는 이전 기록을 이어받지 않는다(실행마다 독립).
+
+    '예약 작업' 대화방에는 지난 실행들의 검색 결과·일정 제목 같은 외부 글이 쌓이므로, 넘기면 주입 문장이
+    다음 자동 실행으로 계속 옮겨 가고 토큰도 늘어난다.
+    """
     async with services.session_factory() as session:
         if await daily_cost_exceeded(session, info.user_id, services.settings):
             return Prepared(outcome=Outcome(TaskStatus.BUDGET_EXCEEDED, error=DAILY_BUDGET_MESSAGE))
-        history = await load_conversation_history(session, conversation_id=info.conversation_id, before_task_id=info.id)
+        history: list[ModelMessage] = []
+        if info.origin == TaskOrigin.CHAT:
+            history = await load_conversation_history(
+                session, conversation_id=info.conversation_id, before_task_id=info.id
+            )
     return Prepared(run_input=RunInput(prompt=prompt, history=history))
 
 
-async def run_task(services: RunServices, task_id: int, *, prompt: str) -> None:
+async def run_task(services: RunServices, task_id: int, *, prompt: str, done_kind: PushKind | None = None) -> None:
     """task 하나를 실행하고 결과를 저장한다. 예외를 밖으로 내지 않는다."""
     info = await durable_step("claim_task", claim_run, services, task_id, current_workflow_id())
     if info is None:
         return
     prepared = await durable_step("prepare_run", prepare_run, services, info, prompt)
-    await complete(services, info, prepared)
+    await complete(services, info, prepared, done_kind)
 
 
 async def previous_usage(session: AsyncSession, task_id: int) -> RunUsage:

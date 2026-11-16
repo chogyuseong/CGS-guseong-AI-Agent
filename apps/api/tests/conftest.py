@@ -31,6 +31,7 @@ import asyncio
 import os
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +63,9 @@ from app.agent.toolsets import (
     internal_tools,
     read_tools,
 )
-from app.agent.workflows import DBOS_SYSTEM_SCHEMA, WorkflowLauncher
+from app.agent.workflows import DBOS_SYSTEM_SCHEMA, WorkflowLauncher, automation_services_from_state
+from app.automation.check import AutomationServices
+from app.automation.watch import WatchAgent
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
@@ -158,6 +161,16 @@ class WaitingLauncher(WorkflowLauncher):
         await handle.get_result()
         return handle
 
+    async def start_schedule(self, job_id: int, run_at: datetime, checked_at: datetime) -> WorkflowHandleAsync[None]:
+        handle = await super().start_schedule(job_id, run_at, checked_at)
+        await handle.get_result()
+        return handle
+
+    async def start_watch(self, watch_id: int, run_at: datetime, checked_at: datetime) -> WorkflowHandleAsync[None]:
+        handle = await super().start_watch(watch_id, run_at, checked_at)
+        await handle.get_result()
+        return handle
+
 
 def configure_test_app(application: FastAPI, factory: async_sessionmaker[AsyncSession]) -> None:
     """앱의 DB 세션, 워크플로 시작기, 푸시 전송기를 테스트용으로 바꾼다."""
@@ -238,6 +251,18 @@ def agent(app: FastAPI) -> MyAgent:
 def guard(app: FastAPI) -> GuardAgent:
     """앱이 쓰는 감시 에이전트. 끼우지 않으면 키가 없어 실패하고 unsure로 기록된다."""
     return app.state.guard_agent
+
+
+@pytest.fixture
+def watch_agent(app: FastAPI) -> WatchAgent:
+    """앱이 쓰는 감시 판정 에이전트(6단계). 테스트는 watch_agent.override(model=...)로 가짜 판정을 끼운다."""
+    return app.state.watch_agent
+
+
+@pytest.fixture
+def automation_services(app: FastAPI) -> AutomationServices:
+    """1분 검사(run_check)를 테스트에서 직접 부를 때 쓰는 실행 도구. 시작기는 끝날 때까지 기다린다."""
+    return automation_services_from_state(app.state)
 
 
 @pytest.fixture

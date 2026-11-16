@@ -1,9 +1,10 @@
-# 구조 (5단계 기준)
+# 구조 (6단계 기준)
 
 마이에이전트는 화면(Next.js)과 에이전트 서버(FastAPI)를 나눈 모노레포다.
 1단계까지: 로그인, 모든 테이블, 채팅 메시지 → 에이전트 실행(메모·할 일 도구) → 작업 기록 조회.
 2단계: EXTERNAL 도구의 승인(이중 방어), 감시 에이전트, 승인·거절 API(화면의 승인 카드는 별도 작업).
 3단계(API): 실행을 DBOS 워크플로로 옮겨 API는 바로 응답(202)하고 서버가 죽었다 살아나도 이어서 실행, 웹 푸시 구독·발송.
+6단계(API): 예약 작업·조건 감시·아침 브리핑. DBOS 예약 실행으로 1분마다 검사(아래 "자동화" 절), 자동화 화면 API.
 
 ## 구성
 
@@ -38,9 +39,10 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | `app/event_loop.py` | Windows에서 SelectorEventLoop를 쓰는 이유와 CLI용 `run_async` |
 | `app/models/` | 15개 테이블 |
 | `app/schemas/` | 요청·응답 Pydantic 모델(웹이 OpenAPI로 타입 생성) |
-| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계), memories(5단계) |
+| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계), memories(5단계), automations(6단계: schedules, watches) |
+| `app/automation/` | 6단계 자동화: `rules.py`(제한 값, 서울 시각 계산), `store.py`(예약·감시 만들기·켜기·끄기·지우기와 서버 제한, '예약 작업' 대화방, 아침 브리핑 기본 예약), `watchable.py`(감시에 쓸 수 있는 READ 도구 검사·실행), `watch.py`(감시 판정 에이전트 WatchVerdict), `check.py`(1분 검사·예약 실행·감시 실행 본문) |
 | `app/agent/` | 에이전트(아래 절) |
-| `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 5단계: `memories.py`(remember 서버 검사, forget, list_memories). 엔드포인트·한도 요약은 `docs/TOOLS.md` |
+| `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 5단계: `memories.py`(remember 서버 검사, forget, list_memories). 6단계: `automation.py`(create·list·delete_schedule, create·list·delete_watch). 엔드포인트·한도 요약은 `docs/TOOLS.md` |
 | `alembic/` | 마이그레이션. env.py는 동기 엔진(같은 psycopg 3 드라이버) |
 | `tests/` | pytest. DB·DBOS 픽스처는 `tests/conftest.py` 한 곳, 가짜 모델 대본은 `tests/model_scripts.py`(DBOS에 등록된 가짜 모델 하나), 테스트 전용 EXTERNAL 도구는 `tests/fake_tools.py`, 가짜 푸시 전송기는 `tests/fake_push.py`, 가짜 외부 HTTP는 `tests/fake_http.py`, 외부 API 응답은 `tests/fixtures/`(실제 녹화본과 문서 형식으로 만든 것의 구분은 그 폴더의 README.md) |
 
@@ -63,8 +65,14 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | GET | `/api/push/public-key` | 200 `{"enabled": bool, "public_key": str \| null}`. enabled는 VAPID 세 값(공개 키, 개인 키, VAPID_SUBJECT)이 모두 있을 때만 true |
 | POST | `/api/push/subscribe` | 204. 본문은 브라우저 `PushSubscription.toJSON()` 그대로 `{"endpoint", "keys": {"p256dh", "auth"}, "expirationTime"?}`. endpoint는 푸시 서비스의 https 주소만(아니면 422). 같은 endpoint면 키·사용자를 갱신 |
 | POST | `/api/push/unsubscribe` | 204. 본문 `{"endpoint"}`. 없거나 남의 것이어도 204 |
-| GET | `/api/connections` | 200 `[{"provider": "google", "available", "connected", "calendar", "scopes", "connected_at"}]`(4단계). available은 서버 설정(GOOGLE_* 세 값 + 유효한 TOKEN_ENCRYPTION_KEY)이 갖춰졌을 때만 true. 토큰은 응답에 없다 |
-| GET | `/api/connections/google/start` | 302 Google 동의 화면(4단계). 화면은 fetch가 아니라 **링크 이동**으로 연다. state·PKCE를 세션 쿠키에 저장. 설정이 없으면 302 `{APP_ORIGIN}/connections?google=error&reason=not_configured`. 로그인 안 했으면 401 |
+| GET | `/api/connections` | 200 `[{"provider": "google", "available", "connected", "calendar", "scopes", "connected_at"}]`(4단계). connected_at은 처음 연결한 시각(행의 created_at, 6단계에 고침: 토큰 갱신으로 바뀌지 않음. 연결된 채 다시 연결하면 그대로, 해제 뒤 연결하면 새 시각). available은 서버 설정(GOOGLE_* 세 값 + 유효한 TOKEN_ENCRYPTION_KEY)이 갖춰졌을 때만 true. 토큰은 응답에 없다 |
+| GET | `/api/connections/google/start` | 302 Google 동의 화면(4단계). 화면은 fetch가 아니라 **링크 이동**으로 연다. state·PKCE를 세션 쿠키에 저장. 설정이 없으면 302 `{APP_ORIGIN}/connections?google=error&reason=not_configured`. 로그인 안 했으면 302 `?google=error&reason=not_logged_in`(6단계에 401에서 바꿈) |
+| GET | `/api/schedules` | 200 `{schedules: ScheduleOut[], max_active: 10}`(6단계). ScheduleOut = `id, title, prompt_text, time_of_day("HH:MM"), weekdays(0=월~6=일), repeat_text, is_active, next_run_at, last_run_at, is_briefing, last_task({id, conversation_id, status, final_answer, error, updated_at} \| null)` |
+| PATCH | `/api/schedules/{id}` | 200 ScheduleOut. 본문 `{"is_active": bool}`. 켜면 다음 시각을 지금부터 다시 계산. 404 `not_found` / 409 `limit_reached` |
+| DELETE | `/api/schedules/{id}` | 204 / 404 `not_found` |
+| GET | `/api/watches` | 200 `{watches: WatchOut[], max_active: 10}`(6단계). WatchOut = `id, description, tool_name, tool_input, condition_text, interval_minutes, repeat, is_active, next_run_at, expires_at, last_notified_at, last_result({status, checked_at, summary, error, sources} \| null)`. status = met·not_met·tool_failed·judge_failed·skipped_budget·expired |
+| PATCH | `/api/watches/{id}` | 200 WatchOut. 본문 `{"is_active": bool}`. 켜면 다음 검사 때 바로 확인. 404 `not_found` / 409 `limit_reached`·`duplicate`·`expired` |
+| DELETE | `/api/watches/{id}` | 204 / 404 `not_found` |
 | GET | `/api/connections/google/callback` | Google이 브라우저를 보내는 주소(4단계). 302 `{APP_ORIGIN}/connections?google=connected` 또는 `?google=error&reason=<코드>`(not_logged_in, access_denied, google_error, invalid_state, invalid_request, exchange_failed, scope_missing, not_configured) |
 | DELETE | `/api/connections/{provider}` | 204(4단계, provider는 `google`만, 그 밖은 404). Google 쪽 권한 철회를 시도하고 실패해도 토큰을 지운다. 연결이 없어도 204 |
 | GET | `/api/openapi.json`, `/api/docs` | OpenAPI 문서 |
@@ -132,12 +140,12 @@ POST /api/approvals/{id}/approve (또는 reject)
 | 개념 | 이 버전의 사용법 | 이 앱에서 |
 | --- | --- | --- |
 | 시작 | `DBOS(config=DBOSConfig)` 후 `DBOS.launch()`. 끝낼 때 `DBOS.destroy()` | `main.py` lifespan(실행 중인 루프 안). `system_database_url`=앱 DB, `dbos_system_schema="dbos"` |
-| 워크플로 | `@DBOS.workflow(name=...)` 붙인 함수. 서버가 죽으면 다음 launch 때 처음부터 다시 실행되고, 끝난 단계는 기록된 결과로 건너뛴다 | `run_task`, `resume_task` (`app/agent/workflows.py`) |
+| 워크플로 | `@DBOS.workflow(name=...)` 붙인 함수. 서버가 죽으면 다음 launch 때 처음부터 다시 실행되고, 끝난 단계는 기록된 결과로 건너뛴다 | `run_task`, `resume_task`, 6단계: `automation_check`(예약 실행), `run_schedule`, `run_watch` (`app/agent/workflows.py`) |
 | 단계(step) | `@DBOS.step()` 또는 `await DBOS.run_step_async({"name": ...}, 함수, *인자)`. 결과를 pickle로 저장. 단계 순서가 기록과 다르면 `DBOSUnexpectedStepError` | `durable_step`(`app/agent/durable.py`)로 claim·prepare·finish·notify를 감쌌다 |
 | 워크플로 ID | `with SetWorkflowID("id"): await DBOS.start_workflow_async(fn, ...)`. 같은 ID로 다시 시작하면 실행하지 않고 기존 워크플로 핸들을 준다 | `task-{id}`, `task-{id}-resume-{n}` |
 | 결과 기다리기 | `handle.get_result()`, `DBOS.retrieve_workflow_async(id)` | 운영 코드는 기다리지 않는다. 테스트의 WaitingLauncher만 기다린다 |
-| 예약 실행 | `DBOS.create_schedule(schedule_name=, workflow_fn=, schedule="cron식", cron_timezone=)` 또는 `apply_schedules`. 워크플로는 `(예약 시각, context)`를 받고, ID는 DBOS가 `sched-{이름}-{시각}`으로 정해 같은 시각이 두 번 돌지 않는다 | 6단계(예약 검사 1분마다)에서 쓴다. 3.5에는 옛 `@DBOS.scheduled` 데코레이터가 없다 |
-| 복구 | launch 때 같은 executor("local")·같은 application_version의 PENDING 워크플로를 다시 실행. 기본 100번까지 | `application_version="myagent-3"`으로 고정(코드가 바뀌어도 복구). 워크플로 단계 구성을 바꾸면 올린다 |
+| 예약 실행 | `DBOS.create_schedule(schedule_name=, workflow_fn=, schedule="cron식", cron_timezone=)` 또는 `apply_schedules`. 워크플로는 `(예약 시각, context)`를 받고, ID는 DBOS가 `sched-{이름}-{시각}`으로 정해 같은 시각이 두 번 돌지 않는다 | 6단계: launch 뒤 `apply_schedules`(같은 이름이면 덮어씀)로 `automation-check`("* * * * *", Asia/Seoul, `automatic_backfill=False`)를 등록. 3.5에는 옛 `@DBOS.scheduled` 데코레이터가 없다. 예약 행은 `dbos` 스키마에 저장되고, 실행은 내부 큐로 들어가 그 소유 앱의 최신 application_version으로 돈다 |
+| 복구 | launch 때 같은 executor("local")·같은 application_version의 PENDING 워크플로를 다시 실행. 기본 100번까지 | `application_version="myagent-3"`으로 고정(코드가 바뀌어도 복구). 워크플로 단계 구성을 바꾸면 올린다. 6단계는 기존 run_task·resume_task의 단계 구성을 바꾸지 않고 새 워크플로만 더해 올리지 않았다 |
 | Pydantic AI 통합 | `Agent(name=..., capabilities=[DBOSDurability()])`를 launch 전에 만들고, 우리 `@DBOS.workflow` 안에서 `agent.run()`. 모델 요청이 단계가 되고, 함수 도구·hook은 단계가 아니다. 실행 중 모델 객체를 바꾸려면 `models=`에 등록해야 한다(문자열은 등록 불필요). `DBOSAgent` 래퍼는 없어질 예정 | `agent.py`. 도구 중복 실행 방지는 StepTracking의 tool_call_id 검사 |
 
 - Windows: DBOS는 루프 밖에서 launch하면 자기 루프(`asyncio.new_event_loop()` = Proactor)를 만들어 psycopg 비동기가 안 된다.
@@ -154,7 +162,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 
 | 파일 | 역할 |
 | --- | --- |
-| `workflows.py` | DBOS 워크플로 `run_task`·`resume_task`, 워크플로 ID 규칙, `WorkflowLauncher`(app.state.launcher), 재개 시작(`start_resume_if_waiting`), 시작 때 고아 task 잇기, DBOS 설정·launch·종료 |
+| `workflows.py` | DBOS 워크플로 `run_task`·`resume_task`, 6단계 `automation_check`·`run_schedule`·`run_watch`(본문은 `app/automation/check.py`), 워크플로 ID 규칙, `WorkflowLauncher`(app.state.launcher, `start_schedule`·`start_watch` 포함), 재개 시작(`start_resume_if_waiting`), 시작 때 고아 task 잇기, DBOS 설정·launch(+1분 검사 예약 등록)·종료 |
 | `durable.py` | `durable_step(name, fn, *args)`: 워크플로 안이면 DBOS 단계, 밖이면 그냥 실행 |
 | `runner.py` | `run_task`(실행), `resume_task`(승인 뒤 재개)를 단계(claim → prepare → agent.run → finish → notify)로 구성. 승인 대기면 preview·감시·승인 요청 저장. 어떤 예외도 잡아 failed/budget_exceeded로 끝낸다(HTTP를 모름) |
 | `agent.py` | Agent 정의: output_type=[str, DeferredToolRequests], instructions(시스템 프롬프트 + 오늘 날짜 + 기억 최근 30줄), capabilities(ResolveModelId, SelectModel, StepTracking, DBOSDurability) |
@@ -187,11 +195,17 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `list_memories(limit=50)` | READ | 내 기억, 최근 것부터 |
 | `remember(content)` | INTERNAL | 기억 한 줄 저장(300자). 서버 검사: origin=chat, 출처 메시지 있음, 문맥·이 task에 외부 콘텐츠 없음. 중복은 기존 것 반환, 200개 상한, 비밀번호·카드 번호 거부 (docs/SAFETY.md 5단계) |
 | `forget(memory_id)` | INTERNAL | 내 기억 하나 삭제 |
+| `create_schedule(title, prompt_text, time_of_day, weekdays)` | INTERNAL | 예약 작업(서울 "HH:MM", 요일 0=월~6=일). 활성 10개, 중복 거절 |
+| `list_schedules()` | READ | 내 예약 작업과 반복 주기·다음 실행 |
+| `delete_schedule(schedule_id)` | INTERNAL | 예약 작업 삭제 |
+| `create_watch(description, tool_name, tool_input, condition_text, interval_minutes, repeat=false)` | INTERNAL | 조건 감시. READ 도구만(메일·자동화 목록 제외), 30~1,440분, 활성 10개, 30일 만료, 중복 거절 |
+| `list_watches()` | READ | 내 감시와 간격·만료일 |
+| `delete_watch(watch_id)` | INTERNAL | 감시 삭제 |
 
 기억 API(화면용, `app/routers/memories.py`): `GET /api/memories`(목록 + 출처 메시지), `DELETE /api/memories/{id}`(204/404),
 `DELETE /api/memories`(전체, `{deleted}`). 기억을 만드는 API는 없다(remember로만 생긴다).
 
-origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘긴다(일정 쓰기 도구는 자동 작업에 없다).
+origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘긴다(일정 쓰기 도구와 자동화 생성·삭제 도구는 자동 작업에 없다).
 외부 API 호출 규칙(타임아웃 10초, GET만 1회 재시도, 쓰기는 재시도 없음, 오류 문장에 키·본문 없음)은 `app/tools/http.py` 한 곳에 있다.
 
 ## 테이블 (15개)
@@ -216,3 +230,40 @@ origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘�
 - `connections`(4단계부터 사용): `(user_id, provider)` UNIQUE. `encrypted_token`은 `{access_token, refresh_token, expires_at}` JSON을
   Fernet으로 암호화한 문자열, `scopes`·`expires_at`(access token 만료)은 평문. 갱신이 invalid_grant로 실패하면 행을 지운다. 마이그레이션 변경 없음.
 - 사용자 메시지와 assistant 답변 모두 `messages.task_id`로 task에 연결된다.
+  예외(6단계): 예약 작업 task는 사용자 메시지 없이(trigger_message_id null) assistant 답변만 있고, 감시 충족 알림은 task 없이(task_id null)
+  '예약 작업' 대화방에 assistant 메시지로 남는다.
+- `scheduled_jobs.last_task_id`(6단계 추가, FK SET NULL): 마지막 실행 task. `users.briefing_seeded_at`(6단계 추가): 아침 브리핑을 만들어 준 시각.
+
+## 자동화 (6단계)
+
+```text
+DBOS 예약 실행 "automation-check" (매분, ID "sched-automation-check-{시각}")
+  automation_check 워크플로 → check.run_check(now)   [단계]는 DBOS가 기록해 복구 때 다시 실행하지 않는다
+    [check_clock]      지금 시각을 단계로 기록
+    [seed_briefings]   briefing_seeded_at이 null인 계정에 '아침 브리핑'(매일 07:30, 명세 프롬프트) 생성 + 표시. 지워도 다시 안 생김
+    [expire_approvals] 만료가 지난 pending 승인의 task를 잠그고 approvals.expire_task(승인·step expired, task cancelled, 안내 메시지)
+    [expire_watches]   만료일이 지난 켜진 감시를 끔(last_result.status=expired)
+    [find_due]         next_run_at ≤ now인 켜진 예약·감시
+    예약마다 run_schedule 워크플로("schedule-{id}-{예정 시각 UTC}"), 감시마다 run_watch("watch-{id}-{예정 시각}")를 시작만 한다
+
+run_schedule
+  [claim_schedule]  예약 행 FOR UPDATE. 켜져 있고 next_run_at = 예정 시각일 때만. 다음 시각 계산(서울).
+                    예정 시각에서 2시간 넘게 지났으면 건너뜀. 아니면 '예약 작업' 대화방에 task(origin=schedule, 메시지 없음) +
+                    last_run_at·last_task_id. 이미 잡은 예정 시각이면(복구) 같은 task를 돌려준다
+  runner.run_task   3단계 흐름 그대로. read_tools만, 이전 기록 없음, 지시문에 "자동 실행·조회만·행동은 [제안] 줄로",
+                    하루 비용 상한이면 모델 없이 budget_exceeded. 결과는 대화방 assistant 메시지. 푸시: 브리핑은 briefing, 그 밖은 task_done
+
+run_watch (task를 만들지 않는다)
+  [claim_watch]    감시 행 FOR UPDATE. 다음 확인을 now+간격으로 먼저 미룸. 만료면 끔, 하루 비용 상한이면 skipped_budget
+  [watch_tool]     저장된 도구를 다시 검사(read_tools, 메일 아님)한 뒤 실행
+  [watch_verdict]  도구가 성공했을 때만 판정 에이전트(AGENT_MODEL_FAST, 도구 없음, WatchVerdict(met, summary)). 실패·형식 오류는 met=false
+  [finish_watch]   usage_logs(purpose=watch, task 없음), last_result. met이면 대화방에 "[조건 감시] 이름 / 조건 / 요약 / 출처 / 확인 시각",
+                   repeat=false면 끔, true면 12시간 뒤
+  [notify_watch]   met이면 watch_met 푸시
+```
+
+- [제안] 줄: 예약 작업 답변에서 `[제안]`으로 시작하는 줄(앞에 "- " 등이 붙을 수 있다). 화면(SuggestionChips)이 버튼으로 그리고 누르면
+  `[제안]` 뒤 문장을 일반 채팅 메시지로 보낸다. 서버는 따로 파싱해 주지 않는다.
+- 시간대는 모두 Asia/Seoul(예약 시각 계산, 도구 결과의 시각 문장). DB에는 timestamptz.
+- 시험 방법: 테스트는 `run_check(services, now)`에 시각을 넣어 부른다(`tests/test_automation_runs.py`). 실제 DBOS 예약 실행은
+  버리는 DB에서 한 번 확인했다(DECISIONS.md 6단계).

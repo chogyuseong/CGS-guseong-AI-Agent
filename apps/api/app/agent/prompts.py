@@ -28,6 +28,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.framing import register_tag, wrap
 
 from app.agent.deps import AgentDeps
+from app.models.enums import TaskOrigin
 from app.tools.memories import select_memories
 
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -76,6 +77,22 @@ def date_instruction(today: date) -> str:
 def current_date_instruction() -> str:
     """오늘 날짜(Asia/Seoul)로 만든 동적 지시문. 날짜만 넣는다(시각까지 넣으면 요청마다 지시문이 바뀐다)."""
     return date_instruction(datetime.now(SEOUL).date())
+
+
+# ---- 자동 실행 안내 (6단계) ----
+
+AUTOMATION_NOTICE = (
+    "이번 요청은 사용자가 미리 등록한 예약 작업이 정한 시각에 자동으로 실행한 것이다. 사용자는 지금 대화하고 있지 않다. "
+    "이 실행에서는 조회 도구만 쓸 수 있고 아무것도 만들거나 바꾸거나 지우지 않는다. "
+    "사용자가 직접 할 일이나 비서에게 맡길 행동이 필요하면 '[제안] 요청 문장' 형식의 한 줄로만 적는다. "
+    "사용자가 그 줄을 누르면 문장이 그대로 채팅으로 보내지므로, 사용자가 비서에게 하는 요청 문장으로 쓴다. "
+    "예: [제안] 내일 오전 10시 치과 일정 등록해줘"
+)
+
+
+def automation_instruction(ctx: RunContext[AgentDeps]) -> str:
+    """예약·감시로 시작된 task에만 붙는 안내. 채팅 task에는 아무것도 넣지 않는다."""
+    return "" if ctx.deps.origin == TaskOrigin.CHAT else AUTOMATION_NOTICE
 
 
 # ---- 기억 (5단계) ----

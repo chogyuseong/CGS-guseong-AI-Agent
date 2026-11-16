@@ -8,6 +8,7 @@
 시작 순서 (3단계):
     create_app: 에이전트를 만든다(DBOS.launch 전에 있어야 한다) → 워크플로가 쓸 app.state를 알려 준다
     lifespan 시작: DBOS를 만들고 launch → 끝나지 않은 워크플로를 DBOS가 이어서 실행(복구)
+                   → 6단계: 1분 검사 예약(automation-check)을 DBOS에 등록(같은 이름이면 덮어씀)
                    → 워크플로를 시작하지 못한 task(queued 등)를 이어서 시작
     lifespan 끝: DBOS 종료 → 외부 API HTTP 클라이언트 닫기 → DB 연결 정리
 테스트(httpx ASGITransport)는 lifespan을 돌리지 않는다. DBOS는 tests/conftest.py가 따로 시작한다.
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.agent import workflows
 from app.agent.agent import build_agent
 from app.agent.guard import build_guard_agent
+from app.automation.watch import build_watch_agent
 from app.config import Settings, get_settings
 from app.db import create_engine_for, create_session_factory
 from app.push import send_with_pywebpush
@@ -70,6 +72,8 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     app.state.agent = build_agent(settings, extra_models=agent_models)
     # 감시 에이전트(도구 없음, AGENT_MODEL_GUARD). EXTERNAL 승인 요청마다 한 번 검사한다.
     app.state.guard_agent = build_guard_agent(settings)
+    # 감시 판정 에이전트(6단계, 도구 없음, AGENT_MODEL_FAST). 조건 감시가 도구 결과로 조건 충족을 판정한다.
+    app.state.watch_agent = build_watch_agent(settings)
     app.state.message_rate_limiter = SlidingWindowRateLimiter()
     # 워크플로 시작기와 푸시 전송기. 테스트는 기다리는 시작기와 가짜 전송기로 바꿔 끼운다.
     app.state.launcher = workflows.WorkflowLauncher()
