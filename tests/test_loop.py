@@ -112,7 +112,8 @@ def test_invalid_input_is_not_executed_and_error_goes_back(chat_task, user):
 def test_thirteenth_step_ends_with_budget_exceeded(chat_task):
     from chat.models import Message
 
-    responses = [call("list_todos", {}, call_id=f"toolu_{i}") for i in range(13)]
+    # 입력을 매번 다르게 해서 반복 감지가 아니라 단계 상한에 걸리게 한다.
+    responses = [call("add_todo", {"title": f"할 일 {i}"}, call_id=f"toolu_{i}") for i in range(13)]
     llm = run(chat_task, responses)
 
     assert chat_task.status == "budget_exceeded"
@@ -120,6 +121,55 @@ def test_thirteenth_step_ends_with_budget_exceeded(chat_task):
     assert len(llm.calls) == 12  # 13번째 LLM 호출 전에 멈춘다
     stop_message = Message.objects.get(task=chat_task, role=Message.Role.ASSISTANT)
     assert "멈" in stop_message.content
+
+
+# ── 같은 호출 반복 감지 ─────────────────────────────────
+
+
+def test_same_call_for_the_third_time_stops_the_task(chat_task):
+    responses = [call("list_todos", {}, call_id=f"toolu_{i}") for i in range(3)] + [answer()]
+    llm = run(chat_task, responses)
+
+    assert chat_task.status == "budget_exceeded"
+    assert chat_task.steps.count() == 2  # 세 번째 호출은 실행하지 않는다
+    assert len(llm.calls) == 3  # 멈춘 뒤 LLM을 다시 부르지 않는다
+    assert "반복" in chat_task.error
+
+
+def test_one_repeat_is_allowed(chat_task):
+    responses = [
+        call("list_todos", {}, call_id="toolu_1"),
+        call("add_todo", {"title": "우유 사기"}, call_id="toolu_2"),
+        call("list_todos", {}, call_id="toolu_3"),
+        answer(),
+    ]
+    run(chat_task, responses)
+
+    assert chat_task.status == "done"
+    assert chat_task.steps.count() == 3
+
+
+def test_same_tool_with_different_input_is_not_a_repeat(chat_task):
+    responses = [call("add_todo", {"title": f"할 일 {i}"}, call_id=f"toolu_{i}") for i in range(3)] + [
+        answer()
+    ]
+    run(chat_task, responses)
+
+    assert chat_task.status == "done"
+    assert chat_task.steps.count() == 3
+
+
+def test_input_key_order_does_not_hide_a_repeat(chat_task):
+    a = {"title": "x", "extra": 1}
+    b = {"extra": 1, "title": "x"}
+    responses = [
+        call("add_todo", a, "toolu_1"),
+        call("add_todo", b, "toolu_2"),
+        call("add_todo", a, "toolu_3"),
+    ]
+    run(chat_task, responses + [answer()])
+
+    assert chat_task.status == "budget_exceeded"
 
 
 # ── 그 밖의 루프 규칙 ───────────────────────────────────
@@ -151,8 +201,8 @@ def test_usage_is_logged_for_every_llm_call(chat_task, settings):
 
 
 def test_switches_to_smart_model_after_four_steps(chat_task, settings):
-    responses = [call("list_todos", {}, call_id=f"toolu_{i}") for i in range(5)] + [answer()]
-    llm = run(chat_task, responses)
+    responses = [call("add_todo", {"title": f"할 일 {i}"}, call_id=f"toolu_{i}") for i in range(5)]
+    llm = run(chat_task, responses + [answer()])
 
     models = [c["model"] for c in llm.calls]
     assert models[:5] == [settings.AGENT_MODEL_FAST] * 5
