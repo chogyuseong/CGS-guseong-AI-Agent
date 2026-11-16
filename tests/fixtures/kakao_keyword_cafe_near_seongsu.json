@@ -1,0 +1,84 @@
+{
+  "documents": [
+    {
+      "address_name": "서울 성동구 성수동1가 656-703",
+      "category_group_code": "CE7",
+      "category_group_name": "카페",
+      "category_name": "음식점 > 카페",
+      "distance": "367",
+      "id": "1434008249",
+      "phone": "010-5350-1530",
+      "place_name": "카모플라쥬",
+      "place_url": "http://place.map.kakao.com/1434008249",
+      "road_address_name": "서울 성동구 아차산로1길 9",
+      "x": "127.04568413998197",
+      "y": "37.54898655935269"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 685-201",
+      "category_group_code": "CE7",
+      "category_group_name": "카페",
+      "category_name": "음식점 > 카페",
+      "distance": "160",
+      "id": "1280049532",
+      "phone": "",
+      "place_name": "앳이즈",
+      "place_url": "http://place.map.kakao.com/1280049532",
+      "road_address_name": "서울 성동구 왕십리로5길 19",
+      "x": "127.043861470246",
+      "y": "37.5477303573313"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 668-101",
+      "category_group_code": "CE7",
+      "category_group_name": "카페",
+      "category_name": "음식점 > 카페",
+      "distance": "113",
+      "id": "404659840",
+      "phone": "070-4477-1100",
+      "place_name": "마일스톤커피 성수",
+      "place_url": "http://place.map.kakao.com/404659840",
+      "road_address_name": "서울 성동구 서울숲4길 15",
+      "x": "127.042786272267",
+      "y": "37.547446937205"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 668-9",
+      "category_group_code": "CE7",
+      "category_group_name": "카페",
+      "category_name": "음식점 > 카페",
+      "distance": "133",
+      "id": "2077832392",
+      "phone": "070-4632-3882",
+      "place_name": "슈퍼말차 성수",
+      "place_url": "http://place.map.kakao.com/2077832392",
+      "road_address_name": "서울 성동구 서울숲6길 19",
+      "x": "127.04371989345786",
+      "y": "37.547516873126085"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 668-136",
+      "category_group_code": "CE7",
+      "category_group_name": "카페",
+      "category_name": "음식점 > 카페",
+      "distance": "47",
+      "id": "328817208",
+      "phone": "0507-1333-7616",
+      "place_name": "5TO7",
+      "place_url": "http://place.map.kakao.com/328817208",
+      "road_address_name": "서울 성동구 서울숲2길 44-13",
+      "x": "127.043321867062",
+      "y": "37.5460826295749"
+    }
+  ],
+  "meta": {
+    "is_end": false,
+    "pageable_count": 45,
+    "same_name": {
+      "keyword": "카페",
+      "region": [],
+      "selected_region": ""
+    },
+    "total_count": 305
+  }
+}
