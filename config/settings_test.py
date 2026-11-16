@@ -28,3 +28,13 @@ from config.settings import *  # noqa: E402,F403
 
 # 테스트 속도를 위해 비밀번호 해시를 가볍게 한다.
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+# 테스트는 collectstatic 없이 돈다. 배포용 매니페스트 저장소는 매니페스트가 없으면 DEBUG=False에서
+# {% static %}이 오류를 내므로, 해시 없는 일반 저장소를 쓴다(배포 설정 자체는 test_deploy_settings가 확인).
+STORAGES = {
+    **STORAGES,  # noqa: F405
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+# STATIC_ROOT(staticfiles/) 대신 static/ 폴더에서 바로 찾아 내보낸다. "No directory" 경고도 막는다.
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_AUTOREFRESH = True

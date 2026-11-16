@@ -47,7 +47,8 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
-    "django.contrib.staticfiles",
+    # django.contrib.staticfiles와 같다. Tailwind 원본(static/src/)만 모으지 않는다(config/apps.py).
+    "config.apps.ProjectStaticFilesConfig",
     # 프로젝트 앱
     "accounts",
     "chat",
@@ -60,6 +61,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # 배포에서는 gunicorn이 정적 파일을 내보내지 않는다. WhiteNoise가 대신 내보낸다.
+    # 공식 문서대로 SecurityMiddleware 바로 다음에 둔다(HTTPS 리디렉션 등이 먼저 적용되게).
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -124,6 +128,17 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# 배포에서는 collectstatic이 파일 이름에 내용 해시를 붙이고(app.3f2a....css) 압축본(gzip, br)도 만든다.
+# 해시가 붙은 파일은 내용이 바뀌면 주소도 바뀌므로 브라우저가 오래 캐시해도 옛 CSS가 남지 않는다.
+# 이 저장소는 collectstatic이 만든 매니페스트가 없으면 DEBUG=False에서 {% static %}이 오류를 낸다.
+# 개발(DEBUG=True)은 해시 없는 주소를 쓰므로 괜찮고, 테스트는 settings_test에서 일반 저장소로 바꾼다.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
+# WhiteNoise의 기본 형식표에 .webmanifest가 없어 application/octet-stream으로 나간다(6.12.0에서 확인).
+# PWA 매니페스트의 표준 형식을 직접 알려 준다.
+WHITENOISE_MIMETYPES = {".webmanifest": "application/manifest+json"}
 
 # ── 로그인 ──────────────────────────────────────────────
 # 회원가입 화면은 만들지 않는다. createsuperuser로 내 계정만 만든다.
@@ -138,6 +153,29 @@ CSRF_COOKIE_SAMESITE = "Lax"
 # 개발 서버는 http라서 Secure 쿠키를 쓰면 로그인이 안 된다. 배포(DEBUG=False)에서만 켠다.
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+
+# ── HTTPS (배포) ────────────────────────────────────────
+# 아래 값은 전부 환경변수로 켠다. 기본은 꺼짐이라 로컬 개발(http)과 테스트의 동작은 그대로다.
+#
+# 로그인 폼 같은 POST는 CSRF 검사에서 Origin 헤더를 확인한다. 배포 주소(https://...)를 여기 넣어 둔다.
+# 반드시 https://로 시작하는 전체 주소다. 예: https://my-agent.up.railway.app
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+
+# Railway 같은 호스팅은 앞단 프록시가 HTTPS를 풀고 앱에는 http로 넘긴다. 그러면 Django는
+# 요청이 https였는지 모른다(Secure 쿠키, HTTPS 리디렉션, CSRF 검사가 엉뚱하게 동작).
+# 프록시가 붙여 주는 X-Forwarded-Proto 헤더를 믿게 하는 설정이다.
+# 그 헤더를 프록시가 항상 덮어써 주는 환경에서만 켠다.
+# 프록시 없이 켜면 누구나 헤더를 꾸며 https인 척할 수 있다.
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if env_bool("SECURE_PROXY_SSL_HEADER", False) else None
+)
+# http로 온 요청을 https로 돌려보낸다. 프록시 뒤에서는 위 SECURE_PROXY_SSL_HEADER와 함께 켜야 한다.
+# 하나만 켜면 앱은 모든 요청을 http로 보고 계속 리디렉션한다(무한 리디렉션).
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", False)
+# HSTS: 브라우저에게 "이 사이트는 앞으로 https로만 접속하라"고 알린다(초 단위, 0이면 끔).
+# 한 번 보내면 그 기간 동안 브라우저가 http 접속을 거부하므로, 처음에는 짧게(3600) 시험한 뒤 늘린다.
+SECURE_HSTS_SECONDS = int(env_str("SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
 
 # ── 에이전트 ────────────────────────────────────────────
 # 모델 이름은 코드에 박지 않고 여기서만 바꾼다.
