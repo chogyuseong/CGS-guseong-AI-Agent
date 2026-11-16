@@ -1,0 +1,60 @@
+{% extends "app_shell.html" %}
+{% block title %}기억 · 마이에이전트{% endblock %}
+{% block header %}기억{% endblock %}
+{% block content %}
+{% comment %}
+  기억 화면의 핵심은 "출처가 보이는 기억"이다. 이 앱은 사용자가 직접 말한 것만 기억하므로,
+  각 기억 바로 아래에 실제로 한 말을 「 」로 인용해 왜 기억했는지 바로 확인하고 지울 수 있게 한다.
+{% endcomment %}
+<section class="min-h-0 flex-1 overflow-y-auto pb-6">
+  {% for message in messages %}
+    <p class="mx-4 mt-4 rounded-lg px-4 py-3 text-sm {% if message.tags == 'success' %}bg-ok-bg text-ok-ink{% else %}bg-unsure-bg text-unsure-ink{% endif %}" role="status">{{ message }}</p>
+  {% endfor %}
+
+  {% if memories %}
+    <div class="px-4 pb-3 pt-5">
+      <p class="text-muted">직접 말한 것만 기억합니다. 지운 기억은 다음 대화부터 쓰지 않습니다.</p>
+      <p class="mt-1 text-sm text-muted">{{ memories|length }}개 저장됨, 최대 200개</p>
+    </div>
+
+    <ul class="divide-y divide-line border-y border-line bg-sheet" aria-label="기억 목록">
+      {% for memory in memories %}
+        <li class="px-4 py-4">
+          <div class="flex items-start gap-3">
+            <p class="min-w-0 flex-1 pt-2.5 font-medium leading-snug">{{ memory.content }}</p>
+            <form method="post" action="{% url 'memory:delete' memory.pk %}" class="shrink-0">
+              {% csrf_token %}
+              <button type="submit" class="min-h-11 rounded-lg px-3 text-sm text-warn-ink">지우기</button>
+            </form>
+          </div>
+          {# 원래 메시지: 이 기억의 근거가 된 사용자의 말 #}
+          <blockquote class="mt-2 border-l-2 border-line pl-3 text-sm leading-relaxed text-muted">
+            「{{ memory.source_message.content|truncatechars:200 }}」
+          </blockquote>
+          <div class="mt-1.5 flex items-center gap-3 text-xs text-muted">
+            <time datetime="{{ memory.created_at|date:'c' }}">{{ memory.created_at|date:"n월 j일" }}</time>
+            <a href="{% url 'chat:conversation' memory.source_message.conversation_id %}"
+               class="inline-flex min-h-11 items-center text-indigo underline underline-offset-4">대화에서 보기</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+
+    <form method="post" action="{% url 'memory:delete_all' %}" class="mt-8 px-4"
+          onsubmit="return confirm('기억 {{ memories|length }}개를 모두 지울까요? 되돌릴 수 없습니다.');">
+      {% csrf_token %}
+      <button type="submit" class="h-12 w-full rounded-lg border border-line text-warn-ink">기억 모두 지우기</button>
+    </form>
+  {% else %}
+    <div class="px-6 pt-16">
+      <p class="font-display text-xl font-bold">아직 기억한 것이 없습니다</p>
+      <p class="mt-2 text-muted">
+        채팅에서 "커피는 라떼를 좋아해, 기억해"처럼 말하면 그 말 그대로 여기에 남습니다.
+        직접 말한 것만 기억하고, 언제든 지울 수 있습니다.
+      </p>
+      <a href="{% url 'chat:home' %}"
+         class="mt-6 inline-flex h-12 items-center rounded-lg bg-indigo px-5 font-semibold text-on-indigo">채팅으로 가기</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

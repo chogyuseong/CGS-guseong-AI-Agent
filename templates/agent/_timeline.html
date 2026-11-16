@@ -18,7 +18,7 @@
           <span class="mt-1 block text-xs">오래 기다리면 워커(run_worker)가 켜져 있는지 확인해 주세요.</span>
         {% endif %}
       {% else %}
-        처리하는 중 · {{ task.step_count }}단계
+        처리하는 중 ({{ task.step_count }}단계)
       {% endif %}
     </p>
     <form method="post" action="{% url 'agent:cancel_task' task.id %}" onsubmit="return confirm('이 작업을 취소할까요?');">
