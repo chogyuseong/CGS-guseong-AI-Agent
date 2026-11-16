@@ -1,0 +1,29 @@
+# 비밀값: 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
+
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+
+# Tailwind standalone CLI 실행 파일 (각자 내려받는다)
+bin/
+
+# 편집기와 OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 브라우저 점검 도구 출력
+.playwright-mcp/

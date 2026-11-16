@@ -1,0 +1,20 @@
+[project]
+name = "my-agent"
+version = "0.0.0"
+description = "마이에이전트: 공식 API 도구로 일을 대신 처리하는 개인 AI 비서 웹앱"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings_test"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["*/migrations/*", ".venv"]
+
+[tool.ruff.lint]
+# E/F: 기본 오류, I: import 정렬, B: 흔한 버그 패턴, UP: 최신 문법, DJ: Django 규칙
+select = ["E", "F", "I", "B", "UP", "DJ"]
