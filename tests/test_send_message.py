@@ -1,4 +1,4 @@
-"""1단계: 채팅 화면에서 메시지를 보내면 Task가 만들어지고 루프가 실행된다."""
+"""채팅 화면에서 메시지를 보내면 Task가 큐에 들어가고, 워커가 실행한다(3단계부터)."""
 
 import pytest
 
@@ -14,7 +14,8 @@ def fake_llm(monkeypatch):
     return llm
 
 
-def test_sending_message_creates_task_and_answer(logged_in_client, conversation, fake_llm):
+def test_sending_message_queues_task_and_worker_answers(logged_in_client, conversation, fake_llm):
+    from agent import worker
     from agent.models import Task
 
     response = logged_in_client.post(f"/c/{conversation.id}/messages/", {"content": "우유 사기 추가해줘"})
@@ -22,6 +23,11 @@ def test_sending_message_creates_task_and_answer(logged_in_client, conversation,
     assert response.status_code == 302
     task = Task.objects.get(conversation=conversation)
     assert task.trigger_message.content == "우유 사기 추가해줘"
+    assert task.status == "queued"  # 요청 안에서는 실행하지 않고 바로 응답한다
+    assert fake_llm.calls == []
+
+    worker.run_once()
+    task.refresh_from_db()
     assert task.status == "done"
     page = logged_in_client.get(f"/c/{conversation.id}/").content.decode()
     assert "네, 추가했어요." in page
@@ -56,10 +62,12 @@ def test_more_than_20_messages_per_minute_is_rejected(logged_in_client, conversa
 
 
 def test_missing_api_key_shows_friendly_failure(logged_in_client, conversation, settings):
+    from agent import worker
     from agent.models import Task
 
     settings.ANTHROPIC_API_KEY = ""
     logged_in_client.post(f"/c/{conversation.id}/messages/", {"content": "안녕"})
+    worker.run_once()
 
     task = Task.objects.get()
     assert task.status == "failed"

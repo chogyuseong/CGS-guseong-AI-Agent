@@ -231,11 +231,17 @@ def test_3_double_click_through_the_view_runs_tool_only_once(
     run(chat_task, [call("fake_external", {"event_id": "e1"})])
     approval = pending_approval(chat_task)
 
+    from agent import worker
+
     first = logged_in_client.post(f"/approvals/{approval.id}/approve/")
     second = logged_in_client.post(f"/approvals/{approval.id}/approve/")
 
     assert first.status_code == second.status_code == 302
     assert len(fake_external.calls) == 1
+    chat_task.refresh_from_db()
+    assert chat_task.status == Task.Status.QUEUED  # 이어서 돌리는 일은 워커가 한다
+
+    worker.run_once()
     chat_task.refresh_from_db()
     assert chat_task.status == Task.Status.DONE
 

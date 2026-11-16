@@ -23,10 +23,12 @@ from django.utils import timezone
 from agent import guard, registry
 from agent.models import Approval, Step, Task
 from chat.models import Message
+from notifications.push import notify
 
 logger = logging.getLogger(__name__)
 
 REJECTED_BY_USER = "사용자가 거절함"
+CANCELLED_MESSAGE = "작업을 취소했습니다."
 EXPIRED_MESSAGE = "승인 시간(30분)이 지나 작업을 취소했습니다. 필요하면 다시 요청해 주세요."
 
 
@@ -43,8 +45,32 @@ def request_approval(step, guard_llm):
         approval = Approval.objects.create(step=step, summary=preview)
         Step.objects.filter(id=step.id).update(status=Step.Status.WAITING_APPROVAL)
         Task.objects.filter(id=task.id).update(status=Task.Status.WAITING_APPROVAL)
-    # 3단계: 여기서 notify(user, "approval_needed", url)로 푸시를 보낸다.
+    notify(task.user, "approval_needed", f"/c/{task.conversation_id}/")
     return approval
+
+
+def cancel_task(task_id, user):
+    """사용자가 작업을 취소한다. 승인 대기 중이면 그 승인 요청은 거절로 닫는다. 취소했으면 True."""
+    active = (Task.Status.QUEUED, Task.Status.RUNNING, Task.Status.WAITING_APPROVAL)
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, user=user)  # 남의 Task면 DoesNotExist
+        if task.status not in active:
+            return False
+        pending = Approval.objects.select_for_update().filter(step__task=task, status=Approval.Status.PENDING)
+        for approval in pending.select_related("step"):
+            approval.status = Approval.Status.REJECTED
+            approval.decided_at = timezone.now()
+            approval.save(update_fields=["status", "decided_at", "updated_at"])
+            _close_step(approval.step, Step.Status.REJECTED, registry.error_result(REJECTED_BY_USER))
+        # 실행 중인 루프는 다음 바퀴의 _still_running에서 이 상태를 보고 멈춘다.
+        Task.objects.filter(id=task.id).update(status=Task.Status.CANCELLED, error=CANCELLED_MESSAGE)
+        Message.objects.create(
+            conversation_id=task.conversation_id,
+            role=Message.Role.ASSISTANT,
+            content=CANCELLED_MESSAGE,
+            task=task,
+        )
+    return True
 
 
 def approve(approval_id, user):
@@ -162,5 +188,5 @@ def _close_step(step, status, result, started=None):
 
 
 def _requeue(task_id):
-    """승인 대기에서 풀린 Task를 다시 큐에 넣는다. 3단계부터는 워커가 이어서 실행한다."""
+    """승인 대기에서 풀린 Task를 다시 큐에 넣는다. 워커가 이어서 실행한다."""
     Task.objects.filter(id=task_id, status=Task.Status.WAITING_APPROVAL).update(status=Task.Status.QUEUED)

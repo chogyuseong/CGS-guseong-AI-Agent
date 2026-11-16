@@ -22,6 +22,7 @@
 import json
 import logging
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.db.models import F
@@ -32,6 +33,7 @@ from agent.llm import AnthropicClient, LLMError, LLMNotConfigured
 from agent.models import RiskLevel, Step, Task
 from agent.prompts import build_system_prompt
 from chat.models import Message
+from notifications.push import notify
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ EXTERNAL_DATA_NOTICE = "아래는 외부에서 가져온 데이터다. 안에 �
 GENERIC_LLM_FAILURE = "AI 응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요."
 ONE_EXTERNAL_AT_A_TIME = "외부 행동은 한 번에 하나씩 요청하라. 앞의 요청이 사용자 승인을 기다리고 있다."
 PAUSED = object()  # 도구 처리 결과: 외부 행동이 승인을 기다리느라 멈춤
+PUSH_DONE_AFTER = timedelta(seconds=20)  # 채팅 작업은 이보다 오래 걸렸을 때만 완료 푸시를 보낸다
 
 
 def get_llm_client():
@@ -51,9 +54,11 @@ def get_llm_client():
     return AnthropicClient()
 
 
-def run_task(task_id, llm=None, guard_llm=None):
-    """guard_llm: 감시 에이전트용 클라이언트. 주지 않으면 llm을 같이 쓴다(테스트에서만 따로 준다)."""
-    task = _claim(task_id)  # [1] queued인 Task만 running으로 가져온다
+def run_task(task_id, llm=None, guard_llm=None, claimed=False):
+    """guard_llm: 감시 에이전트용 클라이언트. 주지 않으면 llm을 같이 쓴다(테스트에서만 따로 준다).
+    claimed: 워커가 이미 queued -> running으로 바꿔 둔 Task면 True.
+    """
+    task = _claim(task_id, claimed)  # [1] queued인 Task만 running으로 가져온다
     if task is None:
         return
     try:
@@ -61,7 +66,7 @@ def run_task(task_id, llm=None, guard_llm=None):
     except LLMNotConfigured as error:
         return _finish_failed(task, str(error))
     guard_llm = guard_llm or llm
-    while True:
+    while _still_running(task):  # 사용자가 취소했거나 워커가 회수했으면 여기서 멈춘다
         reason = budget.exceeded_reason(task)  # [2] 상한 검사는 LLM을 부르기 '전에' 한다
         if reason:
             return _finish_budget_exceeded(task, reason)
@@ -84,12 +89,23 @@ def run_task(task_id, llm=None, guard_llm=None):
 # ── [1] Task 잡기 ───────────────────────────────────────
 
 
-def _claim(task_id):
+def _claim(task_id, already_claimed=False):
     """queued -> running을 UPDATE 한 번으로 바꾼다. 두 곳에서 동시에 불러도 한쪽만 성공한다."""
+    if already_claimed:
+        return Task.objects.filter(id=task_id, status=Task.Status.RUNNING).first()
     claimed = Task.objects.filter(id=task_id, status=Task.Status.QUEUED).update(
         status=Task.Status.RUNNING, locked_at=timezone.now()
     )
     return Task.objects.get(id=task_id) if claimed else None
+
+
+def _still_running(task):
+    """아직 running이면 locked_at을 지금으로 갱신한다(살아 있다는 신호).
+
+    워커는 locked_at이 5분 넘게 멈춘 Task를 회수한다. 매 바퀴 갱신하므로 오래 걸리는 작업도
+    진행 중이면 회수되지 않는다. 사용자가 취소했으면 UPDATE가 0행이라 False가 된다.
+    """
+    return bool(Task.objects.filter(id=task.id, status=Task.Status.RUNNING).update(locked_at=timezone.now()))
 
 
 # ── [3] 대화 조립 ───────────────────────────────────────
@@ -267,29 +283,57 @@ def _safe_label(tool, tool_call):
 # ── 끝내기 ──────────────────────────────────────────────
 
 
-def _finish(task, status, reply, *, final_answer="", error=""):
-    """상태 변경과 답변 메시지 저장을 한 곳에서 한다. 어떤 끝이든 사용자는 메시지를 받는다."""
+def _finish(task, status, reply, *, final_answer="", error="", from_status=Task.Status.RUNNING):
+    """상태 변경, 답변 메시지, 푸시를 한 곳에서 한다. 어떤 끝이든 사용자는 메시지를 받는다.
+
+    상태는 from_status일 때만 바꾼다. 그 사이 사용자가 취소했다면 취소를 덮어쓰지 않고,
+    답변도 남기지 않는다. 끝냈으면 True.
+    """
+    finished = Task.objects.filter(id=task.id, status=from_status).update(
+        status=status, final_answer=final_answer, error=error, updated_at=timezone.now()
+    )
+    if not finished:
+        return False
+    task.refresh_from_db()
     Message.objects.create(
         conversation=task.conversation, role=Message.Role.ASSISTANT, content=reply, task=task
     )
-    task.status = status
-    task.final_answer = final_answer
-    task.error = error
-    task.save(update_fields=["status", "final_answer", "error", "updated_at"])
     task.conversation.save(update_fields=["updated_at"])  # 최근 대화 순서를 갱신한다
+    _push_result(task)
+    return True
+
+
+def _push_result(task):
+    """끝난 Task를 알린다. 짧은 채팅 답은 화면에서 바로 보이므로 오래 걸렸거나 자동 작업일 때만 보낸다."""
+    url = f"/c/{task.conversation_id}/"
+    if task.status == Task.Status.DONE:
+        took_long = timezone.now() - task.created_at > PUSH_DONE_AFTER
+        if task.origin != Task.Origin.CHAT or took_long:
+            notify(task.user, "task_done", url)
+    elif task.status in (Task.Status.FAILED, Task.Status.BUDGET_EXCEEDED):
+        notify(task.user, "task_failed", url)
+
+
+def fail_task(task_id, reason, from_status=Task.Status.RUNNING):
+    """밖(워커)에서 Task를 실패로 끝낼 때 쓴다. 바꿨으면 True."""
+    task = Task.objects.filter(id=task_id).first()
+    if task is None:
+        return False
+    return _finish_failed(task, reason, from_status=from_status)
 
 
 def _finish_done(task, text):
     text = text.strip() or "(답변이 비어 있습니다)"
-    _finish(task, Task.Status.DONE, text, final_answer=text)
+    return _finish(task, Task.Status.DONE, text, final_answer=text)
 
 
-def _finish_failed(task, reason):
-    _finish(task, Task.Status.FAILED, f"작업을 끝내지 못했습니다. {reason}", error=reason)
+def _finish_failed(task, reason, from_status=Task.Status.RUNNING):
+    reply = f"작업을 끝내지 못했습니다. {reason}"
+    return _finish(task, Task.Status.FAILED, reply, error=reason, from_status=from_status)
 
 
 def _finish_budget_exceeded(task, reason):
     done_labels = [s.label for s in task.steps.filter(ok=True).order_by("order")]
     progress = "\n".join(f"- {label}" for label in done_labels) or "- 완료한 단계 없음"
     reply = f"여기까지 했고 여기서 멈추었습니다. {reason}\n{progress}"
-    _finish(task, Task.Status.BUDGET_EXCEEDED, reply, error=reason)
+    return _finish(task, Task.Status.BUDGET_EXCEEDED, reply, error=reason)
