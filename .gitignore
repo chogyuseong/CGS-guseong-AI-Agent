@@ -1,6 +1,6 @@
 # 비밀값: 절대 커밋하지 않는다
-.env
-.env.*
+# '.env 복사본', '.env.bak'처럼 .env로 시작하는 파일은 모두 제외한다(.env.example만 예외)
+.env*
 !.env.example
 
 # 파이썬
