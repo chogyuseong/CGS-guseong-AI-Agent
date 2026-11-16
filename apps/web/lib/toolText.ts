@@ -45,6 +45,21 @@ const FIELD_LABELS: Record<string, string> = {
   saved_to: "저장한 곳",
   deleted_id: "지운 일정 ID",
   deleted_from: "지운 곳",
+  // 7단계 메일 도구(list_mail, read_mail)
+  message_id: "메일 ID",
+  max_results: "개수",
+  label: "라벨",
+  messages: "메일",
+  from: "보낸 사람",
+  subject: "제목",
+  received_at: "받은 시각",
+  unread: "안 읽음",
+  snippet: "미리보기",
+  body: "본문",
+  body_truncated: "본문 잘림",
+  body_note: "본문 안내",
+  attachments: "첨부(이름만)",
+  attachment_count: "첨부 수",
 };
 
 const TOOL_NAMES: Record<string, string> = {
@@ -55,6 +70,8 @@ const TOOL_NAMES: Record<string, string> = {
   search_places: "장소 찾기",
   web_search: "웹 검색",
   get_weather: "날씨 보기",
+  list_mail: "메일 찾기",
+  read_mail: "메일 읽기",
 };
 
 // Object.hasOwn: "toString" 같은 객체 기본 속성을 칸 이름으로 착각하지 않게 한다.

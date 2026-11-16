@@ -276,6 +276,8 @@ export interface paths {
         /**
          * Google Start
          * @description 화면이 링크 이동으로 여는 주소라 로그인하지 않았으면 JSON 401 대신 연결 화면으로 돌려보낸다(6단계).
+         *
+         *     scope=mail이면 '메일 읽기 권한 추가'(7단계): 캘린더 + gmail.readonly를 요청한다. 다른 값은 invalid_request.
          */
         get: operations["google_start_api_connections_google_start_get"];
         put?: never;
@@ -535,6 +537,8 @@ export interface components {
             connected: boolean;
             /** Calendar */
             calendar: boolean;
+            /** Mail */
+            mail: boolean;
             /** Scopes */
             scopes?: string[];
             /** Connected At */
@@ -1479,7 +1483,9 @@ export interface operations {
     };
     google_start_api_connections_google_start_get: {
         parameters: {
-            query?: never;
+            query?: {
+                scope?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1492,6 +1498,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

@@ -37,6 +37,15 @@ describe("필드 이름과 값", () => {
     expect(formatFieldValue({ a: 1 })).toBe('{"a":1}');
   });
 
+  it("메일 도구 결과의 칸 이름도 한국어로(7단계)", () => {
+    expect(fieldLabel("from")).toBe("보낸 사람");
+    expect(fieldLabel("subject")).toBe("제목");
+    expect(fieldLabel("received_at")).toBe("받은 시각");
+    expect(fieldLabel("messages")).toBe("메일");
+    expect(fieldLabel("attachments")).toBe("첨부(이름만)");
+    expect(toolDisplayName("read_mail")).toBe("메일 읽기 (read_mail)");
+  });
+
   it("캘린더 도구는 한국어 이름과 원래 이름을 함께 보여 준다", () => {
     expect(toolDisplayName("create_event")).toBe("캘린더 일정 만들기 (create_event)");
     expect(toolDisplayName("delete_event")).toBe("캘린더 일정 지우기 (delete_event)");

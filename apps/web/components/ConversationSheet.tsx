@@ -1,11 +1,18 @@
 "use client";
 
-import { CalendarClock, MessagesSquare, Plus } from "lucide-react";
+import { CalendarClock, MessagesSquare, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { isAutomationRoom } from "@/lib/automations";
 import { useConversations, useCreateConversation } from "@/lib/chat";
 import { cn } from "@/lib/utils";
@@ -31,9 +38,13 @@ export function ConversationSheet({ currentId }: { currentId: number }) {
       <SheetTrigger render={<Button variant="ghost" className="size-11" aria-label="대화 목록" />}>
         <MessagesSquare aria-hidden="true" className="size-5" />
       </SheetTrigger>
-      <SheetContent side="left" className="pt-[env(safe-area-inset-top)]">
-        <SheetHeader>
+      {/* 기본 닫기 버튼(28px)은 손가락으로 누르기 작아서 끄고, 머리줄에 44px 닫기 버튼을 둔다(9단계 화면 점검). */}
+      <SheetContent side="left" showCloseButton={false} className="pt-[env(safe-area-inset-top)]">
+        <SheetHeader className="flex-row items-center justify-between py-2 pr-2">
           <SheetTitle>대화</SheetTitle>
+          <SheetClose render={<Button variant="ghost" className="size-11" aria-label="닫기" />}>
+            <X aria-hidden="true" className="size-5" />
+          </SheetClose>
         </SheetHeader>
         <div className="flex flex-col gap-2 overflow-y-auto px-4 pb-4">
           <Button onClick={handleCreate} disabled={create.isPending} className="h-11 text-base">

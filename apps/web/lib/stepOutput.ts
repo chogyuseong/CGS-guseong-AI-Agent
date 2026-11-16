@@ -28,6 +28,14 @@ export function readExternalOutput(output: unknown): ExternalOutput | null {
   return { content, truncated, sources, fetchedAt };
 }
 
+// 7단계 메일 도구. 서버는 이 도구의 결과를 작업 기록(steps.output)에 앞 500자만 남긴다
+// (apps/api/app/agent/results.py의 output_for_storage). 길면 content가 객체가 아니라 JSON 앞 500자 문자열이다.
+const MAIL_TOOLS: ReadonlySet<string> = new Set(["list_mail", "read_mail"]);
+
+export function isMailTool(toolName: string): boolean {
+  return MAIL_TOOLS.has(toolName);
+}
+
 // 링크로 만들어도 되는 주소인지. http·https 절대 주소만 받고(javascript:, data:, 상대 주소는 null),
 // 브라우저가 해석한 주소(href)를 돌려준다.
 export function safeHttpUrl(value: unknown): string | null {

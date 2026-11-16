@@ -39,13 +39,14 @@ function isActive(pathname: string, item: TabItem): boolean {
 }
 
 // 화면 아래에 고정된 탭 막대. 아이폰 홈 바에 가리지 않게 safe-area 만큼 아래 여백을 더한다.
+// 넓은 화면에서는 탭 다섯 개를 본문과 같은 폭(max-w-3xl)으로 가운데에 모은다(경계선은 화면 끝까지).
 // 컴포넌트는 화면 조각을 돌려주는 함수다. (Django의 include 템플릿 + 그 템플릿을 그리는 함수)
 export function BottomTabs() {
   // usePathname: 지금 주소를 읽는 훅. (Django의 request.path)
   const pathname = usePathname();
   return (
     <nav aria-label="하단 탭" className="border-t bg-background pb-[env(safe-area-inset-bottom)]">
-      <ul className="grid grid-cols-5">
+      <ul className="mx-auto grid max-w-3xl grid-cols-5">
         {/* map은 배열을 화면 조각 배열로 바꾼다. (템플릿의 {% for %}) key는 각 항목을 구분하는 값이다. */}
         {TAB_ITEMS.map((item) => {
           const { href, label, icon: Icon } = item;

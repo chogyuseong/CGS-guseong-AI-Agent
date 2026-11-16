@@ -9,6 +9,7 @@ function makeConnection(overrides: Partial<Connection> = {}): Connection {
     available: true,
     connected: false,
     calendar: false,
+    mail: false,
     scopes: [],
     connected_at: null,
     ...overrides,
@@ -76,6 +77,71 @@ describe("Google 연결 영역(상태별 표시)", () => {
     expect(region).toHaveTextContent(".env");
     expect(within(region).queryByRole("link")).not.toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Google 계정 연결" })).toBeDisabled();
+  });
+});
+
+const MAIL_START = "/api/connections/google/start?scope=mail";
+
+function mailRegion() {
+  return screen.getByRole("region", { name: "메일 읽기 권한" });
+}
+
+describe("메일 읽기 권한(7단계)", () => {
+  it("연결됐지만 메일 권한이 없으면 '없음'과 scope=mail 추가 링크를 보여 준다. 기본 연결 링크는 캘린더만", () => {
+    renderView(CONNECTED);
+    const mail = mailRegion();
+    expect(within(mail).getByText("없음")).toBeInTheDocument();
+    const add = within(mail).getByRole("link", { name: "메일 읽기 권한 추가" });
+    expect(add).toHaveAttribute("href", MAIL_START);
+    // [다시 연결]은 메일을 요청하지 않는 기본 주소 그대로다.
+    expect(screen.getByRole("link", { name: "다시 연결" })).toHaveAttribute(
+      "href",
+      "/api/connections/google/start",
+    );
+  });
+
+  it("무엇을 하는지 안내한다(읽기만, 4,000자·첨부 이름, 자동 작업 제외, 확인되지 않은 앱 경고)", () => {
+    renderView(CONNECTED);
+    const mail = mailRegion();
+    expect(mail).toHaveTextContent(
+      "메일을 읽기만 합니다. 보내기·답장·삭제·라벨 변경은 하지 않습니다",
+    );
+    expect(mail).toHaveTextContent("본문은 4,000자까지만 읽고 첨부는 이름만 봅니다");
+    expect(mail).toHaveTextContent("예약 작업과 조건 감시는 메일을 읽지 않습니다");
+    expect(mail).toHaveTextContent("Google 동의 화면에 '확인되지 않은 앱' 경고가 뜰 수 있습니다");
+  });
+
+  it("연결 전이어도 추가 링크를 보여 주고, 캘린더와 함께 연결된다고 알린다", () => {
+    renderView(makeConnection());
+    const mail = mailRegion();
+    expect(within(mail).getByText("없음")).toBeInTheDocument();
+    expect(within(mail).getByRole("link", { name: "메일 읽기 권한 추가" })).toHaveAttribute(
+      "href",
+      MAIL_START,
+    );
+    expect(mail).toHaveTextContent("캘린더 권한과 함께 요청해 연결합니다");
+  });
+
+  it("메일 권한이 있으면 '있음'을 보여 주고 추가 링크 대신 빼는 방법을 안내한다", () => {
+    renderView({ ...CONNECTED, mail: true });
+    const mail = mailRegion();
+    expect(within(mail).getByText("있음")).toBeInTheDocument();
+    expect(within(mail).queryByRole("link")).not.toBeInTheDocument();
+    expect(mail).toHaveTextContent("메일 권한만 끄는 방법은 없습니다");
+    expect(mail).toHaveTextContent("연결 해제 후 캘린더만 다시 연결");
+    expect(mail).toHaveTextContent("[다시 연결]을 눌러도 메일 권한은 남습니다");
+  });
+
+  it("서버 설정이 없으면 추가 버튼을 막는다(링크 없음)", () => {
+    renderView(makeConnection({ available: false }));
+    const mail = mailRegion();
+    expect(within(mail).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(mail).getByRole("button", { name: "메일 읽기 권한 추가" })).toBeDisabled();
+  });
+
+  it("연결 상태를 아직 모르면 메일 영역을 그리지 않는다", () => {
+    renderView(undefined);
+    expect(screen.queryByRole("region", { name: "메일 읽기 권한" })).not.toBeInTheDocument();
   });
 });
 

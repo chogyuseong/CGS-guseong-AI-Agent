@@ -12,7 +12,7 @@ import {
 import { useState } from "react";
 import { ExternalContent } from "@/components/ExternalContent";
 import type { Step } from "@/lib/chat";
-import { readExternalOutput } from "@/lib/stepOutput";
+import { isMailTool, readExternalOutput } from "@/lib/stepOutput";
 import { cn } from "@/lib/utils";
 
 type StatusView = { icon: LucideIcon; name: string; className: string; showName?: boolean };
@@ -86,7 +86,7 @@ function StepDetail({ step }: { step: Step }) {
       {external ? (
         <div className="flex min-w-0 flex-col gap-1">
           <p className="font-medium">출력</p>
-          <ExternalContent external={external} />
+          <ExternalContent external={external} mail={isMailTool(step.tool_name)} />
         </div>
       ) : (
         <JsonBlock title="출력" value={step.output} />

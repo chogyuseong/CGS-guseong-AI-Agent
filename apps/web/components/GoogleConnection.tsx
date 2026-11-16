@@ -12,9 +12,10 @@ import {
   useDisconnectGoogle,
 } from "@/lib/connections";
 import { cn } from "@/lib/utils";
+import { MailPermission } from "./MailPermission";
 
 const PERMISSION_LINES = [
-  "요청하는 권한: 내 캘린더의 일정 보기·만들기·고치기·지우기. 메일은 요청하지 않습니다.",
+  "기본 연결이 요청하는 권한: 내 캘린더의 일정 보기·만들기·고치기·지우기. 메일은 요청하지 않습니다(메일 읽기는 아래에서 따로 추가합니다).",
   "일정을 만들기·고치기·지우기 전에는 매번 승인을 묻습니다.",
   "Google의 테스트 상태 앱은 약 7일마다 연결이 풀릴 수 있습니다. 그때는 이 화면에서 다시 연결해 주세요.",
 ];
@@ -146,6 +147,7 @@ function ConnectionBody({ connection, loadError, flow }: BodyProps) {
       <>
         {notConfigured}
         <ConnectAction available={connection.available} label="Google 계정 연결" primary />
+        <MailPermission connection={connection} />
       </>
     );
   }
@@ -153,6 +155,7 @@ function ConnectionBody({ connection, loadError, flow }: BodyProps) {
     <>
       <ConnectedDetails connection={connection} />
       {notConfigured}
+      <MailPermission connection={connection} />
       <ConnectAction available={connection.available} label="다시 연결" />
       <DisconnectArea flow={flow} />
     </>
@@ -235,8 +238,8 @@ function DisconnectConfirm({ flow }: { flow: DisconnectFlow }) {
     >
       <p className="text-sm font-medium text-destructive">Google 연결을 해제할까요?</p>
       <p className="text-sm">
-        해제하면 채팅에서 캘린더 일정을 보거나 만들 수 없습니다. Google 쪽 권한 철회도 함께
-        요청합니다.
+        해제하면 채팅에서 캘린더 일정을 보거나 만들 수 없고 메일도 읽을 수 없습니다. Google 쪽 권한
+        철회도 함께 요청합니다.
       </p>
       <div className="grid grid-cols-2 gap-2">
         <Button type="button" onClick={flow.submit} disabled={flow.busy} className={BIG_BUTTON}>

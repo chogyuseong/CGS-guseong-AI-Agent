@@ -18,6 +18,8 @@ export default defineConfig({
     channel: "chrome",
     trace: "retain-on-failure",
   },
+  // 폭별 프로젝트는 두지 않는다(전체 e2e 시간이 폭 수만큼 늘어남). 360·390·768·1280px 점검은
+  // e2e/widths.spec.ts 한 파일이 test.use로 폭을 바꿔 가며 돈다(9단계 1번).
   projects: [
     {
       // 명세의 기준 폭. 폰 화면(360x740)과 터치 입력을 흉내 낸다.

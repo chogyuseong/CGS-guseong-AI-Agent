@@ -15,7 +15,7 @@ export default function SettingsPage() {
         <Link2 aria-hidden="true" className="size-5 shrink-0" />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-base font-semibold">Google 계정 연결</span>
-          <span className="text-sm text-muted-foreground">캘린더 일정 보기·만들기 권한 관리</span>
+          <span className="text-sm text-muted-foreground">캘린더 일정·메일 읽기 권한 관리</span>
         </span>
         <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
       </Link>

@@ -9,6 +9,7 @@ type FakeConnection = {
   available: boolean;
   connected: boolean;
   calendar: boolean;
+  mail: boolean;
   scopes: string[];
   connected_at: string | null;
 };
@@ -18,6 +19,7 @@ const NOT_CONNECTED: FakeConnection = {
   available: true,
   connected: false,
   calendar: false,
+  mail: false,
   scopes: [],
   connected_at: null,
 };
@@ -130,6 +132,8 @@ test("360px 연결 화면: 돌아온 주소의 결과 코드별로 한국어 안
     ["google=error&reason=not_configured", "alert", "서버에 Google 연결 설정이 없어"],
     ["google=error&reason=%3Cb%3Ex%3C%2Fb%3E", "alert", "Google 계정을 연결하지 못했습니다"],
     ["google=connected", "status", "Google 계정을 연결했습니다"],
+    ["google=connected&added=mail", "status", "메일 읽기 권한을 추가했습니다"],
+    ["google=error&reason=mail_scope_missing", "alert", "캘린더 연결은 그대로 저장했습니다"],
   ] as const;
 
   for (const [query, role, text] of cases) {
@@ -157,5 +161,43 @@ test("360px 연결 화면: 서버 설정이 없으면 '서버 설정 없음'을 
   await expect(button).toBeDisabled();
   const box = await button.boundingBox();
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await expectNoHorizontalScroll(page);
+});
+
+test("360px 연결 화면(7단계): 메일 읽기 권한이 없으면 상태·안내와 scope=mail 추가 링크를 보여 준다", async ({
+  page,
+}) => {
+  await fakeConnections(page, CONNECTED);
+  const region = await openConnections(page);
+  const mail = region.getByRole("region", { name: "메일 읽기 권한" });
+
+  await expect(mail).toContainText("없음");
+  await expect(mail).toContainText("보내기·답장·삭제·라벨 변경은 하지 않습니다");
+  await expect(mail).toContainText("본문은 4,000자까지만 읽고 첨부는 이름만 봅니다");
+  await expect(mail).toContainText("예약 작업과 조건 감시는 메일을 읽지 않습니다");
+  await expect(mail).toContainText("확인되지 않은 앱");
+  // 누르지 않는다(실제 Google 동의 화면으로 가지 않게). href만 확인한다.
+  const add = mail.getByRole("link", { name: "메일 읽기 권한 추가" });
+  await expect(add).toHaveAttribute("href", "/api/connections/google/start?scope=mail");
+  await expectTappable(add);
+  // 기본 연결([다시 연결])은 캘린더만 요청하는 주소 그대로다.
+  await expect(region.getByRole("link", { name: "다시 연결" })).toHaveAttribute(
+    "href",
+    "/api/connections/google/start",
+  );
+  await expectNoHorizontalScroll(page);
+});
+
+test("360px 연결 화면(7단계): 메일 권한이 있으면 '있음'과 빼는 방법을 안내하고 추가 링크는 없다", async ({
+  page,
+}) => {
+  await fakeConnections(page, { ...CONNECTED, mail: true });
+  const region = await openConnections(page);
+  const mail = region.getByRole("region", { name: "메일 읽기 권한" });
+
+  await expect(mail).toContainText("있음");
+  await expect(mail).toContainText("메일 권한만 끄는 방법은 없습니다");
+  await expect(mail).toContainText("연결 해제 후 캘린더만 다시 연결");
+  await expect(mail.getByRole("link")).toHaveCount(0);
   await expectNoHorizontalScroll(page);
 });

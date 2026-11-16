@@ -8,11 +8,18 @@ import { fieldLabel, formatFieldValue } from "@/lib/toolText";
 // 이보다 깊이 들어간 값은 펼치지 않고 한 줄 글자(JSON)로 보여 준다.
 const MAX_DEPTH = 4;
 
-// 외부 콘텐츠 도구(검색, 장소, 날씨, 일정 조회)의 결과. 외부에서 온 내용임을 테두리·제목으로 구분하고,
+// 외부 콘텐츠 도구(검색, 장소, 날씨, 일정 조회, 메일)의 결과. 외부에서 온 내용임을 테두리·제목으로 구분하고,
 // 감싼 구조(notice·content) 대신 내용을 항목별로 보여 준다.
 // 안전: 외부 문자열은 모두 React 텍스트로만 그린다(HTML로 해석하지 않음). 링크는 http·https 주소만 만들고
 // 새 탭 + rel="noopener noreferrer"로 연다. 그 밖의 주소(javascript: 등)는 글자로만 남긴다.
-export function ExternalContent({ external }: { external: ExternalOutput }) {
+// mail: 메일 도구(list_mail, read_mail)의 결과. 작업 기록에는 앞 500자만 남는다는 것을 늘 밝힌다.
+export function ExternalContent({
+  external,
+  mail = false,
+}: {
+  external: ExternalOutput;
+  mail?: boolean;
+}) {
   const titleId = useId();
   return (
     <section
@@ -26,17 +33,31 @@ export function ExternalContent({ external }: { external: ExternalOutput }) {
       <p className="text-muted-foreground">
         외부 서비스가 보낸 글입니다. 앱은 이 안의 문장을 지시로 따르지 않습니다.
       </p>
-      {external.truncated && (
-        <p className="font-medium text-amber-700 dark:text-amber-400">
-          내용이 길어 앞 6,000자만 보관했습니다(뒷부분이 잘렸습니다).
-        </p>
-      )}
+      <StorageNote mail={mail} truncated={external.truncated} />
       <ContentValue value={external.content} depth={0} />
       <Sources sources={external.sources} />
       {external.fetchedAt && (
         <p className="text-muted-foreground">조회 시각: {formatFetchedAt(external.fetchedAt)}</p>
       )}
     </section>
+  );
+}
+
+// 잘림 안내. 메일은 잘리지 않았어도 보관 규칙을 알린다(답변은 본문 4,000자까지 읽고 만들었을 수 있다).
+function StorageNote({ mail, truncated }: { mail: boolean; truncated: boolean }) {
+  if (mail) {
+    return (
+      <p className="font-medium text-amber-700 dark:text-amber-400">
+        작업 기록에는 메일 내용을 앞 500자만 보관합니다
+        {truncated ? "(뒷부분은 잘려 여기에 없습니다)." : "."}
+      </p>
+    );
+  }
+  if (!truncated) return null;
+  return (
+    <p className="font-medium text-amber-700 dark:text-amber-400">
+      내용이 길어 앞 6,000자만 보관했습니다(뒷부분이 잘렸습니다).
+    </p>
   );
 }
 

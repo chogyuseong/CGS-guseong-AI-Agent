@@ -60,7 +60,7 @@ pnpm dev
 | `pnpm format` | Biome 포맷을 파일에 적용한 뒤 린트 검사 |
 | `pnpm typecheck` | `next typegen`으로 경로 타입을 만든 뒤 `tsc --noEmit` |
 | `pnpm test` | Vitest 컴포넌트 테스트 |
-| `pnpm e2e` | Playwright 화면 흐름 테스트 (360x740 모바일) |
+| `pnpm e2e` | Playwright 화면 흐름 테스트 (360x740 모바일, 폭 점검 spec만 360·390·768·1280) |
 
 ### Biome를 WASM판으로 돌리는 이유
 
@@ -84,6 +84,10 @@ Biome CLI(`biome.exe`)는 서명이 없어 이 PC의 Smart App Control이 실행
   ```
 
 - Next 개발 서버는 Playwright가 직접 띄우고 끝나면 끈다(이미 떠 있으면 그것을 쓴다).
+- 화면 폭 점검(`e2e/widths.spec.ts`)은 모든 화면을 네 폭에서 훑어 가로 스크롤·화면 밖 요소·넘친 글자·44px 미만 버튼·겹침·
+  넓은 화면의 최대 폭을 검사한다. 스크린샷을 보려면 저장소 밖 폴더를 `WIDTH_SHOTS_DIR`로 준다
+  (예: `$env:WIDTH_SHOTS_DIR = "$env:TEMP\widths"; pnpm exec playwright test e2e/widths.spec.ts`).
+- 키보드가 올라온 상태 등 자동화로 볼 수 없는 것은 `docs/PHONE-CHECK.md`의 목록으로 폰에서 직접 본다.
 
 ## API 타입 생성
 
@@ -108,11 +112,12 @@ app/
   (tabs)/chat|tasks|automation|memory|settings/page.tsx
   (tabs)/connections/page.tsx  외부 서비스 연결(Google). 설정 탭에서 들어간다
   manifest.ts           PWA 설정(/manifest.webmanifest)
-components/             BottomTabs, ChatInput, AuthGuard, LoginForm, EmptyScreen, ui/(shadcn)
+components/             BottomTabs, ChatInput, AuthGuard, LoginForm, ui/(shadcn)
   PendingTask.tsx       답변 전 task 진행 표시(폴링: 진행 중 1초, 승인 대기 3초, 끝나면 멈춤)
   PushSettings.tsx      설정 탭의 알림 영역('알림 켜기'/끄기, 상태 표시)
   ServiceWorkerRegistrar.tsx  앱을 열 때 public/sw.js 등록
   GoogleConnection.tsx  연결 화면의 Google 영역(상태, 연결 링크, 해제 확인)
+  MailPermission.tsx    연결 화면의 메일 읽기 권한(상태, scope=mail 추가 링크, 하는 일·빼는 방법 안내)
   CallbackNotice.tsx    Google에서 돌아왔을 때(?google=...)의 안내, 쿼리 정리
   ExternalContent.tsx   타임라인의 외부 콘텐츠 결과(텍스트로만, http·https 링크만)
   MemoryList.tsx        기억 탭(목록, 원래 메시지 보기, 한 건 삭제, 전체 삭제 확인)
