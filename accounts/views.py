@@ -56,6 +56,7 @@ def connections_page(request):
         "google_configured": google.is_configured(),
         "google_connection": connection,
         "has_calendar": bool(connection and google.SCOPE_CALENDAR in connection.scopes),
+        "has_mail": bool(connection and google.SCOPE_GMAIL_READ in connection.scopes),
     }
     return render(request, "accounts/connections.html", context)
 
@@ -66,7 +67,10 @@ def google_start(request):
     if not google.is_configured():
         messages.error(request, "Google 연결 설정(.env의 GOOGLE_CLIENT_ID 등)이 없습니다.")
         return redirect("settings_page:connections")
-    return redirect(google.start(request.session, [google.SCOPE_CALENDAR]))
+    scopes = [google.SCOPE_CALENDAR]
+    if request.GET.get("mail") == "1":  # '메일 읽기 권한 추가' 버튼. 이미 받은 캘린더 권한과 함께 묻는다
+        scopes.append(google.SCOPE_GMAIL_READ)
+    return redirect(google.start(request.session, scopes))
 
 
 @login_required
@@ -90,8 +94,23 @@ def google_callback(request):
     except ExternalAPIError as error:
         messages.error(request, str(error))
     else:
-        messages.success(request, "Google 캘린더를 연결했습니다.")
+        _report_granted(request, saved["scopes"], tokens.get("scopes") or [])
     return redirect("settings_page:connections")
+
+
+def _report_granted(request, asked, granted):
+    """구글 동의 화면에서는 항목별로 체크를 뺄 수 있다. 요청한 권한을 실제로 받았는지 알려 준다."""
+    if google.SCOPE_GMAIL_READ in asked and google.SCOPE_GMAIL_READ not in granted:
+        messages.warning(
+            request,
+            "메일 읽기 권한을 받지 못했습니다. 동의 화면에서 Gmail 항목을 체크하고 다시 시도해 주세요.",
+        )
+    elif google.SCOPE_GMAIL_READ in asked:
+        messages.success(
+            request, "메일 읽기 권한을 추가했습니다. 채팅에서 '안 읽은 메일 요약해줘'처럼 말해 보세요."
+        )
+    else:
+        messages.success(request, "Google 캘린더를 연결했습니다.")
 
 
 @login_required

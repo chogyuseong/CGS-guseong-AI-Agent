@@ -224,6 +224,7 @@ def test_5_due_schedule_creates_read_only_task(user):
     read_tools = {
         "get_weather", "search_places", "web_search", "list_events",
         "list_todos", "list_memories", "list_schedules", "list_watches",
+        "list_mail", "read_mail",  # 메일은 조건 감시에서만 금지(명세). 예약 작업은 읽기 도구 전부
     }  # fmt: skip
     assert names and names <= read_tools
     job.refresh_from_db()

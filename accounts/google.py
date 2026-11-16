@@ -26,6 +26,8 @@ from tools.http import ExternalAPIError
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar.events"
+# 메일 읽기는 사용자가 '메일 읽기 권한 추가'를 눌렀을 때만 요청한다(명세). 보내기·수정 범위는 쓰지 않는다.
+SCOPE_GMAIL_READ = "https://www.googleapis.com/auth/gmail.readonly"
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 REVOKE_URI = "https://oauth2.googleapis.com/revoke"

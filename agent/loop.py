@@ -121,7 +121,7 @@ def build_messages(task):
     messages = _history_messages(task)
     for step in task.steps.order_by("order"):
         if step.status in FINISHED_STEP_STATUSES:
-            messages += _step_as_messages(step)
+            messages += _step_as_messages(step, _full_outputs(task).get(step.id))
     return messages
 
 
@@ -180,20 +180,24 @@ def _step_record_line(step):
     return f"- {step.tool_name}: {state} {detail}".rstrip()
 
 
-def _step_as_messages(step):
-    """Step 하나 = assistant의 tool_use + user의 tool_result 한 쌍."""
+def _step_as_messages(step, full_output=None):
+    """Step 하나 = assistant의 tool_use + user의 tool_result 한 쌍.
+
+    full_output: DB에는 줄여 저장한 결과의 전문(이번 작업이 도는 동안만 있음).
+    """
     tool_use = {"type": "tool_use", "id": step.tool_use_id, "name": step.tool_name, "input": step.input_json}
     tool_result = {
         "type": "tool_result",
         "tool_use_id": step.tool_use_id,
-        "content": _result_text_for_llm(step),
+        "content": _result_text_for_llm(step, full_output),
         "is_error": not step.ok,
     }
     return [{"role": "assistant", "content": [tool_use]}, {"role": "user", "content": [tool_result]}]
 
 
-def _result_text_for_llm(step):
-    text = json.dumps(step.output_json, ensure_ascii=False)[:TOOL_RESULT_CHAR_LIMIT]
+def _result_text_for_llm(step, full_output=None):
+    output = full_output if full_output is not None else step.output_json
+    text = json.dumps(output, ensure_ascii=False)[:TOOL_RESULT_CHAR_LIMIT]
     tool = registry.get_tool(step.tool_name)
     if tool and tool.external_content:
         # 검색 결과나 메일 속 문장이 명령처럼 읽히지 않도록 데이터라고 못 박는다 (절대 원칙 7).
@@ -284,8 +288,20 @@ def _run_one_call(task, tool_call, guard_llm, external_waiting):
         # 실행하지 않는다. preview -> 감시 에이전트 -> Approval(pending) -> Task 승인 대기.
         approvals.request_approval(step, guard_llm)
         return True
-    _save_step_result(step, registry.run_tool(tool, task.user, tool_call.input, task=task), started)
+    result = registry.run_tool(tool, task.user, tool_call.input, task=task)
+    if tool.stored_output:
+        # 전문은 이 프로세스의 Task 객체에만 둔다(이번 작업의 다음 LLM 호출용). DB에는 줄인 것만.
+        _full_outputs(task)[step.id] = result
+        _save_step_result(step, tool.stored_output(result), started, ok=result["ok"])
+        return False
+    _save_step_result(step, result, started)
     return False
+
+
+def _full_outputs(task):
+    if not hasattr(task, "full_outputs"):
+        task.full_outputs = {}
+    return task.full_outputs
 
 
 def _create_step(task, tool, tool_call):
@@ -315,9 +331,9 @@ def _find_problem(task, tool, tool_call, external_waiting):
     return registry.validate_input(tool, tool_call.input)
 
 
-def _save_step_result(step, result, started):
+def _save_step_result(step, result, started, ok=None):
     step.output_json = result
-    step.ok = result["ok"]
+    step.ok = result["ok"] if ok is None else ok
     step.status = Step.Status.DONE if result["ok"] else Step.Status.FAILED
     step.duration_ms = int((time.monotonic() - started) * 1000)
     step.save(update_fields=["output_json", "ok", "status", "duration_ms", "updated_at"])

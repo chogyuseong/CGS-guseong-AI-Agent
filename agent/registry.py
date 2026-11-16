@@ -32,6 +32,10 @@ class Tool:
     # True면 run(user, task=..., **kwargs)로 지금 실행 중인 Task를 넘긴다.
     # remember처럼 "이 Task가 어디서 시작됐고 무엇을 거쳤는지"를 서버가 검사해야 하는 도구용.
     needs_task: bool = False
+    # 결과를 DB(Step.output_json)에 남길 때 줄이는 함수. read_mail처럼 전문을 저장하면 안 되는 도구용.
+    # 모델은 이번 작업이 도는 동안 메모리에 둔 전문을 본다.
+    # 작업이 끝나거나 승인을 기다렸다 이어지면 줄인 것을 본다.
+    stored_output: Callable | None = None
 
 
 _TOOLS: dict[str, Tool] = {}
