@@ -1,8 +1,15 @@
 import json
 
 from django import template
+from django.utils import timezone
 
 register = template.Library()
+
+
+@register.filter
+def seconds_since(value):
+    """그 시각부터 지금까지 몇 초 지났는지. 오래 기다리는 작업에 안내 문구를 띄울 때 쓴다."""
+    return int((timezone.now() - value).total_seconds())
 
 
 @register.filter

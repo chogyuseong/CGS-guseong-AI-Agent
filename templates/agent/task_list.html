@@ -1,0 +1,28 @@
+{% extends "app_shell.html" %}
+{% block title %}작업 기록 · 마이에이전트{% endblock %}
+{% block header %}작업 기록{% endblock %}
+{% block content %}
+<section class="min-h-0 flex-1 overflow-y-auto px-4 py-3" aria-label="작업 목록">
+  <ul class="space-y-2">
+    {% for task in tasks %}
+      <li>
+        <a href="{% url 'chat:conversation' task.conversation_id %}"
+           class="block rounded-xl border border-neutral-200 px-4 py-3 dark:border-neutral-800">
+          <div class="flex items-center justify-between gap-2 text-xs text-neutral-500">
+            <span>{{ task.created_at|date:"n월 j일 H:i" }} · {{ task.get_origin_display }}</span>
+            <span class="rounded-full px-2 py-0.5
+              {% if task.status == 'done' %}bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300
+              {% elif task.status == 'failed' or task.status == 'budget_exceeded' %}bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300
+              {% elif task.status == 'waiting_approval' %}bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300
+              {% else %}bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300{% endif %}">{{ task.get_status_display }}</span>
+          </div>
+          <p class="mt-1 truncate">{{ task.trigger_message.content|default:"(자동 작업)" }}</p>
+          <p class="mt-0.5 text-xs text-neutral-500">{{ task.step_count }}단계</p>
+        </a>
+      </li>
+    {% empty %}
+      <li class="mt-10 text-center text-neutral-500">아직 작업이 없습니다.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

@@ -21,8 +21,10 @@
     {% include "chat/_steps.html" with task=approval.step.task %}
     {% include "agent/_approval_card.html" %}
   {% endfor %}
-  {# 진행 중인 Task의 단계 타임라인(3단계에서 폴링으로 갱신) #}
-  <div id="task-timeline"></div>
+  {# 진행 중인 Task의 단계 타임라인: 1초마다 폴링으로 갱신된다 #}
+  {% if active_task %}
+    {% include "agent/_timeline.html" with task=active_task %}
+  {% endif %}
 </section>
 
 {# 입력창: 화면 아래에 붙어 있고, 키보드가 올라오면 dvh 덕분에 함께 올라온다 #}

@@ -1,0 +1,29 @@
+{% comment %}
+  진행 중인 Task의 타임라인. 1초마다 /tasks/<id>/steps/ 를 다시 불러 이 div를 통째로 바꾼다.
+  작업이 끝나면 서버가 HX-Refresh로 화면 전체를 새로 그리게 한다.
+{% endcomment %}
+{% load chat_extras %}
+<div id="task-timeline"
+     hx-get="{% url 'agent:task_steps' task.id %}"
+     hx-trigger="every 1s"
+     hx-swap="outerHTML"
+     aria-live="polite">
+  {% include "chat/_steps.html" with task=task %}
+  <div class="mb-3 flex items-center gap-3 rounded-xl bg-neutral-100 px-4 py-3 text-sm dark:bg-neutral-800">
+    <span class="inline-block h-3 w-3 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden="true"></span>
+    <p class="flex-1">
+      {% if task.status == 'queued' %}
+        차례를 기다리는 중…
+        {% if task.created_at|seconds_since > 10 %}
+          <span class="mt-1 block text-xs text-neutral-500">오래 기다리면 워커(run_worker)가 켜져 있는지 확인해 주세요.</span>
+        {% endif %}
+      {% else %}
+        처리하는 중… ({{ task.step_count }}단계)
+      {% endif %}
+    </p>
+    <form method="post" action="{% url 'agent:cancel_task' task.id %}" onsubmit="return confirm('이 작업을 취소할까요?');">
+      {% csrf_token %}
+      <button type="submit" class="min-h-11 rounded-lg px-3 text-neutral-600 underline dark:text-neutral-300">작업 취소</button>
+    </form>
+  </div>
+</div>

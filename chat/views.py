@@ -7,7 +7,6 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from agent.loop import run_task
 from agent.models import Approval, Task
 
 from .models import Conversation, Message
@@ -39,11 +38,18 @@ def conversation_detail(request, pk):
         .select_related("step__task", "step__guard_check")
         .order_by("created_at")
     )
+    # 진행 중인 작업이 있으면 화면이 그 타임라인을 1초마다 불러 간다. 화면을 닫았다 열어도 이어서 보인다.
+    active_task = (
+        conversation.tasks.filter(status__in=[Task.Status.QUEUED, Task.Status.RUNNING])
+        .order_by("-created_at")
+        .first()
+    )
     context = {
         "active_tab": "chat",
         "conversation": conversation,
         "messages_list": messages_list,
         "pending_approvals": pending_approvals,
+        "active_task": active_task,
     }
     return render(request, "chat/conversation.html", context)
 
@@ -57,9 +63,9 @@ def send_message(request, pk):
         return redirect("chat:conversation", pk=pk)
     if _sent_too_many(request.user):
         return HttpResponse("메시지를 너무 빠르게 보내고 있습니다. 1분 뒤 다시 시도해 주세요.", status=429)
-    task = _create_task(conversation, content)
-    # 1단계에서는 요청 안에서 바로 실행한다. 3단계에서 Task를 큐에 넣고 워커가 실행하도록 바뀐다.
-    run_task(task.id)
+    # Task를 queued로 만들고 바로 응답한다. 실행은 워커(run_worker)가 한다.
+    # 그래서 화면을 닫아도 작업은 계속되고, 웹 요청이 LLM 응답을 기다리며 묶이지 않는다.
+    _create_task(conversation, content)
     return redirect("chat:conversation", pk=pk)
 
 

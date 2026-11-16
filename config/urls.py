@@ -11,4 +11,5 @@ urlpatterns = [
     path("", include("agent.urls")),
     path("", include("memory.urls")),
     path("", include("automation.urls")),
+    path("", include("notifications.urls")),
 ]

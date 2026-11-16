@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="마이에이전트">
   <title>{% block title %}마이에이전트{% endblock %}</title>
@@ -19,5 +20,11 @@
 <body class="bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 antialiased"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
   {% block body %}{% endblock %}
+  <script>
+    // 서비스 워커 등록: 홈 화면 앱(PWA)과 푸시 수신에 필요하다. 등록만으로는 알림 권한을 묻지 않는다.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  </script>
 </body>
 </html>
