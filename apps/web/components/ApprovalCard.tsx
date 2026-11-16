@@ -13,6 +13,7 @@ import {
   formatRemaining,
   MISMATCH_CODE,
 } from "@/lib/approvals";
+import { fieldLabel, formatFieldValue, toolDisplayName } from "@/lib/toolText";
 
 type ApprovalCardProps = {
   approval: Approval;
@@ -38,7 +39,8 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground shadow-sm"
     >
       <CardHeader status={status} />
-      <p className="break-words text-base">{approval.summary}</p>
+      {/* summary에는 「」로 감싼 외부 문자열(일정 제목)이 섞여 올 수 있다. 텍스트로만 그리고 긴 글자는 어디서든 줄을 바꾼다. */}
+      <p className="text-base wrap-anywhere">{approval.summary}</p>
       <GuardVerdictView guard={approval.guard} />
       <ToolInputDetails toolName={approval.tool_name} input={approval.tool_input} />
       {status === "pending" && <ExpiryLine expiresAt={approval.expires_at} />}
@@ -226,6 +228,8 @@ function GuardBadge({ verdict }: { verdict: NonNullable<Approval["guard"]>["verd
 }
 
 // 도구 입력값은 접어 둔다(명세: 입력값 접기). 펼치면 항목마다 한 줄.
+// 칸 이름은 한국어로(title → 제목), 시각은 "2026년 11월 20일(금) 19:00"처럼 바꿔 보여 준다(lib/toolText.ts).
+// 값은 모두 React 텍스트로만 그린다(HTML로 해석하지 않음). 메모의 줄바꿈은 그대로 보인다.
 function ToolInputDetails({
   toolName,
   input,
@@ -237,21 +241,20 @@ function ToolInputDetails({
     <details className="rounded-md border text-sm">
       <summary className="flex min-h-11 cursor-pointer items-center px-3">입력값 보기</summary>
       <dl className="flex flex-col gap-1 border-t px-3 py-2 text-xs">
-        <InputRow name="도구" value={toolName} />
+        <InputRow name="도구" text={toolDisplayName(toolName)} />
         {Object.entries(input).map(([key, value]) => (
-          <InputRow key={key} name={key} value={value} />
+          <InputRow key={key} name={fieldLabel(key)} text={formatFieldValue(value)} />
         ))}
       </dl>
     </details>
   );
 }
 
-function InputRow({ name, value }: { name: string; value: unknown }) {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
+function InputRow({ name, text }: { name: string; text: string }) {
   return (
     <div className="flex min-w-0 gap-2">
       <dt className="shrink-0 font-medium">{name}</dt>
-      <dd className="min-w-0 break-all">{text}</dd>
+      <dd className="min-w-0 whitespace-pre-wrap wrap-anywhere">{text}</dd>
     </div>
   );
 }

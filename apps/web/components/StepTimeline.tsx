@@ -10,7 +10,9 @@ import {
   TimerOff,
 } from "lucide-react";
 import { useState } from "react";
+import { ExternalContent } from "@/components/ExternalContent";
 import type { Step } from "@/lib/chat";
+import { readExternalOutput } from "@/lib/stepOutput";
 import { cn } from "@/lib/utils";
 
 type StatusView = { icon: LucideIcon; name: string; className: string; showName?: boolean };
@@ -74,11 +76,21 @@ function StepRow({ step }: { step: Step }) {
   );
 }
 
+// 외부 콘텐츠 도구의 출력({data: {notice, content, truncated}})은 JSON 덩어리 대신 ExternalContent로,
+// 그 밖의 출력은 지금처럼 JSON으로 보여 준다.
 function StepDetail({ step }: { step: Step }) {
+  const external = readExternalOutput(step.output);
   return (
-    <div className="flex flex-col gap-2 border-t px-3 py-2 text-xs">
+    <div className="flex min-w-0 flex-col gap-2 border-t px-3 py-2 text-xs">
       <JsonBlock title="입력" value={step.input} />
-      <JsonBlock title="출력" value={step.output} />
+      {external ? (
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="font-medium">출력</p>
+          <ExternalContent external={external} />
+        </div>
+      ) : (
+        <JsonBlock title="출력" value={step.output} />
+      )}
     </div>
   );
 }

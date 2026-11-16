@@ -106,15 +106,22 @@ app/
   login/page.tsx        로그인 화면
   (tabs)/layout.tsx     로그인 확인(AuthGuard) + 하단 탭
   (tabs)/chat|tasks|automation|memory|settings/page.tsx
+  (tabs)/connections/page.tsx  외부 서비스 연결(Google). 설정 탭에서 들어간다
   manifest.ts           PWA 설정(/manifest.webmanifest)
 components/             BottomTabs, ChatInput, AuthGuard, LoginForm, EmptyScreen, ui/(shadcn)
   PendingTask.tsx       답변 전 task 진행 표시(폴링: 진행 중 1초, 승인 대기 3초, 끝나면 멈춤)
   PushSettings.tsx      설정 탭의 알림 영역('알림 켜기'/끄기, 상태 표시)
   ServiceWorkerRegistrar.tsx  앱을 열 때 public/sw.js 등록
+  GoogleConnection.tsx  연결 화면의 Google 영역(상태, 연결 링크, 해제 확인)
+  CallbackNotice.tsx    Google에서 돌아왔을 때(?google=...)의 안내, 쿼리 정리
+  ExternalContent.tsx   타임라인의 외부 콘텐츠 결과(텍스트로만, http·https 링크만)
 lib/api/                schema.d.ts(자동 생성), client.ts
 lib/auth.ts             /api/auth/me, /api/auth/login 훅
 lib/chat.ts             대화·메시지·task 훅, 진행 단계(taskPhase)
 lib/approvals.ts        승인·거절 호출과 오류 문구
+lib/connections.ts      연결 상태·해제 호출, 콜백 결과 코드별 안내
+lib/stepOutput.ts       단계 출력에서 외부 콘텐츠 읽기, 안전한 링크 판정
+lib/toolText.ts         도구 칸 이름·시각을 사람이 읽는 글자로
 lib/push.ts             웹 푸시 상태 판정, 구독·해지(브라우저·서버를 인자로 받아 테스트 가능)
 lib/speech.ts           음성 입력(브라우저 SpeechRecognition, ko-KR). 결과는 입력창에만, 서버로 보내지 않음
 public/sw.js            서비스 워커: 푸시 알림 표시, 알림 클릭 시 이동(캐싱·오프라인 없음)

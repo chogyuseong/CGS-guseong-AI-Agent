@@ -17,6 +17,8 @@ type TabItem = {
   href: string;
   label: string;
   icon: LucideIcon;
+  // 이 탭 안에서 들어가는 다른 주소(예: 설정 → /connections). 그 화면에서도 이 탭을 현재 탭으로 표시한다.
+  children?: string[];
 };
 
 // 하단 탭 5개. 순서는 명세의 [화면] 절을 따른다.
@@ -25,11 +27,15 @@ export const TAB_ITEMS: TabItem[] = [
   { href: "/tasks", label: "작업 기록", icon: ListChecks },
   { href: "/automation", label: "자동화", icon: Workflow },
   { href: "/memory", label: "기억", icon: Brain },
-  { href: "/settings", label: "설정", icon: Settings },
+  { href: "/settings", label: "설정", icon: Settings, children: ["/connections"] },
 ];
 
-function isActive(pathname: string, href: string): boolean {
+function matches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function isActive(pathname: string, item: TabItem): boolean {
+  return [item.href, ...(item.children ?? [])].some((href) => matches(pathname, href));
 }
 
 // 화면 아래에 고정된 탭 막대. 아이폰 홈 바에 가리지 않게 safe-area 만큼 아래 여백을 더한다.
@@ -41,8 +47,9 @@ export function BottomTabs() {
     <nav aria-label="하단 탭" className="border-t bg-background pb-[env(safe-area-inset-bottom)]">
       <ul className="grid grid-cols-5">
         {/* map은 배열을 화면 조각 배열로 바꾼다. (템플릿의 {% for %}) key는 각 항목을 구분하는 값이다. */}
-        {TAB_ITEMS.map(({ href, label, icon: Icon }) => {
-          const active = isActive(pathname, href);
+        {TAB_ITEMS.map((item) => {
+          const { href, label, icon: Icon } = item;
+          const active = isActive(pathname, item);
           return (
             <li key={href}>
               <Link
