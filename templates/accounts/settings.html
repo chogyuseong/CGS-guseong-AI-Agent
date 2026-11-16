@@ -38,6 +38,14 @@
       <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="text-muted"><path d="M9 6l6 6-6 6"/></svg>
     </a>
 
+    <a href="{% url 'agent:usage' %}" class="flex min-h-16 items-center justify-between px-4 py-4">
+      <span>
+        <span class="block font-semibold">사용량과 비용</span>
+        <span class="block text-sm text-muted">오늘 쓴 비용, 최근 14일 호출과 토큰</span>
+      </span>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="text-muted"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+
     <form method="post" action="{% url 'settings_page:briefing' %}" class="px-4 py-5">
       {% csrf_token %}
       <h2 class="font-display text-lg font-bold">아침 브리핑</h2>

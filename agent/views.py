@@ -3,7 +3,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
-from . import approvals
+from . import approvals, usage
 from .models import Approval, Task
 
 ACTIVE_STATUSES = (Task.Status.QUEUED, Task.Status.RUNNING)
@@ -18,6 +18,14 @@ def task_list(request):
         .order_by("-created_at")[:TASK_LIST_LIMIT]
     )
     return render(request, "agent/task_list.html", {"active_tab": "tasks", "tasks": tasks})
+
+
+@login_required
+@require_GET
+def usage_page(request):
+    """본인 작업의 LLM 호출 수, 토큰, 비용. 설정 화면에서 들어온다(하단 탭은 설정이 켜진 채로)."""
+    context = {"active_tab": "settings", **usage.usage_summary(request.user)}
+    return render(request, "agent/usage.html", context)
 
 
 @login_required

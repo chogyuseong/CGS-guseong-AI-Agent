@@ -1,0 +1,90 @@
+{% extends "app_shell.html" %}
+{% load usage_extras %}
+{% block title %}사용량 · 마이에이전트{% endblock %}
+{% block header %}사용량{% endblock %}
+{% block content %}
+<section class="min-h-0 flex-1 overflow-y-auto pb-6" aria-label="사용량과 비용">
+  <a href="{% url 'settings_page:settings' %}" class="inline-flex min-h-11 items-center gap-1 px-2 text-sm text-muted">
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+    설정
+  </a>
+
+  {# 장부 한 장: 오늘 / 최근 며칠 / 모델별을 구분선으로 나눈다. 카드를 늘어놓지 않는다. #}
+  <div class="divide-y divide-line border-y border-line bg-sheet">
+
+    {# 오늘: 큰 숫자 타일 대신 문장으로 말하고, 상한까지의 막대를 자처럼 아래에 둔다 #}
+    <div class="px-4 py-5">
+      <p class="font-display text-2xl font-bold leading-snug">오늘 쓴 비용은 <span class="tabular-nums">{{ today.cost|usd }}</span>입니다</p>
+      <p class="mt-1 text-sm text-muted">하루 상한 {{ limit|usd:"short" }}의 <span class="tabular-nums">{{ today_percent|percent }}</span>, 호출 {{ today.calls|thousands }}번, 토큰 {{ today.tokens|thousands }}개</p>
+      <div class="mt-4" role="meter" aria-label="오늘 비용 상한 대비 사용률"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ today_percent|stringformat:'.1f' }}">
+        <div class="h-2 overflow-hidden rounded-full bg-paper">
+          <div class="h-2 rounded-full {% if limit_reached %}bg-warn-ink{% else %}bg-indigo{% endif %}" style="width: {{ today_percent|css_width }}"></div>
+        </div>
+        <div class="mt-1 flex justify-between text-xs text-muted tabular-nums">
+          <span>$0</span>
+          <span>상한 {{ limit|usd:"short" }}</span>
+        </div>
+      </div>
+      {% if limit_reached %}
+        <p class="mt-4 rounded-lg bg-warn-bg px-4 py-3 text-sm text-warn-ink" role="status">오늘의 비용 상한에 도달했습니다. 새 작업과 조건 감시는 내일 0시에 다시 시작합니다.</p>
+      {% endif %}
+    </div>
+
+    {# 최근 며칠: 날짜, 그날 비용의 상대 막대, 금액. 0인 날도 남겨 빈 날이 보이게 한다. #}
+    <div class="py-5">
+      <h2 class="px-4 font-display text-lg font-bold">최근 {{ days }}일</h2>
+      {% if has_usage %}
+        <p class="px-4 text-sm text-muted">합계 <span class="tabular-nums">{{ period_cost|usd }}</span>, 호출 {{ period_calls|thousands }}번, 토큰 {{ period_tokens|thousands }}개</p>
+        <ol class="mt-3 divide-y divide-line border-t border-line">
+          {% for d in daily %}
+            <li class="px-4 py-2.5 {% if not d.calls %}text-muted{% endif %}">
+              <div class="flex items-center gap-3">
+                <span class="w-[4.75rem] shrink-0 text-sm tabular-nums">{% if forloop.first %}오늘{% else %}{{ d.day|date:"n월 j일" }}{% endif %}</span>
+                <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-paper" aria-hidden="true">
+                  <span class="block h-2 rounded-full bg-indigo" style="width: {{ d.bar_percent|css_width }}"></span>
+                </span>
+                <span class="flex w-[4.75rem] shrink-0 justify-end text-sm tabular-nums">{{ d.cost|usd }}</span>
+              </div>
+              {% if d.calls %}
+                <p class="text-xs text-muted tabular-nums">호출 {{ d.calls|thousands }}번, 토큰 {{ d.tokens|thousands }}개</p>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="px-4 pt-4">
+          <p class="font-display text-lg font-bold">아직 기록된 사용량이 없습니다</p>
+          <p class="mt-1 text-muted">채팅에서 일을 맡기면 모델을 부를 때마다 호출 수, 토큰, 비용이 여기에 쌓입니다.</p>
+          <a href="{% url 'chat:home' %}" class="mt-5 inline-flex h-12 items-center rounded-lg bg-indigo px-5 font-semibold text-on-indigo">채팅으로 가기</a>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if by_model %}
+      <div class="py-5">
+        <h2 class="px-4 font-display text-lg font-bold">모델별</h2>
+        <p class="px-4 text-sm text-muted">최근 {{ days }}일</p>
+        <ul class="mt-3 divide-y divide-line border-t border-line">
+          {% for m in by_model %}
+            <li class="px-4 py-3">
+              <div class="flex items-baseline justify-between gap-3">
+                <span class="min-w-0 flex-1 truncate font-medium">{{ m.model }}</span>
+                <span class="shrink-0 text-sm tabular-nums">{{ m.cost|usd }}</span>
+              </div>
+              <p class="text-xs text-muted tabular-nums">호출 {{ m.calls|thousands }}번, 토큰 {{ m.tokens|thousands }}개</p>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <div class="px-4 py-4">
+      <div class="space-y-1 border-l-2 border-line pl-3 text-xs text-muted">
+        <p>비용은 토큰 수에 공식 가격표를 곱해 계산한 값입니다. 실제 청구 금액과 조금 다를 수 있습니다.</p>
+        <p>조건 감시의 판단 비용은 특정 작업에 묶이지 않아 이 화면에 들어가지 않지만, 하루 상한에는 포함됩니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
