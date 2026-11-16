@@ -37,6 +37,10 @@
 - API 검사: `pnpm api:check` (ruff check, ruff format --check, pyright)
 - 웹 테스트·검사: apps/web의 package.json 스크립트를 따른다
 - API를 바꾸면: `pnpm --dir apps/web gen:api`
+- eval(apps/api에서): `uv run python -m evals.run_evals`는 예상 비용만 보여 준다(모델 호출 없음).
+  실제 실행은 `uv run python -m evals.run_evals --run --email 이메일 --confirm-cost`이고 비용이 든다 — 사용자 확인 후에만.
+  dataset.yaml이 "초안 — 사용자 확인 전"이면 거부한다. 버리는 DB `myagent_eval`을 만들고 지운다. 자세한 것은 docs/EVALS.md.
+- 관찰: `.env`의 `LOGFIRE_TOKEN`이 비면 Logfire로 아무것도 보내지 않는다. 트레이스 모양·확인 절차는 docs/OBSERVABILITY.md.
 - DB를 바꾸면 (apps/api에서):
   - `uv run python -m alembic revision --autogenerate -m "설명"`
   - 생성된 파일을 읽고 확인한 뒤 `uv run python -m alembic upgrade head`
@@ -122,6 +126,9 @@
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
 - `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트
+- 8단계: `app/observability.py` Logfire 설정·가리기(내용 미포함, 쿼리·예외 메시지 지움) / `app/usage_report.py` 비용 화면 합계
+  (`GET /api/usage`) / `evals/` eval 데이터·평가기·실행기(승인하지 않음, 가짜 외부 API, 버리는 DB)
+- 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.
 - 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
   (메일 결과는 steps.output·message_history에 500자만)와 `MEMORY_BLOCKING_TOOLS`(remember 검사: 외부 콘텐츠 + 메모·할 일 조회),
   도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`/api/connections/google/start?scope=mail`)

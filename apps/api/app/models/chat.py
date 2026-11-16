@@ -1,4 +1,5 @@
 from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import TimestampedTable, enum_type
@@ -24,3 +25,6 @@ class Message(TimestampedTable):
     content: Mapped[str] = mapped_column(Text)
     # tasks.trigger_message_id와 서로를 가리키는 순환 참조라서 use_alter로 테이블을 다 만든 뒤 FK를 추가한다.
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL", use_alter=True), index=True)
+    # 8단계 추가: 조건 감시 알림의 출처 링크(감시 도구 결과의 sources). 그 밖의 메시지는 null.
+    # 본문의 "출처:" 줄을 파싱하지 않게 따로 둔다(요약 글은 외부 글의 영향을 받은 모델 출력이라 줄을 꾸밀 수 있다).
+    sources: Mapped[list[str] | None] = mapped_column(JSONB)

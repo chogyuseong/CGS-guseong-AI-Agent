@@ -19,8 +19,8 @@
   5단계 기억          완료(2026-11-17)  remember·forget, 기억 탭. 실제 모델로 저장·반영·거부 확인
   6단계 예약·감시     완료(2026-11-17)  자동화 탭, [제안] 버튼, '예약 작업' 대화방. 실제 모델로 예약·감시 만들기 확인
   7단계 음성·메일     음성 입력 완료, 메일 읽기 API 완료(2026-11-17). '메일 읽기 권한 추가' 버튼 진행 중
-  8단계 평가·관찰     진행 중(Logfire 연결, eval 사례 초안. 실제 eval 실행은 사례 확인 뒤)
-  9단계 마무리        화면 폭 점검과 비용 화면 진행 중. 배포처 선택은 직접 정하실 일
+  8단계 평가·관찰     구현 완료(2026-11-17)  Logfire 연결(토큰 없으면 전송 안 함), eval 사례 30개 초안과 평가기
+  9단계 마무리        화면 폭 점검 완료, 비용 API 완료. 비용 화면과 README 진행 중. 배포처 선택은 직접 정하실 일
 
 3단계 화면에서 만든 것:
   - 설정 탭의 '알림 켜기'(상태: 지원 안 함 / 서버에 키 없음 / 권한 거부됨 / 켜짐 / 꺼짐), public/sw.js
@@ -100,6 +100,19 @@
     넘어가는 경로를 막기 위해)
   - pytest 330개 통과. Gmail 응답 fixture는 문서 형식으로 만든 것
   - 직접 하실 일: Google Cloud 콘솔에서 Gmail API 사용 설정, 동의 화면 범위에 .../auth/gmail.readonly 추가
+
+8단계와 비용 API에서 만든 것:
+  - Logfire: .env의 LOGFIRE_TOKEN이 비어 있으면 아무것도 보내지 않는다. 넣어도 프롬프트·답변·도구 결과
+    (메일 본문 포함)는 트레이스에 들어가지 않는다. 확인 절차는 docs/OBSERVABILITY.md
+  - eval: apps/api/evals/dataset.yaml에 사례 30개(초안). 실행 방법과 예상 비용은 docs/EVALS.md
+      uv run python -m evals.run_evals                              예상 비용만 출력
+      uv run python -m evals.run_evals --run --email 이메일 --confirm-cost   실제 실행(약 $0.04~0.07)
+    외부 API는 가짜 응답, 버리는 DB 사용, 승인은 하지 않는다
+  - GET /api/usage?days=14 (일별·용도별·모델별 합계, 오늘 남은 한도)
+  - 메시지 응답에 origin(chat/schedule/watch)과 sources 추가. 마이그레이션 a45125a7f4d9
+  - 새 의존성 logfire, pydantic-evals. 새 컴퓨터에서 uv sync와 pnpm db:migrate 필요
+  - pytest 357개 통과
+  - 직접 하실 일: dataset.yaml의 사례 30개를 읽고 고친 뒤 맨 위 "초안" 표시 지우기
 
 직접 하실 일 (Google 연결, 제가 대신할 수 없음):
   1) Google Cloud 콘솔 > 사용자 인증 정보 > OAuth 클라이언트 > 승인된 리디렉션 URI에

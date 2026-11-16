@@ -1,10 +1,12 @@
-# 구조 (7단계 기준)
+# 구조 (8단계 기준)
 
 마이에이전트는 화면(Next.js)과 에이전트 서버(FastAPI)를 나눈 모노레포다.
 1단계까지: 로그인, 모든 테이블, 채팅 메시지 → 에이전트 실행(메모·할 일 도구) → 작업 기록 조회.
 2단계: EXTERNAL 도구의 승인(이중 방어), 감시 에이전트, 승인·거절 API(화면의 승인 카드는 별도 작업).
 3단계(API): 실행을 DBOS 워크플로로 옮겨 API는 바로 응답(202)하고 서버가 죽었다 살아나도 이어서 실행, 웹 푸시 구독·발송.
 6단계(API): 예약 작업·조건 감시·아침 브리핑. DBOS 예약 실행으로 1분마다 검사(아래 "자동화" 절), 자동화 화면 API.
+8단계(API): Logfire 관찰(토큰 없으면 전송 없음, 내용 미포함, `docs/OBSERVABILITY.md`), Pydantic Evals 실행기(`docs/EVALS.md`),
+비용 API(`GET /api/usage`, 9단계 2번의 API 부분), 메시지 출처(origin·sources).
 
 ## 구성
 
@@ -29,6 +31,9 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | 파일 | 역할 |
 | --- | --- |
 | `app/main.py` | `create_app(settings)`: 앱, 미들웨어, 라우터, 에이전트, 전송 제한기, 워크플로 시작기, 푸시 전송기, 외부 API HTTP 클라이언트(`app.state.http_client`) 조립. lifespan에서 DBOS 시작·복구·종료, HTTP 클라이언트 닫기. uvicorn은 `--factory`로 부른다 |
+| `app/observability.py` | 8단계 Logfire: `configure_observability(settings)`(토큰 없으면 send_to_logfire=False, Pydantic AI 계측 include_content=False, 가리기 패턴, 예외 메시지 지우기), `instrument_app(app)`(FastAPI 계측: 헤더·인자 값·쿼리 없음, 구글 콜백 제외). `create_app`이 부른다 |
+| `app/usage_report.py` | 8단계(9단계 2번 API): 비용 화면 합계(일별·용도별·모델별·오늘 남은 한도). 날짜 경계는 `budget.seoul_day_start`와 같다 |
+| `evals/` | 8단계 eval: `dataset.yaml`(30개, 초안), 평가기, 실행기(버리는 DB·가짜 외부 API·승인 안 함), 예상 비용, `python -m evals.run_evals`. `docs/EVALS.md` |
 | `app/push.py` | 웹 푸시: `PushNotifier.notify(user_id, kind, url)`, kind별 고정 문구, 404·410 구독 삭제, pywebpush 전송기 |
 | `app/config.py` | `.env`를 읽는 Settings(pydantic-settings), `MODEL_PRICES`(공식 가격) |
 | `app/db.py` | 비동기 엔진, 요청마다 세션 하나를 주는 `get_session`/`DbSession` |
@@ -39,12 +44,12 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | `app/event_loop.py` | Windows에서 SelectorEventLoop를 쓰는 이유와 CLI용 `run_async` |
 | `app/models/` | 15개 테이블 |
 | `app/schemas/` | 요청·응답 Pydantic 모델(웹이 OpenAPI로 타입 생성) |
-| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계), memories(5단계), automations(6단계: schedules, watches) |
+| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계), memories(5단계), automations(6단계: schedules, watches), usage(8단계: 비용 화면) |
 | `app/automation/` | 6단계 자동화: `rules.py`(제한 값, 서울 시각 계산), `store.py`(예약·감시 만들기·켜기·끄기·지우기와 서버 제한, '예약 작업' 대화방, 아침 브리핑 기본 예약), `watchable.py`(감시에 쓸 수 있는 READ 도구 검사·실행), `watch.py`(감시 판정 에이전트 WatchVerdict), `check.py`(1분 검사·예약 실행·감시 실행 본문) |
 | `app/agent/` | 에이전트(아래 절) |
 | `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 5단계: `memories.py`(remember 서버 검사, forget, list_memories). 6단계: `automation.py`(create·list·delete_schedule, create·list·delete_watch). 7단계: `gmail.py`(list_mail, read_mail), `mail_text.py`(MIME 부분 트리·HTML → 텍스트, 표준 라이브러리만). 엔드포인트·한도 요약은 `docs/TOOLS.md` |
 | `alembic/` | 마이그레이션. env.py는 동기 엔진(같은 psycopg 3 드라이버) |
-| `tests/` | pytest. DB·DBOS 픽스처는 `tests/conftest.py` 한 곳, 가짜 모델 대본은 `tests/model_scripts.py`(DBOS에 등록된 가짜 모델 하나), 테스트 전용 EXTERNAL 도구는 `tests/fake_tools.py`, 가짜 푸시 전송기는 `tests/fake_push.py`, 가짜 외부 HTTP는 `tests/fake_http.py`, 외부 API 응답은 `tests/fixtures/`(실제 녹화본과 문서 형식으로 만든 것의 구분은 그 폴더의 README.md) |
+| `tests/` | pytest. 8단계: `test_observability.py`(메모리 exporter로 트레이스 가리기 확인), `test_evals.py`(가짜 모델로 eval 실행기·평가기), `test_usage_api.py`, `test_message_origin.py`. DB·DBOS 픽스처는 `tests/conftest.py` 한 곳, 가짜 모델 대본은 `tests/model_scripts.py`(DBOS에 등록된 가짜 모델 하나), 테스트 전용 EXTERNAL 도구는 `tests/fake_tools.py`, 가짜 푸시 전송기는 `tests/fake_push.py`, 가짜 외부 HTTP는 `tests/fake_http.py`, 외부 API 응답은 `tests/fixtures/`(실제 녹화본과 문서 형식으로 만든 것의 구분은 그 폴더의 README.md) |
 
 ### API (3단계)
 
@@ -55,8 +60,9 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | POST | `/api/auth/logout` | 204 |
 | GET | `/api/auth/me` | 200 `{"id", "email"}` / 401 |
 | GET | `/api/conversations` | 내 대화 목록(최근 활동순) |
-| POST | `/api/conversations` | 201 대화 생성. 본문 `{"title"?}`, 비우면 "새 대화" |
-| GET | `/api/conversations/{id}/messages` | 내 대화의 메시지(오래된 순). 남의 대화·없는 대화는 404 |
+| POST | `/api/conversations` | 201 대화 생성. 본문 `{"title"?}`, 비우면 "새 대화". 8단계: 제목 "예약 작업"(앞뒤 공백 무시)은 422(자동 실행 결과용 대화방 이름) |
+| GET | `/api/conversations/{id}/messages` | 내 대화의 메시지(오래된 순). 남의 대화·없는 대화는 404. 한 건 = `id, role, content, task_id, created_at` + 8단계 추가 `origin`(`chat`: 사용자 메시지와 채팅 답변 / `schedule`: 예약 작업 결과 / `watch`: 조건 감시 알림), `sources`(감시 알림의 출처 링크 목록, 그 밖은 `[]`) |
+| GET | `/api/usage?days=14` | 8단계(9단계 2번 비용 화면). `days` 1~90(기본 14). 200 `{timezone: "Asia/Seoul", days: [{date, input_tokens, output_tokens, total_tokens, cost_usd, calls}] (오래된 날부터, 사용 없는 날도 0, 길이 = days), by_purpose: [{purpose(agent·guard·watch·eval 항상 4개), …합계}], by_model: [{model, …합계}] (비용 큰 순), total: {…합계}, today: {date, cost_usd, limit_usd, remaining_usd(0 아래 없음), exceeded}}`. 금액은 달러 숫자(소수 6자리). 날짜는 하루 비용 상한 검사와 같은 서울 0시 경계 |
 | POST | `/api/conversations/{id}/messages` | 202 `{"task_id"}`. 본문 `{"content"}`(1~4,000자). **3단계: run_task 워크플로를 시작만 하고 바로 응답**(그 시점 task는 보통 queued). 분당 20회 초과 429 |
 | GET | `/api/tasks` | 최근 작업 목록(`?limit=1~100`, 기본 30) |
 | GET | `/api/tasks/{id}` | 상태, steps, final_answer, error, approvals(그 작업의 모든 승인, step 순서). 화면은 이것을 1초마다 폴링한다 |
@@ -237,6 +243,8 @@ origin이 chat이면 4개 toolset(read_tools, internal_tools, mail_tools, extern
   예외(6단계): 예약 작업 task는 사용자 메시지 없이(trigger_message_id null) assistant 답변만 있고, 감시 충족 알림은 task 없이(task_id null)
   '예약 작업' 대화방에 assistant 메시지로 남는다.
 - `scheduled_jobs.last_task_id`(6단계 추가, FK SET NULL): 마지막 실행 task. `users.briefing_seeded_at`(6단계 추가): 아침 브리핑을 만들어 준 시각.
+- `messages.sources`(8단계 추가, JSONB, null 허용, 마이그레이션 `a45125a7f4d9`): 조건 감시 알림의 출처 링크. 그 밖의 메시지는 null.
+  메시지 출처(`origin`)는 컬럼이 아니라 계산한다: 사용자 메시지 → chat, task가 있으면 그 task의 origin, task 없는 답변 → watch.
 
 ## 자동화 (6단계)
 

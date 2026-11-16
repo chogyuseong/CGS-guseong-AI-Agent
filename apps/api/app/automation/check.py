@@ -350,7 +350,11 @@ async def notify_met(
     conversation = await store.automation_conversation(session, watch.user_id)
     session.add(
         Message(
-            conversation_id=conversation.id, role=MessageRole.ASSISTANT, content=met_message(watch, review, result, now)
+            conversation_id=conversation.id,
+            role=MessageRole.ASSISTANT,
+            content=met_message(watch, review, result, now),
+            # 8단계: 화면이 본문을 파싱하지 않고 출처 링크를 그릴 수 있게 따로 저장한다.
+            sources=list(result.sources),
         )
     )
     conversation.updated_at = func.now()

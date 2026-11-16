@@ -28,6 +28,7 @@ from app.agent.guard import build_guard_agent
 from app.automation.watch import build_watch_agent
 from app.config import Settings, get_settings
 from app.db import create_engine_for, create_session_factory
+from app.observability import configure_observability, instrument_app
 from app.push import send_with_pywebpush
 from app.rate_limit import SlidingWindowRateLimiter
 from app.routers import api_router
@@ -56,6 +57,9 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     # Pydantic AI 2.68은 첫 실행 때 Logfire 안내 배너를 터미널에 찍는다. 서버 로그를 어지럽히므로 끈다.
     # (PYDANTIC_AI_NO_BANNER 환경변수와 같은 효과. 설치된 버전의 pydantic_ai.BANNER_ENABLED 문서 참고)
     pydantic_ai.BANNER_ENABLED = False
+    # 8단계: Logfire. 토큰이 없으면 아무것도 보내지 않고, 내용(프롬프트·도구 결과)은 넣지 않는다(app/observability.py).
+    # 에이전트를 만들기 전에 설정해야 Agent 계측이 처음부터 적용된다.
+    configure_observability(settings)
     engine = create_engine_for(settings.database_url)
     app = FastAPI(
         title="마이에이전트 API",
@@ -83,4 +87,5 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     workflows.bind_app_state(app.state)
     add_security_middleware(app, settings)
     app.include_router(api_router)
+    instrument_app(app)
     return app

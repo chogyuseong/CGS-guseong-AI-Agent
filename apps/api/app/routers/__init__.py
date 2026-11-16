@@ -2,7 +2,18 @@
 
 from fastapi import APIRouter
 
-from app.routers import approvals, auth, automations, connections, conversations, health, memories, push, tasks
+from app.routers import (
+    approvals,
+    auth,
+    automations,
+    connections,
+    conversations,
+    health,
+    memories,
+    push,
+    tasks,
+    usage,
+)
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)
@@ -14,3 +25,4 @@ api_router.include_router(push.router)
 api_router.include_router(connections.router)
 api_router.include_router(memories.router)
 api_router.include_router(automations.router)
+api_router.include_router(usage.router)  # 9단계 2번: 비용 화면

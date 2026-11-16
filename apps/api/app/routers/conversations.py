@@ -18,6 +18,7 @@ from app.schemas.conversations import (
     ConversationCreate,
     ConversationOut,
     MessageCreate,
+    MessageOrigin,
     MessageOut,
     TaskCreated,
 )
@@ -54,13 +55,37 @@ async def create_conversation(body: ConversationCreate, user: CurrentUser, sessi
     return ConversationOut.model_validate(conversation)
 
 
+def message_origin(message: Message, task_origin: TaskOrigin | None) -> MessageOrigin:
+    """메시지 출처. task가 있으면 그 task의 origin, task 없는 답변은 조건 감시 알림(app/automation/check.py)뿐이다."""
+    if message.role == MessageRole.USER:
+        return "chat"
+    if task_origin is not None:
+        return task_origin.value
+    return "watch"
+
+
+def message_out(message: Message, task_origin: TaskOrigin | None) -> MessageOut:
+    return MessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        task_id=message.task_id,
+        created_at=message.created_at,
+        origin=message_origin(message, task_origin),
+        sources=list(message.sources or []),
+    )
+
+
 @router.get("/{conversation_id}/messages")
 async def list_messages(conversation_id: int, user: CurrentUser, session: DbSession) -> list[MessageOut]:
     conversation = await get_owned_conversation(session, conversation_id, user.id)
-    rows = await session.scalars(
-        select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at, Message.id)
+    rows = await session.execute(
+        select(Message, Task.origin)
+        .outerjoin(Task, Task.id == Message.task_id)
+        .where(Message.conversation_id == conversation.id)
+        .order_by(Message.created_at, Message.id)
     )
-    return [MessageOut.model_validate(row) for row in rows]
+    return [message_out(message, origin) for message, origin in rows]
 
 
 @router.post(
