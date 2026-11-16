@@ -36,6 +36,8 @@ class StepStatus(StrEnum):
     DONE = "done"
     FAILED = "failed"
     REJECTED = "rejected"
+    # 2단계 추가: 승인을 30분 안에 결정하지 않아 실행하지 않은 EXTERNAL 호출.
+    EXPIRED = "expired"
 
 
 class ApprovalStatus(StrEnum):

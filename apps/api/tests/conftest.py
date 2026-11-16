@@ -8,6 +8,9 @@
 - 3단계에서 DBOS가 자체 연결로 DB에 쓰면 이 "되돌리기" 방식으로는 지울 수 없다.
   그때는 db_connection/session_factory 픽스처만 "테이블 비우기(TRUNCATE)" 방식으로 바꾸면 된다.
 - 실제 LLM 요청은 전역으로 막는다. 테스트는 agent.override(model=FunctionModel(...))로 가짜 모델을 끼운다.
+  감시 에이전트도 guard.override(model=...)로 끼운다. 끼우지 않으면 키가 없어 실패하고 unsure로 기록된다.
+- 2단계: fake_external_counter 픽스처가 테스트 전용 EXTERNAL 도구(tests/fake_tools.py)를 chat 도구 묶음에 잠시 넣는다.
+  동시 승인 테스트만 committed_app(연결을 따로 여는 실제 커밋 + TRUNCATE 정리)을 쓴다.
 """
 
 import asyncio
@@ -28,11 +31,22 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionm
 from sqlalchemy.pool import NullPool
 
 from app.agent.agent import MyAgent
+from app.agent.guard import GuardAgent
+from app.agent.toolsets import (
+    TOOL_LABELS,
+    TOOL_PREVIEWS,
+    TOOLSETS_BY_ORIGIN,
+    build_external_toolset,
+    internal_tools,
+    read_tools,
+)
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
 from app.models import User
+from app.models.enums import TaskOrigin
 from app.security import hash_password
+from tests.fake_tools import COUNTER, FakeExternalCounter, fake_external, preview_fake_external
 
 # 테스트에서는 실제 LLM 요청을 전역으로 막는다. 가짜 모델(FunctionModel, TestModel)만 쓴다.
 models.ALLOW_MODEL_REQUESTS = False
@@ -143,11 +157,58 @@ def agent(app: FastAPI) -> MyAgent:
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+def guard(app: FastAPI) -> GuardAgent:
+    """앱이 쓰는 감시 에이전트. 끼우지 않으면 키가 없어 실패하고 unsure로 기록된다."""
+    return app.state.guard_agent
+
+
+@pytest.fixture
+def fake_external_counter(monkeypatch: pytest.MonkeyPatch) -> FakeExternalCounter:
+    """chat task의 EXTERNAL 도구 묶음에 테스트 전용 fake_external을 넣는다(테스트가 끝나면 원래대로)."""
+    COUNTER.calls.clear()
+    external = build_external_toolset([fake_external])
+    monkeypatch.setitem(TOOLSETS_BY_ORIGIN, TaskOrigin.CHAT, [read_tools, internal_tools, external])
+    monkeypatch.setitem(TOOL_PREVIEWS, "fake_external", preview_fake_external)
+    monkeypatch.setitem(TOOL_LABELS, "fake_external", lambda args: "가짜 외부 도구 실행하는 중")
+    return COUNTER
+
+
+def make_client(app: FastAPI) -> httpx.AsyncClient:
     transport = httpx.ASGITransport(app=app)
     headers = {"Origin": TEST_ORIGIN}
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver", headers=headers) as http:
+    return httpx.AsyncClient(transport=transport, base_url="http://testserver", headers=headers)
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    async with make_client(app) as http:
         yield http
+
+
+# ---- 실제로 커밋하는 DB (동시 요청 테스트 전용) ----
+# 위의 session_factory는 연결 하나를 공유하므로 두 요청이 진짜로 동시에 DB를 잠그는 상황을 만들 수 없다.
+# 동시 승인 테스트만 연결을 따로 여는 엔진을 쓰고, 끝나면 users를 TRUNCATE ... CASCADE로 비운다.
+# 이 픽스처는 db_connection(바깥 트랜잭션) 픽스처와 같은 테스트에서 함께 쓰지 않는다(TRUNCATE가 잠금을 기다린다).
+
+
+@pytest.fixture
+async def committed_app(migrated_database_url: str, test_settings: Settings) -> AsyncIterator[FastAPI]:
+    engine = create_async_engine(migrated_database_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    application = create_app(test_settings)
+    application.state.session_factory = factory
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    application.dependency_overrides[get_session] = override_get_session
+    try:
+        yield application
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text("TRUNCATE users RESTART IDENTITY CASCADE"))
+        await engine.dispose()
 
 
 @pytest.fixture

@@ -9,9 +9,11 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import pydantic_ai
 from fastapi import FastAPI
 
 from app.agent.agent import build_agent
+from app.agent.guard import build_guard_agent
 from app.config import Settings, get_settings
 from app.db import create_engine_for, create_session_factory
 from app.rate_limit import SlidingWindowRateLimiter
@@ -21,6 +23,9 @@ from app.security import add_security_middleware
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    # Pydantic AI 2.68은 첫 실행 때 Logfire 안내 배너를 터미널에 찍는다. 서버 로그를 어지럽히므로 끈다.
+    # (PYDANTIC_AI_NO_BANNER 환경변수와 같은 효과. 설치된 버전의 pydantic_ai.BANNER_ENABLED 문서 참고)
+    pydantic_ai.BANNER_ENABLED = False
     engine = create_engine_for(settings.database_url)
 
     @asynccontextmanager
@@ -42,6 +47,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(engine)
     # 에이전트는 앱마다 한 번 만든다(3단계 DBOS는 워크플로 시작 전에 Agent가 만들어져 있기를 요구한다).
     app.state.agent = build_agent(settings)
+    # 감시 에이전트(도구 없음, AGENT_MODEL_GUARD). EXTERNAL 승인 요청마다 한 번 검사한다.
+    app.state.guard_agent = build_guard_agent(settings)
     app.state.message_rate_limiter = SlidingWindowRateLimiter()
     add_security_middleware(app, settings)
     app.include_router(api_router)

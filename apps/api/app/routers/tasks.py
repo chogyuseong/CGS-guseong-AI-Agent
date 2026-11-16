@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 
 from app.db import DbSession
 from app.models import Message, Step, Task
+from app.routers.approvals import approvals_of_task
 from app.schemas.tasks import StepOut, TaskDetail, TaskSummary
 from app.security import CurrentUser
 
@@ -50,7 +51,7 @@ def summary_of(task: Task, request_text: str | None, step_count: int) -> TaskSum
 
 @router.get("/{task_id}")
 async def get_task(task_id: int, user: CurrentUser, session: DbSession) -> TaskDetail:
-    """작업 상태와 단계(steps). 승인 대기 목록(approvals)은 2단계부터 채워진다."""
+    """작업 상태와 단계(steps), 승인 카드(approvals: 모든 상태, step 순서)."""
     task = await session.scalar(select(Task).where(Task.id == task_id, Task.user_id == user.id))
     if task is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="작업을 찾을 수 없습니다.")
@@ -67,5 +68,5 @@ async def get_task(task_id: int, user: CurrentUser, session: DbSession) -> TaskD
         created_at=task.created_at,
         updated_at=task.updated_at,
         steps=[StepOut.model_validate(step) for step in steps],
-        approvals=[],
+        approvals=await approvals_of_task(session, task.id),
     )

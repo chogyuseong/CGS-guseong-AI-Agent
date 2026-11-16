@@ -71,14 +71,41 @@
 - 2026-11-16 시스템 프롬프트 파일(`app/agent/prompts.py`)은 ruff 줄 길이 검사에서 뺀다. 명세 문장을 줄바꿈 없이 그대로 옮기기 위해서다.
 - 2026-11-16 테스트의 세션 공장은 테스트 연결 하나 위에서 SAVEPOINT로 묶는다. 앱처럼 요청·실행기·도구가 세션을 여러 개 열어도 테스트가 끝나면 함께 되돌아간다.
 
+## 2단계 (2026-11-17)
+
+### 예정된 결정에서 옮겨 와 구현한 것
+- 2026-11-17 승인 API는 pending 여부와 함께 `expires_at`도 직접 검사한다. 만료 정리 작업은 6단계에 생기므로, 그 전에도 만료된 승인이 승인되면 안 된다.
+- 2026-11-17 step 상태에 `expired`를 더했다(마이그레이션 `fdef064b5c87`, CHECK 제약 교체). 만료된 승인의 step을 failed나 rejected로 적으면 "사용자가 거절함"과 구별되지 않는다.
+- 2026-11-17 재개한 run은 이 task의 앞선 run 사용량(usage_logs의 agent 행 합계: 요청 수, 입력·출력 토큰)을 `agent.run(usage=RunUsage(...))`로 이어받는다. 승인을 끼워 넣어 run을 나눠도 상한을 피할 수 없다. (Pydantic AI는 넘긴 RunUsage를 제자리에서 고치므로 매번 DB에서 새로 만든다.)
+
+### 사용자가 정한 것
+- 2026-11-17 Pydantic AI의 Logfire 안내 배너는 `create_app`에서 `pydantic_ai.BANNER_ENABLED = False`로 끈다. 설치된 2.68 문서상 `PYDANTIC_AI_NO_BANNER`와 같은 효과이고, `.env`에 의존하지 않는다.
+- 2026-11-17 시스템 프롬프트의 "어디에 저장했는지 정확히 말한다" 뒤에 "묻지 않은 '하지 않은 일'은 덧붙이지 않는다"를 더했다. 할 일을 저장할 때마다 "구글 캘린더에는 넣지 않았습니다"가 붙었다.
+
+### 구현하며 정한 것
+- 2026-11-17 Pydantic AI 2.68에서 `requires_approval` 도구는 첫 run에서 실행되지 않아 도구 hook(StepTracking)도 불리지 않는다(실험으로 확인). 그래서 EXTERNAL step 행은 승인 요청을 저장할 때 waiting_approval로 만들고, 재개 run의 hook은 같은 tool_call_id 행을 그대로 쓴다. 거절된 호출은 hook이 불리지 않아 decide가 정한 rejected로 남는다.
+- 2026-11-17 `assert_approved`는 통과하면서 step을 waiting_approval → running으로 바꾼다(승인·step 행 잠금 안에서). 승인 한 건으로 도구가 두 번 실행될 수 없다. 도구 이름이 step과 다르면 막는다.
+- 2026-11-17 `decide`는 task 행 → 승인 행 순서로 잠근다. 같은 task의 서로 다른 승인을 동시에 결정해도 "마지막 결정"을 정확히 하나만 알아챈다(승인 행만 잠그면 둘 다 "아직 pending이 남았다"고 볼 수 있다).
+- 2026-11-17 재개는 `runner.resume_task(services, task_id)` 하나로 모았다. 승인 API는 마지막 결정 뒤 이 함수를 기다렸다 응답한다(1단계 메시지 전송과 같은 방식). 3단계에서 `resume_task` 워크플로가 이 함수를 부르면 된다. 이 함수는 task를 잠그고 waiting_approval이며 pending이 없을 때만 running으로 바꾸므로 여러 번 불려도 한 번만 실행된다.
+- 2026-11-17 재개할 때 결과를 넘길 호출은 이 task 기록에서 "결과(ToolReturnPart)가 없는 도구 호출"로 계산한다. Pydantic AI는 대기 중인 호출 전부에 결과가 있어야 하고 남는 id가 있으면 오류를 낸다(실험으로 확인). 재개 run이 또 EXTERNAL을 부르면 같은 task가 다시 승인 대기가 된다.
+- 2026-11-17 승인 대기 task의 기록은 결과 없는 도구 호출까지 그대로 저장한다(재개에 필요). 대신 다음 task가 이전 기록을 이어받을 때 끝나지 않은 task(queued, running, waiting_approval)는 빼고, 나머지도 `finalize_for_storage`로 정리해서 넣는다(취소된 task의 결과 없는 호출 제거).
+- 2026-11-17 승인 대기 중에는 assistant 메시지를 남기지 않는다. 화면은 승인 카드를 보여 주고, 답변은 재개 run이 끝날 때 한 번만 남는다.
+- 2026-11-17 만료를 발견하면 그 task의 pending 승인을 모두 expired, 그 step을 expired, task를 cancelled로 바꾸고 assistant 메시지 한 줄(고정 문구)을 남긴다. 명세 "30분 안에 결정되지 않으면 expired, task는 cancelled"를 따르고, 메시지는 1단계의 실패 메시지 규칙과 맞췄다.
+- 2026-11-17 감시 판정이 mismatch인 승인은 요청 본문에 `confirm_mismatch=true`가 없으면 409(`mismatch_confirmation_required`)다. 명세의 "한 번 더 묻기"는 화면 몫이지만 서버도 강제해 화면 버그로 건너뛸 수 없게 했다. 거절에는 확인이 필요 없다.
+- 2026-11-17 승인 API 오류는 `detail: {code, message}`로 준다(404 not_found, 409 mismatch_confirmation_required·task_not_waiting, 410 approval_expired). 화면이 문구가 아니라 code로 분기하게 하려는 것이다.
+- 2026-11-17 `GET /api/tasks/{id}`의 approvals는 대기 중인 것만이 아니라 그 task의 모든 승인(상태 포함, step 순서)을 준다. 명세는 "대기 중인 approvals"지만 거절·만료 이력도 카드로 보여 줄 수 있고, 화면은 pending만 골라 버튼을 그리면 된다.
+- 2026-11-17 감시 에이전트는 `check_action`의 인자가 네 가지(요청 문장, 도구 이름, 도구 입력, preview)뿐인 별도 Agent다. 원래 요청 문장은 task를 시작한 메시지(`trigger_message_id`)에서 읽는다. 결과는 approvals와 같은 트랜잭션에 guard_checks로, 사용량은 usage_logs(purpose=guard, task_id 포함)로 저장한다. 호출 실패·형식 오류는 unsure이고 사용량을 알 수 없으면 usage_logs를 남기지 않는다.
+- 2026-11-17 감시는 승인 요청을 DB에 저장하기 전에(트랜잭션 밖에서) 부른다. 모델 호출 동안 DB 트랜잭션을 열어 두지 않기 위해서다.
+- 2026-11-17 preview 함수는 `toolsets.TOOL_PREVIEWS`(도구 이름 → `async (deps, args) -> str`)에 등록한다. 없거나 실패하면 "도구 이름 + 입력값" 문장으로 대신한다(승인 요청을 막지 않는다).
+- 2026-11-17 `build_external_toolset(tools, requires_approval=True)`로 EXTERNAL toolset 설정을 한 곳에 모았다. 테스트는 이 함수로 fake_external 묶음을 만들어 `TOOLSETS_BY_ORIGIN`에 잠시 끼운다(운영 코드에는 등록되지 않는다). `requires_approval=False`는 이중 방어 테스트에서만 쓴다.
+- 2026-11-17 동시 승인 테스트는 연결 하나를 공유하는 기존 SAVEPOINT 픽스처로는 진짜 잠금 경쟁을 만들 수 없어, 그 테스트만 연결을 따로 여는 엔진(`committed_app`)으로 실제 커밋하고 끝나면 `TRUNCATE users ... CASCADE`로 비운다.
+- 2026-11-17 `build_model_resolver`는 deps 타입을 가리지 않게(`ModelResolutionContext[Any]`) 바꿔 메인·감시 에이전트가 함께 쓴다.
+
 ## 예정된 결정 (아직 구현하지 않음)
 
-### 2단계: 승인
-- 승인 API는 pending 여부와 함께 `expires_at`도 직접 검사한다. 만료 정리 작업은 6단계에 생기므로, 그 전에도 만료된 승인이 승인되면 안 된다.
-- 만료된 승인의 step 상태 값이 필요하다(현재 step 상태에는 expired가 없다). 2단계에서 값을 더하는 마이그레이션을 만든다.
-- 재개한 run은 이전 run의 사용량을 이어받아 상한을 계산한다(`agent.run(usage=...)`로 넘김). 그래야 승인을 끼워 넣는 것으로 상한을 피할 수 없다.
-
 ### 3단계: 내구성 실행
+- 승인 API가 지금은 재개 run이 끝날 때까지 기다린다. 3단계에서 `resume_task` 워크플로(ID: task id + 재개 번호)를 시작하고 바로 응답하게 바꾼다. 재개 번호를 무엇으로 셀지(예: 그 task가 승인 대기 → 재개를 반복한 횟수) 3단계 시작 때 정한다.
+- 재개 직전 하루 비용 상한에 걸려 budget_exceeded로 끝난 task의 승인된 step은 waiting_approval로 남는다. 상태를 따로 둘지 3단계에서 정한다.
 - 외부 도구 실행 도중 서버가 죽으면 다시 실행하지 않는다. 호출 전에 step을 "시작됨"으로 표시하고, 복구 때 시작됨인 외부 도구 step은 "실행 여부를 확인할 수 없음"으로 실패 처리한다(일정이 두 번 생기는 것보다 낫다).
 - DBOS가 자체 연결을 쓰면 테스트의 트랜잭션 되돌리기 방식을 바꾼다(`tests/conftest.py`의 `db_connection`/`session_factory`만 TRUNCATE 방식으로).
 - DBOS에서 함수 도구와 hook(StepTracking)은 자동으로 단계가 되지 않고 워크플로 코드에서 돈다(DBOS 문서). 도구의 DB 쓰기와 step 기록을 DBOS 단계로 감쌀지 3단계 시작 때 정한다. step 기록은 이미 tool_call_id 기준으로 재실행에 안전하다.

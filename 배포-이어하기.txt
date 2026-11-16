@@ -13,8 +13,16 @@
 
   0단계 뼈대          완료  DB 테이블 15개, 로그인, 하단 탭, 테스트 환경
   1단계 에이전트      완료  내부 도구 5개, 채팅 화면, 단계 타임라인, 작업 기록 탭
-  2단계 승인과 감시   시작 전 (다음 차례)
+  2단계 승인과 감시   API 완료(2026-11-17), 화면(승인 카드) 진행 중
   3~9단계             시작 전
+
+2단계 API에서 만든 것:
+  - app/agent/approvals.py(save_requests, decide, build_results, assert_approved), guard.py(감시 에이전트)
+  - POST /api/approvals/{id}/approve|reject, GET /api/tasks/{id}의 approvals[] 채움
+  - 만료된 승인은 410, mismatch 판정은 확인 없이 승인하면 409, 두 번 눌러도 외부 도구는 1회 실행
+  - steps 상태에 expired 추가(마이그레이션 fdef064b5c87). 새 컴퓨터에서 pnpm db:migrate 필요
+  - Logfire 배너 끔, "구글 캘린더에는 넣지 않았습니다"가 붙던 프롬프트 문구 수정(실제 모델로는 미확인)
+  - pytest 63개 통과
 
 1단계를 마칠 때 통과한 검사:
   - API: pytest 42개, ruff, pyright, alembic check

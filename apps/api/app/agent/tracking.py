@@ -20,6 +20,11 @@
 
 3단계(DBOS) 대비: start_step은 (task_id, tool_call_id)로 이미 있는 행을 먼저 찾는다. 워크플로가 재실행되어 같은
 도구 호출이 다시 기록되려 해도 행이 두 개 생기지 않는다.
+
+EXTERNAL 도구(2단계): requires_approval 도구는 첫 run에서 실행되지 않으므로 이 hook도 불리지 않는다. step 행은
+runner가 승인 요청을 저장할 때(approvals.save_requests) waiting_approval로 만든다. 승인 후 재개한 run에서 이 hook이
+불리면 start_step은 그 행을 그대로 쓰고, 도구 첫 줄의 assert_approved가 waiting_approval → running으로 바꾼다.
+거절된 호출은 도구가 실행되지 않아 이 hook이 불리지 않고, step은 decide가 정한 rejected로 남는다.
 """
 
 import logging

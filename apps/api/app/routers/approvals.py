@@ -1,0 +1,117 @@
+"""승인 카드의 승인·거절 API.
+
+- 모든 조회에 user_id 조건. 남의 승인·없는 승인은 404.
+- 상태 변경은 approvals.decide 안에서 task·승인 행을 SELECT ... FOR UPDATE로 잠그고 pending일 때만 바꾼다.
+  이미 결정된 승인에 다시 요청하면(두 번 클릭) 아무것도 바꾸지 않고 200 changed=false로 현재 상태를 돌려준다.
+- 그 task의 마지막 결정이면 같은 요청 안에서 resume_task로 실행을 잇고, 끝난 뒤 응답한다(2단계).
+  3단계에서는 resume_task 워크플로를 시작하고 바로 응답한다(응답 모양은 같다).
+"""
+
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request, status
+from sqlalchemy import Select, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agent import approvals
+from app.agent.runner import resume_task
+from app.db import DbSession
+from app.models import Approval, GuardCheck, Step, Task
+from app.models.enums import VerdictKind
+from app.routers.conversations import run_services
+from app.schemas.tasks import ApprovalDecisionOut, ApprovalOut, ApproveRequest, GuardOut
+from app.security import CurrentUser
+
+router = APIRouter(prefix="/approvals", tags=["approvals"])
+
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    404: {"description": "없는 승인이거나 다른 사용자의 승인"},
+    409: {
+        "description": "detail.code가 mismatch_confirmation_required(감시 판정 mismatch인데 confirm_mismatch 없음) "
+        "또는 task_not_waiting(작업이 승인 대기 상태가 아님)"
+    },
+    410: {"description": "detail.code가 approval_expired. 만료되어 작업이 취소되었다"},
+}
+ERROR_STATUS = {
+    approvals.ApprovalNotFoundError: status.HTTP_404_NOT_FOUND,
+    approvals.MismatchConfirmationRequiredError: status.HTTP_409_CONFLICT,
+    approvals.TaskNotWaitingError: status.HTTP_409_CONFLICT,
+    approvals.ApprovalExpiredError: status.HTTP_410_GONE,
+}
+ERROR_MESSAGES = {
+    approvals.ApprovalNotFoundError: "승인 요청을 찾을 수 없습니다.",
+    approvals.MismatchConfirmationRequiredError: "요청과 다를 수 있습니다. 그래도 진행할지 한 번 더 확인해 주세요.",
+    approvals.TaskNotWaitingError: "이 작업은 더 이상 승인을 기다리지 않습니다.",
+    approvals.ApprovalExpiredError: "승인 시간이 지나 작업이 취소되었습니다.",
+}
+
+
+def approval_view(approval: Approval, step: Step, guard: GuardCheck | None) -> ApprovalOut:
+    return ApprovalOut(
+        id=approval.id,
+        step_id=step.id,
+        tool_name=step.tool_name,
+        tool_input=step.input,
+        status=approval.status,
+        summary=approval.summary,
+        expires_at=approval.expires_at,
+        decided_at=approval.decided_at,
+        guard=GuardOut(verdict=guard.verdict, reason=guard.reason) if guard else None,
+        needs_mismatch_confirmation=guard is not None and guard.verdict == VerdictKind.MISMATCH,
+    )
+
+
+def approval_query() -> Select[Approval, Step, GuardCheck]:
+    """승인 + step + 감시 결과(없으면 None, outer join)."""
+    return (
+        select(Approval, Step, GuardCheck)
+        .join(Step, Step.id == Approval.step_id)
+        .outerjoin(GuardCheck, GuardCheck.step_id == Step.id)
+    )
+
+
+async def approvals_of_task(session: AsyncSession, task_id: int) -> list[ApprovalOut]:
+    """작업의 승인 카드 목록(step 순서). 호출하는 쪽이 작업 소유자를 이미 확인했다."""
+    rows = await session.execute(approval_query().where(Step.task_id == task_id).order_by(Step.order))
+    return [approval_view(approval, step, guard) for approval, step, guard in rows]
+
+
+async def decision_view(session: AsyncSession, decision: approvals.Decision) -> ApprovalDecisionOut:
+    session.expire_all()  # 재개한 실행이 다른 세션에서 바꾼 값을 다시 읽는다
+    approval, step, guard = (await session.execute(approval_query().where(Approval.id == decision.approval_id))).one()
+    task = await session.get_one(Task, decision.task_id)
+    return ApprovalDecisionOut(
+        approval=approval_view(approval, step, guard), changed=decision.changed, task_status=task.status
+    )
+
+
+async def decide_and_resume(
+    request: Request, session: AsyncSession, approval_id: int, user_id: int, *, approve: bool, confirm: bool
+) -> ApprovalDecisionOut:
+    try:
+        decision = await approvals.decide(session, approval_id, user_id, approve=approve, confirm_mismatch=confirm)
+    except approvals.ApprovalError as error:
+        await session.rollback()
+        detail = {"code": error.code, "message": ERROR_MESSAGES.get(type(error), "승인을 처리할 수 없습니다.")}
+        raise HTTPException(ERROR_STATUS.get(type(error), status.HTTP_409_CONFLICT), detail=detail) from error
+    if decision.all_decided:
+        # 여러 요청이 동시에 와도 resume_task 안의 행 잠금이 한 번만 실행되게 한다.
+        await resume_task(run_services(request), decision.task_id)
+    return await decision_view(session, decision)
+
+
+@router.post("/{approval_id}/approve", responses=ERROR_RESPONSES)
+async def approve_action(
+    approval_id: int, request: Request, user: CurrentUser, session: DbSession, body: ApproveRequest | None = None
+) -> ApprovalDecisionOut:
+    """승인. 감시 판정이 mismatch면 body에 confirm_mismatch=true가 있어야 한다."""
+    confirm = body.confirm_mismatch if body else False
+    return await decide_and_resume(request, session, approval_id, user.id, approve=True, confirm=confirm)
+
+
+@router.post("/{approval_id}/reject", responses=ERROR_RESPONSES)
+async def reject_action(
+    approval_id: int, request: Request, user: CurrentUser, session: DbSession
+) -> ApprovalDecisionOut:
+    """거절. 모델은 '사용자가 거절함'을 도구 결과로 받고 다른 방법을 찾는다."""
+    return await decide_and_resume(request, session, approval_id, user.id, approve=False, confirm=False)

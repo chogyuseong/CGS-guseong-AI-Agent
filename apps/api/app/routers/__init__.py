@@ -2,10 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.routers import auth, conversations, health, tasks
+from app.routers import approvals, auth, conversations, health, tasks
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(conversations.router)
 api_router.include_router(tasks.router)
+api_router.include_router(approvals.router)

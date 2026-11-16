@@ -57,9 +57,10 @@
 ## 사용자 작업 방식
 - 모든 응답은 한국어.
 - 한 번에 한 단계만 하고 끝나면 멈춰서 보고한다(명세의 작업 방식).
-- push는 사용자 확인 후에만 한다. push 전에 키 값과 이메일이 커밋에 없는지 검사한다.
-- **저장소 결정이 아직 없다.** GitHub 저장소를 새로 만들지, 기존 저장소(CGS-guseong-AI-Agent)에 Django판을 브랜치로 남기고
-  올릴지 정하지 않았다. 첫 push 전에 사용자에게 묻는다.
+- 작업 단위(단계 전체, 또는 API·화면 같은 중간 단위)가 끝날 때마다 `배포-이어하기.txt`를 현재 상태로 고치고
+  커밋한 뒤 `origin/main`에 push한다(2026-11-17 사용자 지시). push 전에 키 값과 이메일이 커밋에 없는지 검사한다.
+  강제 push와 브랜치 삭제는 사용자 확인 후에만 한다.
+- 저장소: https://github.com/chogyuseong/CGS-guseong-AI-Agent.git. `main`이 이 프로젝트, `django` 브랜치가 예전 Django판(고치지 않는다).
 - 비용이 드는 실제 모델 호출(eval 포함)은 예상 비용을 알리고 사용자 확인을 받은 뒤에만 한다.
 
 ## 작업 규칙
@@ -84,15 +85,20 @@
    - 모든 조회·수정에 `ctx.deps.user_id` 조건을 건다.
 3. **결과**: 항상 `ToolResult`(`app/agent/results.py`)를 돌려준다. 실패는 `ToolResult.failure("한국어 이유")`.
    예외를 밖으로 던지지 않는다. 예상 못 한 예외는 `StepTracking.on_tool_execute_error`가 한 곳에서 ok=false로 바꾼다.
-   유일한 예외: EXTERNAL 도구 첫 줄의 `assert_approved(ctx)`가 던지는 `PermissionError`(2단계).
+   유일한 예외: EXTERNAL 도구 첫 줄의 `await assert_approved(ctx)`(`app/agent/approvals.py`)가 던지는 `PermissionError`.
+   EXTERNAL 도구는 `TOOL_PREVIEWS`에 `async def preview_도구(deps, args) -> str`(실행하지 않고 무엇을 할지 설명)도 등록한다.
+   예시는 `tests/fake_tools.py`의 `fake_external`(테스트 전용, 운영 코드에 등록 금지).
 4. **등록**: `app/agent/toolsets.py`에서 등급에 맞는 toolset 목록에 함수를 넣는다(read_tools / internal_tools / external_tools).
    등급은 toolset의 metadata로 steps.risk_level에 복사된다. EXTERNAL은 toolset 전체가 requires_approval=True다.
-5. **타임라인 문구**: `LABELS` 딕셔너리에 `"도구이름": lambda args: "…하는 중"`을 넣는다(예: "할 일에 '우유 사기' 추가하는 중").
+5. **타임라인 문구**: 도구 파일의 `LABELS` 딕셔너리(→ `toolsets.TOOL_LABELS`)에 `"도구이름": lambda args: "…하는 중"`을 넣는다(예: "할 일에 '우유 사기' 추가하는 중").
 6. **외부 콘텐츠 도구**(검색 결과, 일정 제목, 메일 본문을 돌려주는 도구, 4단계부터)는 data를 지시문 무시 안내로 감싸고 6,000자로 자른다.
 7. **테스트**: FunctionModel 대본으로 도구 호출 → step 1개(ok, label) → DB 변화를 확인한다. 실제 모델·외부 API는 부르지 않는다.
    외부 API 도구는 `tests/fixtures/`의 녹화 응답으로 정상, 타임아웃, 401, 429, 빈 결과를 테스트한다.
 
 ## 에이전트 코드 지도 (apps/api/app/agent)
-- `runner.py` task 하나 실행(상태 전환, 하루 비용 검사, 이전 기록, agent.run, 결과 저장)
-- `agent.py` Agent 정의 / `tracking.py` Step 기록 hook / `toolsets.py` 등급별 도구 묶음
+- `runner.py` `run_task`(상태 전환, 하루 비용 검사, 이전 기록, agent.run, 결과 저장)와 `resume_task`(승인 뒤 재개, 사용량 이어받기).
+  승인 대기면 preview·감시 검사 후 승인 요청을 저장한다
+- `approvals.py` 승인 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`)
+- `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
+- `agent.py` Agent 정의 / `tracking.py` Step 기록 hook / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
 - `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트

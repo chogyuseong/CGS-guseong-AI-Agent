@@ -37,7 +37,9 @@ async def get_owned_conversation(session: AsyncSession, conversation_id: int, us
 
 def run_services(request: Request) -> RunServices:
     state = request.app.state
-    return RunServices(agent=state.agent, session_factory=state.session_factory, settings=state.settings)
+    return RunServices(
+        agent=state.agent, guard=state.guard_agent, session_factory=state.session_factory, settings=state.settings
+    )
 
 
 @router.get("")

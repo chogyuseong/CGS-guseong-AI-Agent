@@ -56,6 +56,23 @@ def scripted(*parts: ModelResponsePart) -> ScriptedModel:
     return ScriptedModel(script=list(parts))
 
 
+@dataclass
+class GuardScript:
+    """감시 에이전트용 가짜 모델. 정해 둔 판정을 돌려주고, 감시 에이전트가 받은 메시지를 기록한다."""
+
+    verdict: str = "match"
+    reason: str = "요청과 일치합니다."
+    seen_messages: list[list[ModelMessage]] = field(default_factory=list)
+
+    def respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        self.seen_messages.append(list(messages))
+        output_tool = info.output_tools[0].name
+        return ModelResponse(parts=[ToolCallPart(output_tool, {"verdict": self.verdict, "reason": self.reason})])
+
+    def model(self) -> FunctionModel:
+        return FunctionModel(self.respond, model_name="guard-scripted")
+
+
 def call(tool_name: str, **args: object) -> ToolCallPart:
     return ToolCallPart(tool_name, dict(args))
 

@@ -11,6 +11,7 @@
 """
 
 from collections.abc import Callable
+from typing import Any
 
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ToolCallPart, UserPromptPart
 from pydantic_ai.models import Model, ModelResolutionContext, ModelSelectionContext
@@ -48,10 +49,13 @@ def build_model_selector(settings: Settings) -> Callable[[ModelSelectionContext[
     return select
 
 
-def build_model_resolver(settings: Settings) -> Callable[[ModelResolutionContext[AgentDeps], str], Model | None]:
-    """'anthropic:...' 문자열을 설정의 API 키로 만든 AnthropicModel로 바꾼다. 다른 문자열은 기본 처리에 맡긴다."""
+def build_model_resolver(settings: Settings) -> Callable[[ModelResolutionContext[Any], str], Model | None]:
+    """'anthropic:...' 문자열을 설정의 API 키로 만든 AnthropicModel로 바꾼다. 다른 문자열은 기본 처리에 맡긴다.
 
-    def resolve(_ctx: ModelResolutionContext[AgentDeps], model_id: str) -> Model | None:
+    메인 에이전트(deps=AgentDeps)와 감시 에이전트(deps 없음)가 함께 쓰므로 deps 타입을 가리지 않는다.
+    """
+
+    def resolve(_ctx: ModelResolutionContext[Any], model_id: str) -> Model | None:
         if not model_id.startswith(ANTHROPIC_PREFIX):
             return None
         api_key = settings.anthropic_api_key.get_secret_value()

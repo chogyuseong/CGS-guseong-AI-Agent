@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.agent import MyAgent
+from app.agent.guard import GuardAgent
 from app.agent.runner import RunServices, run_task
 from app.config import Settings
 from app.models import Conversation, Step, Task, Todo, UsageLog, User
@@ -122,6 +123,7 @@ async def test_unexpected_tool_exception_becomes_failed_result(
 
 async def test_schedule_task_gets_read_tools_only(
     agent: MyAgent,
+    guard: GuardAgent,
     db_session: AsyncSession,
     session_factory: async_sessionmaker[AsyncSession],
     test_settings: Settings,
@@ -135,7 +137,7 @@ async def test_schedule_task_gets_read_tools_only(
     db_session.add(task)
     await db_session.commit()
     model = scripted(text("오늘 할 일은 없습니다."))
-    services = RunServices(agent=agent, session_factory=session_factory, settings=test_settings)
+    services = RunServices(agent=agent, guard=guard, session_factory=session_factory, settings=test_settings)
 
     with agent.override(model=model.model()):
         await run_task(services, task.id, prompt="오늘 할 일 요약해줘")

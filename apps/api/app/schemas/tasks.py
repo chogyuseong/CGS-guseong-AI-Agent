@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import ApprovalStatus, RiskLevel, StepStatus, TaskOrigin, TaskStatus
+from app.models.enums import ApprovalStatus, RiskLevel, StepStatus, TaskOrigin, TaskStatus, VerdictKind
 
 
 class StepOut(BaseModel):
@@ -25,16 +25,47 @@ class StepOut(BaseModel):
     duration_ms: int | None
 
 
-class ApprovalOut(BaseModel):
-    """승인 대기 카드(2단계에서 채운다). 1단계에서는 항상 빈 배열이다."""
+class GuardOut(BaseModel):
+    """감시 에이전트의 판정. 승인 카드의 배지(match=초록, mismatch=빨강+reason, unsure=회색)."""
 
-    model_config = ConfigDict(from_attributes=True)
+    verdict: VerdictKind
+    reason: str
+
+
+class ApprovalOut(BaseModel):
+    """승인 카드 하나. EXTERNAL 도구 호출 한 번에 하나."""
 
     id: int
     step_id: int
+    tool_name: str
+    # 도구 입력값(카드에서 접어 둔다)
+    tool_input: dict[str, Any]
     status: ApprovalStatus
+    # 실행하면 무엇을 하는지 설명하는 문장(preview)
     summary: str
     expires_at: datetime
+    decided_at: datetime | None
+    # 감시 결과가 없으면 null(감시 에이전트는 승인 요청과 함께 항상 기록하지만, 옛 데이터를 위해 null 허용)
+    guard: GuardOut | None
+    # true면 승인 전에 "요청과 다를 수 있습니다. 그래도 진행할까요?"를 한 번 더 묻고,
+    # 승인 요청 본문에 confirm_mismatch=true를 넣어야 한다(없으면 409 mismatch_confirmation_required).
+    needs_mismatch_confirmation: bool
+
+
+class ApproveRequest(BaseModel):
+    """승인 요청 본문(생략 가능)."""
+
+    # 감시 판정이 mismatch인 승인을 사용자가 한 번 더 확인했다는 표시.
+    confirm_mismatch: bool = False
+
+
+class ApprovalDecisionOut(BaseModel):
+    """승인·거절 결과. 이미 결정된 승인에 다시 요청하면 changed=false와 현재 상태를 돌려준다."""
+
+    approval: ApprovalOut
+    changed: bool
+    # 결정 뒤의 작업 상태. 마지막 결정이면 재개한 실행이 끝난 뒤의 상태(done, waiting_approval 등)다.
+    task_status: TaskStatus
 
 
 class TaskDetail(BaseModel):
@@ -49,6 +80,7 @@ class TaskDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     steps: list[StepOut]
+    # 이 작업의 모든 승인(대기·승인·거절·만료, step 순서). 승인 카드는 status가 pending인 것만 그린다.
     approvals: list[ApprovalOut]
 
 
