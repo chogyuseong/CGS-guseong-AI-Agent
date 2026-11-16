@@ -1,0 +1,46 @@
+{% extends "app_shell.html" %}
+{% block title %}자동화 · 마이에이전트{% endblock %}
+{% block header %}자동화{% endblock %}
+{% block content %}
+{% include "automation/_nav.html" %}
+<section class="min-h-0 flex-1 overflow-y-auto pb-6" aria-label="예약 작업">
+  {% if jobs %}
+    <p class="px-4 pb-3 pt-4 text-sm text-muted">정한 시각에 조회만 하고 결과를 '예약 작업' 대화방에 남깁니다. 켜 둘 수 있는 것은 {{ limit }}개까지입니다.</p>
+    {# 시각표: 왼쪽에 실행 시각을 크게, 오른쪽에 무엇을 하는지 #}
+    <ul class="divide-y divide-line border-y border-line bg-sheet">
+      {% for job in jobs %}
+        <li class="flex gap-4 px-4 py-4 {% if not job.is_active %}text-muted{% endif %}">
+          <div class="w-[4.75rem] shrink-0 pt-1">
+            <p class="font-display text-2xl font-bold leading-none tabular-nums">{{ job.time_of_day|time:"H:i" }}</p>
+            <p class="mt-1.5 text-xs text-muted">{{ job.days_text }}</p>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-start justify-between gap-2">
+              <p class="pt-2.5 font-medium leading-snug">{{ job.title }}</p>
+              {% url 'automation:schedule_toggle' job.pk as toggle_url %}
+              {% include "automation/_switch.html" with action=toggle_url on=job.is_active name=job.title %}
+            </div>
+            {% if job.is_active %}
+              <p class="text-sm text-muted">다음 실행 {{ job.next_run_at|date:"n월 j일(D) H:i" }}</p>
+            {% endif %}
+            <p class="text-sm text-muted">{% if job.last_run_at %}마지막 실행 {{ job.last_run_at|date:"n월 j일 H:i" }}{% else %}아직 실행 전{% endif %}</p>
+            <div class="mt-1 flex justify-end">
+              <form method="post" action="{% url 'automation:schedule_delete' job.pk %}"
+                    onsubmit="return confirm('예약 작업 \'{{ job.title|escapejs }}\'을(를) 지울까요?');">
+                {% csrf_token %}
+                <button type="submit" class="min-h-11 px-2 text-sm text-warn-ink">지우기</button>
+              </form>
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="px-6 pt-14">
+      <p class="font-display text-xl font-bold">예약 작업이 없습니다</p>
+      <p class="mt-2 text-muted">채팅에서 "매주 일요일 밤 9시에 다음 주 일정 요약해줘"처럼 말하면 여기에 생깁니다. 정한 시각에 조회만 하고, 할 일이 생기면 제안으로 남깁니다.</p>
+      <a href="{% url 'chat:home' %}" class="mt-6 inline-flex h-12 items-center rounded-lg bg-indigo px-5 font-semibold text-on-indigo">채팅으로 가기</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

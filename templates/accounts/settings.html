@@ -3,6 +3,9 @@
 {% block header %}설정{% endblock %}
 {% block content %}
 <section class="min-h-0 flex-1 overflow-y-auto py-4">
+  {% for message in messages %}
+    <p class="mx-4 mb-3 rounded-lg px-4 py-3 text-sm {% if message.tags == 'error' %}bg-warn-bg text-warn-ink{% else %}bg-ok-bg text-ok-ink{% endif %}" role="status">{{ message }}</p>
+  {% endfor %}
   {# 같은 카드를 늘어놓지 않고, 한 장의 지면을 구분선으로 나눈다 #}
   <div class="divide-y divide-line border-y border-line bg-sheet">
     <div class="px-4 py-5">
@@ -35,10 +38,21 @@
       <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="text-muted"><path d="M9 6l6 6-6 6"/></svg>
     </a>
 
-    <div class="px-4 py-4">
-      <p class="font-semibold">아침 브리핑</p>
-      <p class="text-sm text-muted">브리핑 시각 설정은 6단계에서 만듭니다.</p>
-    </div>
+    <form method="post" action="{% url 'settings_page:briefing' %}" class="px-4 py-5">
+      {% csrf_token %}
+      <h2 class="font-display text-lg font-bold">아침 브리핑</h2>
+      <p class="mt-1 text-sm text-muted">매일 정한 시각에 오늘 일정, 날씨, 남은 할 일을 요약해 '예약 작업' 대화방에 남깁니다. 할 일이 생기면 제안 버튼으로만 보여 줍니다.</p>
+      <div class="mt-4 flex items-center gap-3">
+        <label for="briefing-time" class="sr-only">브리핑 시각</label>
+        <input id="briefing-time" type="time" name="time_of_day" value="{{ briefing.time_of_day|time:'H:i' }}" required
+               class="h-12 rounded-lg border border-line bg-paper px-3 font-display text-xl font-bold tabular-nums focus:border-indigo focus:outline-none">
+        <label class="flex min-h-11 flex-1 items-center gap-2">
+          <input type="checkbox" name="is_active" {% if briefing.is_active %}checked{% endif %} class="h-5 w-5 accent-[var(--indigo)]">
+          받기
+        </label>
+      </div>
+      <button type="submit" class="mt-4 h-12 w-full rounded-lg border border-line font-semibold">브리핑 시각 저장</button>
+    </form>
   </div>
 </section>
 

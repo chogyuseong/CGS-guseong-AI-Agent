@@ -1,0 +1,11 @@
+{# 켜기/끄기 스위치. 누르면 상태를 바꾸는 POST를 보낸다. 터치 영역 44px #}
+<form method="post" action="{{ action }}" class="shrink-0">
+  {% csrf_token %}
+  <button type="submit" role="switch" aria-checked="{% if on %}true{% else %}false{% endif %}" aria-label="{{ name }} {% if on %}끄기{% else %}켜기{% endif %}"
+          class="flex min-h-11 items-center gap-2 pl-2 text-sm {% if on %}text-indigo{% else %}text-muted{% endif %}">
+    <span class="relative inline-block h-6 w-10 rounded-full transition-colors motion-reduce:transition-none {% if on %}bg-indigo{% else %}bg-line{% endif %}" aria-hidden="true">
+      <span class="absolute top-0.5 h-5 w-5 rounded-full bg-sheet shadow-sm transition-[left] motion-reduce:transition-none {% if on %}left-[1.125rem]{% else %}left-0.5{% endif %}"></span>
+    </span>
+    {% if on %}켜짐{% else %}꺼짐{% endif %}
+  </button>
+</form>

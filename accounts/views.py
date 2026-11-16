@@ -1,10 +1,14 @@
+from datetime import time
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from automation import services as automation
 from tools.http import ExternalAPIError
 
 from . import google
@@ -13,13 +17,34 @@ from .models import Connection
 
 @login_required
 def settings_page(request):
-    """알림 켜기(3단계)와 외부 서비스 연결 링크. 브리핑 시각 설정은 6단계에서 붙는다."""
+    """알림 켜기, 아침 브리핑 시각, 외부 서비스 연결."""
     context = {
         "active_tab": "settings",
         # 공개키는 브라우저가 구독을 만들 때 쓰는 값이라 화면에 넣어도 된다. 개인키는 절대 넣지 않는다.
         "vapid_public_key": settings.VAPID_PUBLIC_KEY,
+        "briefing": automation.ensure_briefing(request.user),
     }
     return render(request, "accounts/settings.html", context)
+
+
+@login_required
+@require_POST
+def briefing_update(request):
+    """아침 브리핑의 시각과 켜기/끄기를 바꾼다. 다음 실행 시각도 새 시각에 맞춰 다시 계산한다."""
+    briefing = automation.ensure_briefing(request.user)
+    try:
+        briefing.time_of_day = time.fromisoformat(request.POST.get("time_of_day", ""))
+    except ValueError:
+        messages.error(request, "시각을 HH:MM 형식으로 입력해 주세요.")
+        return redirect("settings_page:settings")
+    briefing.is_active = request.POST.get("is_active") == "on"
+    briefing.next_run_at = automation.next_run_after(timezone.now(), briefing.time_of_day, briefing.weekdays)
+    briefing.save(update_fields=["time_of_day", "is_active", "next_run_at", "updated_at"])
+    state = (
+        f"매일 {briefing.time_of_day:%H:%M}에 받습니다" if briefing.is_active else "아침 브리핑을 껐습니다"
+    )
+    messages.success(request, f"저장했습니다. {state}.")
+    return redirect("settings_page:settings")
 
 
 @login_required

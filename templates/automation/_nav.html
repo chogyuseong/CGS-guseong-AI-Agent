@@ -1,0 +1,18 @@
+{# 자동화 탭 안에서 예약 작업과 조건 감시를 오간다. 현재 화면은 아래 막대와 aria-current로 표시 #}
+<nav class="flex shrink-0 gap-6 border-b border-line px-4" aria-label="자동화 종류">
+  {% with on="border-indigo text-ink font-semibold" off="border-transparent text-muted" %}
+  <a href="{% url 'automation:schedule_list' %}"
+     class="flex min-h-12 items-center gap-1.5 border-b-2 {% if section == 'schedules' %}{{ on }}{% else %}{{ off }}{% endif %}"
+     {% if section == 'schedules' %}aria-current="page"{% endif %}>
+    예약 작업 <span class="text-sm text-muted">{{ schedule_count }}</span>
+  </a>
+  <a href="{% url 'automation:watch_list' %}"
+     class="flex min-h-12 items-center gap-1.5 border-b-2 {% if section == 'watches' %}{{ on }}{% else %}{{ off }}{% endif %}"
+     {% if section == 'watches' %}aria-current="page"{% endif %}>
+    조건 감시 <span class="text-sm text-muted">{{ watch_count }}</span>
+  </a>
+  {% endwith %}
+</nav>
+{% for message in messages %}
+  <p class="mx-4 mt-3 rounded-lg bg-ok-bg px-4 py-3 text-sm text-ok-ink" role="status">{{ message }}</p>
+{% endfor %}

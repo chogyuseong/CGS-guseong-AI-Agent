@@ -14,6 +14,7 @@ urlpatterns = [
 # 명세의 URL(/settings/, /connections/...)은 /accounts/ 접두사 없이 루트에 연결한다.
 settings_urlpatterns = [
     path("settings/", views.settings_page, name="settings"),
+    path("settings/briefing/", views.briefing_update, name="briefing"),
     path("connections/", views.connections_page, name="connections"),
     path("connections/google/start/", views.google_start, name="google_start"),
     path("connections/google/callback/", views.google_callback, name="google_callback"),
