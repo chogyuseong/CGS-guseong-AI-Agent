@@ -2,12 +2,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
-import { chatKeys } from "@/lib/chat";
+import { chatKeys, type Task } from "@/lib/chat";
 
 type Schemas = components["schemas"];
 export type Approval = Schemas["ApprovalOut"];
 export type ApprovalStatus = Schemas["ApprovalStatus"];
 export type GuardVerdict = Schemas["VerdictKind"];
+export type ApprovalDecisionOut = Schemas["ApprovalDecisionOut"];
+type ApprovalErrorOut = Schemas["ApprovalErrorOut"];
+type ApprovalErrorCode = Schemas["ApprovalErrorCode"];
 
 // 카드가 서버에 보내는 결정. confirmMismatch는 mismatch 승인을 사용자가 한 번 더 확인했다는 표시다.
 export type Decision = { approve: boolean; confirmMismatch: boolean };
@@ -44,13 +47,28 @@ export function approvalErrorMessage(status: number, code: string | undefined): 
   return `승인을 처리하지 못했습니다 (오류 ${status}). 잠시 후 다시 시도해 주세요.`;
 }
 
-// 오류 본문 {"detail": {"code": ...}}에서 code를 꺼낸다. OpenAPI 문서에 오류 본문 모양이 없어서
-// (생성된 타입이 content?: never) unknown으로 받아 실행 중에 모양을 확인한다.
-export function readErrorCode(body: unknown): string | undefined {
-  if (typeof body !== "object" || body === null || !("detail" in body)) return undefined;
+// 오류 본문에서 detail.code를 꺼낸다. 3단계부터 OpenAPI 문서에 ApprovalErrorOut(404·409·410)이 있어
+// 생성된 타입을 그대로 쓴다. 422(HTTPValidationError)는 detail이 배열이라 code가 없다.
+// 본문이 JSON이 아닌 응답(프록시의 502 등)도 올 수 있어 객체인지는 실행 중에 한 번 더 본다.
+export function approvalErrorCode(
+  body: ApprovalErrorOut | Schemas["HTTPValidationError"] | undefined,
+): ApprovalErrorCode | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
   const detail = body.detail;
-  if (typeof detail !== "object" || detail === null || !("code" in detail)) return undefined;
-  return typeof detail.code === "string" ? detail.code : undefined;
+  if (detail === undefined || Array.isArray(detail)) return undefined;
+  return detail.code;
+}
+
+// 결정 응답(승인 한 건 + 그 시점 task 상태)을 task 캐시에 바로 반영한다. 다시 가져오기 전에도
+// 카드와 진행 문구("이어서 처리하는 중")가 어긋나지 않게 하려는 것이다. 원래 객체는 바꾸지 않는다.
+export function applyDecision(task: Task, result: ApprovalDecisionOut): Task {
+  return {
+    ...task,
+    status: result.task_status,
+    approvals: task.approvals.map((item) =>
+      item.id === result.approval.id ? result.approval : item,
+    ),
+  };
 }
 
 // 만료까지 남은 시간을 분 단위 한국어로. now는 Date.now() 값(테스트에서 고정하려고 받는다).
@@ -82,7 +100,7 @@ async function postDecision(approvalId: number, decision: Decision) {
     throw new ApprovalActionError(NETWORK_ERROR_CODE, NETWORK_MESSAGE);
   });
   if (result.data) return result.data;
-  const code = readErrorCode(result.error as unknown);
+  const code = approvalErrorCode(result.error);
   throw new ApprovalActionError(
     code ?? "unknown",
     approvalErrorMessage(result.response.status, code),
@@ -91,12 +109,21 @@ async function postDecision(approvalId: number, decision: Decision) {
 
 type TaskRef = { id: number; conversation_id: number };
 
-// 승인 한 건의 결정. 마지막 결정이면 서버가 재개 run을 끝낸 뒤 응답하므로 몇 초 걸릴 수 있다.
+// 승인 한 건의 결정. 3단계 서버는 마지막 결정이면 재개 워크플로를 시작만 하고 바로 응답한다.
+// 응답을 받으면 task 캐시에 먼저 반영해(카드 → "승인함", 진행 문구 → "이어서 처리하는 중") 화면이 끊기지 않게 하고,
 // 성공·실패 모두 task, 메시지, 작업 기록을 다시 가져온다(오류 뒤에도 최신 상태를 보여 주려고).
+// 재개가 끝날 때까지의 진행은 useTask의 폴링이 이어서 보여 준다.
 export function useDecideApproval(task: TaskRef, approvalId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (decision: Decision) => postDecision(approvalId, decision),
+    // 결정 전에 시작된 폴링 응답이 늦게 도착해 방금 반영한 결과를 덮어쓰지 않도록 진행 중인 요청을 취소한다.
+    onMutate: () => queryClient.cancelQueries({ queryKey: chatKeys.task(task.id) }),
+    onSuccess: (result) => {
+      queryClient.setQueryData<Task>(chatKeys.task(task.id), (current) =>
+        current === undefined ? current : applyDecision(current, result),
+      );
+    },
     onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: chatKeys.task(task.id) }),

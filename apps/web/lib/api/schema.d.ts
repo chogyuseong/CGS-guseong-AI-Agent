@@ -105,11 +105,11 @@ export interface paths {
         put?: never;
         /**
          * Send Message
-         * @description 메시지를 저장하고 task를 만들어 실행한다.
+         * @description 메시지를 저장하고 task를 만든 뒤 실행을 DBOS 워크플로(run_task, ID task-{id})에 맡기고 바로 202를 돌려준다.
          *
-         *     1단계: 에이전트 실행이 끝날 때까지 기다렸다가 202를 돌려준다.
-         *     3단계: 실행을 DBOS 워크플로에 맡기고 바로 202를 돌려준다(응답 모양은 같다).
-         *     화면은 응답의 task_id로 GET /api/tasks/{id}를, 대화 내용은 GET .../messages를 조회한다.
+         *     응답 시점의 task는 보통 queued다(곧 running). 화면은 응답의 task_id로 GET /api/tasks/{id}를 1초마다 조회해
+         *     진행 상황(steps)과 결과를 그리고, 대화 내용은 GET .../messages로 다시 가져온다.
+         *     서버가 실행 도중 재시작돼도 워크플로가 이어서 실행된다.
          */
         post: operations["send_message_api_conversations__conversation_id__messages_post"];
         delete?: never;
@@ -198,6 +198,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/push/public-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Push Config */
+        get: operations["push_config_api_push_public_key_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Subscribe */
+        post: operations["subscribe_api_push_subscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unsubscribe */
+        post: operations["unsubscribe_api_push_unsubscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -211,6 +262,21 @@ export interface components {
             /** Changed */
             changed: boolean;
             task_status: components["schemas"]["TaskStatus"];
+        };
+        /** @enum {string} */
+        ApprovalErrorCode: "not_found" | "task_not_waiting" | "approval_expired" | "mismatch_confirmation_required";
+        /** ApprovalErrorDetail */
+        ApprovalErrorDetail: {
+            code: components["schemas"]["ApprovalErrorCode"];
+            /** Message */
+            message: string;
+        };
+        /**
+         * ApprovalErrorOut
+         * @description 승인·거절 API의 404·409·410 응답 본문.
+         */
+        ApprovalErrorOut: {
+            detail: components["schemas"]["ApprovalErrorDetail"];
         };
         /**
          * ApprovalOut
@@ -325,6 +391,42 @@ export interface components {
          * @enum {string}
          */
         MessageRole: "user" | "assistant";
+        /**
+         * PushConfigOut
+         * @description GET /api/push/public-key 응답.
+         */
+        PushConfigOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Public Key */
+            public_key: string | null;
+        };
+        /** PushKeys */
+        PushKeys: {
+            /** P256Dh */
+            p256dh: string;
+            /** Auth */
+            auth: string;
+        };
+        /**
+         * PushSubscribeRequest
+         * @description POST /api/push/subscribe 본문. PushSubscription.toJSON() 모양(expirationTime은 받기만 하고 쓰지 않는다).
+         */
+        PushSubscribeRequest: {
+            /** Endpoint */
+            endpoint: string;
+            keys: components["schemas"]["PushKeys"];
+            /** Expirationtime */
+            expirationTime?: number | null;
+        };
+        /**
+         * PushUnsubscribeRequest
+         * @description POST /api/push/unsubscribe 본문.
+         */
+        PushUnsubscribeRequest: {
+            /** Endpoint */
+            endpoint: string;
+        };
         /**
          * RiskLevel
          * @enum {string}
@@ -781,26 +883,32 @@ export interface operations {
                     "application/json": components["schemas"]["ApprovalDecisionOut"];
                 };
             };
-            /** @description 없는 승인이거나 다른 사용자의 승인 */
+            /** @description detail.code가 not_found. 없는 승인이거나 다른 사용자의 승인 */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
             };
             /** @description detail.code가 mismatch_confirmation_required(감시 판정 mismatch인데 confirm_mismatch 없음) 또는 task_not_waiting(작업이 승인 대기 상태가 아님) */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
             };
             /** @description detail.code가 approval_expired. 만료되어 작업이 취소되었다 */
             410: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -833,22 +941,110 @@ export interface operations {
                     "application/json": components["schemas"]["ApprovalDecisionOut"];
                 };
             };
-            /** @description 없는 승인이거나 다른 사용자의 승인 */
+            /** @description detail.code가 not_found. 없는 승인이거나 다른 사용자의 승인 */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
             };
-            /** @description detail.code가 mismatch_confirmation_required(감시 판정 mismatch인데 confirm_mismatch 없음) 또는 task_not_waiting(작업이 승인 대기 상태가 아님) */
+            /** @description detail.code가 task_not_waiting(작업이 승인 대기 상태가 아님) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
+            };
+            /** @description detail.code가 approval_expired. 만료되어 작업이 취소되었다 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    push_config_api_push_public_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushConfigOut"];
+                };
+            };
+        };
+    };
+    subscribe_api_push_subscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscribeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description detail.code가 approval_expired. 만료되어 작업이 취소되었다 */
-            410: {
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unsubscribe_api_push_unsubscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushUnsubscribeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  type Approval,
+  applyDecision,
+  approvalErrorCode,
   approvalErrorMessage,
   formatRemaining,
   NETWORK_ERROR_CODE,
-  readErrorCode,
 } from "./approvals";
+import type { Task } from "./chat";
 
 describe("승인 오류 문구", () => {
   it("서버의 detail.code마다 한국어 문구를 돌려준다", () => {
@@ -23,13 +26,53 @@ describe("승인 오류 문구", () => {
     expect(approvalErrorMessage(500, undefined)).toContain("500");
   });
 
-  it("오류 본문에서 detail.code를 꺼낸다(모양이 다르면 undefined)", () => {
-    expect(readErrorCode({ detail: { code: "approval_expired", message: "…" } })).toBe(
+  it("오류 본문(생성된 ApprovalErrorOut 타입)에서 detail.code를 꺼낸다(검증 오류·본문 없음은 undefined)", () => {
+    expect(approvalErrorCode({ detail: { code: "approval_expired", message: "…" } })).toBe(
       "approval_expired",
     );
-    expect(readErrorCode({ detail: "문자열 오류" })).toBeUndefined();
-    expect(readErrorCode(undefined)).toBeUndefined();
-    expect(readErrorCode("text")).toBeUndefined();
+    expect(
+      approvalErrorCode({ detail: [{ loc: ["body"], msg: "잘못된 값", type: "value_error" }] }),
+    ).toBeUndefined();
+    expect(approvalErrorCode(undefined)).toBeUndefined();
+  });
+});
+
+describe("결정 결과를 task 캐시에 바로 반영", () => {
+  const pending: Approval = {
+    id: 5,
+    step_id: 1,
+    tool_name: "create_event",
+    tool_input: {},
+    status: "pending",
+    summary: "일정을 만듭니다.",
+    expires_at: "2026-11-17T03:30:00Z",
+    decided_at: null,
+    guard: null,
+    needs_mismatch_confirmation: false,
+  };
+  const other: Approval = { ...pending, id: 6 };
+  const task: Task = {
+    id: 1,
+    conversation_id: 2,
+    origin: "chat",
+    status: "waiting_approval",
+    final_answer: null,
+    error: null,
+    request_count: 1,
+    total_tokens: 10,
+    created_at: "2026-11-17T03:00:00Z",
+    updated_at: "2026-11-17T03:00:00Z",
+    steps: [],
+    approvals: [pending, other],
+  };
+
+  it("응답의 승인으로 같은 id 카드만 바꾸고 task 상태를 응답의 task_status로 바꾼다", () => {
+    const decided: Approval = { ...pending, status: "approved" };
+    const next = applyDecision(task, { approval: decided, changed: true, task_status: "running" });
+
+    expect(next.status).toBe("running");
+    expect(next.approvals.map((item) => item.status)).toEqual(["approved", "pending"]);
+    expect(task.approvals[0]?.status).toBe("pending"); // 원래 객체는 바꾸지 않는다
   });
 });
 

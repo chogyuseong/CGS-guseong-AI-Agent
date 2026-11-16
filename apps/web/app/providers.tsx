@@ -5,6 +5,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // ReactNode는 "화면에 그릴 수 있는 무엇이든"을 뜻하는 타입이다. (템플릿의 {% block %} 안에 들어갈 내용)
 import type { ReactNode } from "react";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 
 let browserQueryClient: QueryClient | undefined;
 
@@ -18,5 +19,10 @@ function getQueryClient(): QueryClient {
 // Provider는 아래 모든 화면이 같은 QueryClient(캐시)를 쓰게 감싸는 컴포넌트다.
 // (Django의 context processor가 모든 템플릿에 값을 넣어 주는 것과 비슷)
 export function Providers({ children }: { children: ReactNode }) {
-  return <QueryClientProvider client={getQueryClient()}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={getQueryClient()}>
+      <ServiceWorkerRegistrar />
+      {children}
+    </QueryClientProvider>
+  );
 }

@@ -47,6 +47,11 @@ pnpm dev
    - 개발 서버는 이 PC의 사설 IP를 실행할 때마다 읽어 `allowedDevOrigins`(개발용 교차 출처 허용 목록)에 넣는다.
      IP가 바뀌면 `pnpm dev`만 다시 실행하면 된다(`next.config.ts`의 `getLanAddresses`).
 
+## 웹 푸시
+
+설정 탭의 '알림 켜기'는 https(또는 `http://localhost`)에서만 된다. 같은 와이파이의 `http://192.168…`로 연 폰에서는
+'지원 안 함'으로 보인다. 폰 확인 절차와 터널(`DEV_TUNNEL_HOST`)은 `docs/PUSH-CHECK.md`를 본다.
+
 ## 검사 명령
 
 | 명령 | 하는 일 |
@@ -103,8 +108,15 @@ app/
   (tabs)/chat|tasks|automation|memory|settings/page.tsx
   manifest.ts           PWA 설정(/manifest.webmanifest)
 components/             BottomTabs, ChatInput, AuthGuard, LoginForm, EmptyScreen, ui/(shadcn)
+  PendingTask.tsx       답변 전 task 진행 표시(폴링: 진행 중 1초, 승인 대기 3초, 끝나면 멈춤)
+  PushSettings.tsx      설정 탭의 알림 영역('알림 켜기'/끄기, 상태 표시)
+  ServiceWorkerRegistrar.tsx  앱을 열 때 public/sw.js 등록
 lib/api/                schema.d.ts(자동 생성), client.ts
 lib/auth.ts             /api/auth/me, /api/auth/login 훅
+lib/chat.ts             대화·메시지·task 훅, 진행 단계(taskPhase)
+lib/approvals.ts        승인·거절 호출과 오류 문구
+lib/push.ts             웹 푸시 상태 판정, 구독·해지(브라우저·서버를 인자로 받아 테스트 가능)
+public/sw.js            서비스 워커: 푸시 알림 표시, 알림 클릭 시 이동(캐싱·오프라인 없음)
 public/icons/           PWA 아이콘 192·512 (0단계는 자리만 잡은 단색 그림)
 e2e/                    Playwright
 scripts/biome-check.mjs Biome WASM 실행기

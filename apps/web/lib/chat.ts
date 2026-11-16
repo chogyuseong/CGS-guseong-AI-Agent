@@ -28,13 +28,54 @@ export function isTaskFinished(status: TaskStatus): boolean {
   return FINISHED_STATUSES.includes(status);
 }
 
-// 끝나지 않은 task는 1초마다 다시 가져온다. 3단계(즉시 응답 + 폴링)에 대비한 구조다.
+type ApprovalLike = { status: Schemas["ApprovalStatus"] };
+
+function hasPendingApproval(approvals: readonly ApprovalLike[]): boolean {
+  return approvals.some((approval) => approval.status === "pending");
+}
+
+// 끝나지 않은 task는 1초마다 다시 가져온다(3단계: 서버가 즉시 202로 답하고 화면이 폴링으로 진행을 본다).
 // 승인 대기 중에는 사용자가 결정할 때까지 바뀌지 않으므로 3초로 늦춘다. 다른 기기에서 결정한 결과가
 // 이 화면에도 반영되어야 하므로 완전히 멈추지는 않는다.
-export function taskRefetchInterval(status: TaskStatus | undefined): number | false {
+// 단, 승인을 모두 결정해 서버가 재개를 시작하기 직전(waiting_approval인데 pending이 없음)이면 곧 바뀌므로 1초.
+export function taskRefetchInterval(
+  status: TaskStatus | undefined,
+  approvals?: readonly ApprovalLike[],
+): number | false {
   if (status === undefined || isTaskFinished(status)) return false;
-  if (status === "waiting_approval") return 3000;
+  if (status === "waiting_approval") {
+    return approvals !== undefined && !hasPendingApproval(approvals) ? 1000 : 3000;
+  }
   return 1000;
+}
+
+// 답변 자리에 보여 줄 진행 단계.
+// starting: 아직 task를 못 가져옴 / resuming: 승인을 모두 결정했고 서버가 재개를 시작하기 전.
+export type TaskPhase =
+  | "starting"
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "resuming"
+  | "finished";
+
+export const PHASE_TEXT: Record<Exclude<TaskPhase, "finished">, string> = {
+  starting: "요청을 보냈습니다. 진행 상황을 확인하는 중…",
+  queued: "요청을 받았습니다. 곧 시작합니다…",
+  running: "작업하는 중…",
+  waiting_approval: "승인이 필요한 작업이 있습니다. 건마다 승인하거나 거절해 주세요.",
+  resuming: "결정을 반영해 이어서 처리하는 중…",
+};
+
+export function taskPhase(
+  task: { status: TaskStatus; approvals: readonly ApprovalLike[] } | undefined,
+): TaskPhase {
+  if (task === undefined) return "starting";
+  if (isTaskFinished(task.status)) return "finished";
+  if (task.status === "waiting_approval") {
+    return hasPendingApproval(task.approvals) ? "waiting_approval" : "resuming";
+  }
+  return task.status === "queued" ? "queued" : "running";
 }
 
 // 메시지 전송 실패를 화면에 보여 줄 한국어 문구로 바꾼다.
@@ -84,7 +125,9 @@ export function useMessages(conversationId: number) {
   });
 }
 
-// 메시지 전송. 1단계 서버는 실행이 끝난 뒤 202 {task_id}로 답하므로, 성공하면 메시지·작업 목록을 다시 가져온다.
+// 메시지 전송. 3단계 서버는 실행을 기다리지 않고 바로 202 {task_id}로 답한다(그때 task는 보통 queued).
+// 그래서 성공하면 메시지 목록을 다시 가져온다. 답변이 없는 내 메시지 아래에 PendingTask가 진행 상황을 폴링한다.
+// 전송 요청이 끝나기 전(onSettled가 끝날 때까지)은 "보내는 중" 말풍선이 보이므로 화면이 비지 않는다.
 export function useSendMessage(conversationId: number) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -120,10 +163,13 @@ export function useTask(taskId: number) {
       return requireData(data, response, "작업");
     },
     // refetchInterval에 함수를 주면 매번 최신 결과를 보고 다시 가져올지 정한다(TanStack Query v5).
-    refetchInterval: (query) => taskRefetchInterval(query.state.data?.status),
+    // 화면이 백그라운드(다른 탭, 폰 화면 꺼짐)면 TanStack Query가 폴링을 쉬고, 돌아오면(창 포커스) 바로 다시 가져온다.
+    refetchInterval: (query) =>
+      taskRefetchInterval(query.state.data?.status, query.state.data?.approvals),
   });
 }
 
+// 작업 기록 탭의 목록. 끝나지 않은 task가 있으면 상태 배지가 바뀌도록 3초마다 다시 가져온다.
 export function useTasks() {
   return useQuery({
     queryKey: chatKeys.tasks,
@@ -131,5 +177,7 @@ export function useTasks() {
       const { data, response } = await api.GET("/api/tasks", { params: { query: { limit: 50 } } });
       return requireData(data, response, "작업 기록");
     },
+    refetchInterval: (query) =>
+      query.state.data?.some((task) => !isTaskFinished(task.status)) ? 3000 : false,
   });
 }

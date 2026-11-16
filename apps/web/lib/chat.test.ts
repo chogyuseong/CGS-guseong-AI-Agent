@@ -1,5 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { isTaskFinished, sendErrorMessage, taskRefetchInterval } from "./chat";
+import type { Approval } from "./approvals";
+import {
+  isTaskFinished,
+  PHASE_TEXT,
+  sendErrorMessage,
+  type TaskStatus,
+  taskPhase,
+  taskRefetchInterval,
+} from "./chat";
+
+function approvalWith(status: Approval["status"]): Approval {
+  return {
+    id: 1,
+    step_id: 1,
+    tool_name: "create_event",
+    tool_input: {},
+    status,
+    summary: "일정을 만듭니다.",
+    expires_at: "2026-11-17T03:30:00Z",
+    decided_at: null,
+    guard: null,
+    needs_mismatch_confirmation: false,
+  };
+}
+
+const taskOf = (status: TaskStatus, approvals: Approval[] = []) => ({ status, approvals });
+
+describe("진행 단계 판단(3단계: 즉시 응답 + 폴링)", () => {
+  it("아직 task를 못 가져왔으면 starting, 대기·진행 중이면 queued·running이다", () => {
+    expect(taskPhase(undefined)).toBe("starting");
+    expect(taskPhase(taskOf("queued"))).toBe("queued");
+    expect(taskPhase(taskOf("running"))).toBe("running");
+  });
+
+  it("승인 대기 중 결정할 승인이 남아 있으면 waiting_approval이다", () => {
+    const task = taskOf("waiting_approval", [approvalWith("approved"), approvalWith("pending")]);
+    expect(taskPhase(task)).toBe("waiting_approval");
+  });
+
+  it("승인을 모두 결정했는데 서버가 아직 재개 전이면 resuming(이어서 처리하는 중)이다", () => {
+    expect(taskPhase(taskOf("waiting_approval", [approvalWith("approved")]))).toBe("resuming");
+    expect(taskPhase(taskOf("waiting_approval", [approvalWith("rejected")]))).toBe("resuming");
+  });
+
+  it("끝난 상태면 finished이고, 끝나지 않은 단계마다 보여 줄 문구가 있다", () => {
+    for (const status of ["done", "failed", "cancelled", "budget_exceeded"] as const) {
+      expect(taskPhase(taskOf(status))).toBe("finished");
+    }
+    expect(PHASE_TEXT.queued).toContain("곧 시작");
+    expect(PHASE_TEXT.running).toContain("작업하는 중");
+    expect(PHASE_TEXT.resuming).toContain("이어서 처리하는 중");
+  });
+
+  it("승인을 모두 결정해 재개를 기다리는 동안은 3초가 아니라 1초마다 다시 가져온다", () => {
+    expect(taskRefetchInterval("waiting_approval", [approvalWith("approved")])).toBe(1000);
+    expect(taskRefetchInterval("waiting_approval", [approvalWith("pending")])).toBe(3000);
+  });
+});
 
 describe("task 다시 가져오기 판단", () => {
   it("끝난 상태(done, failed, cancelled, budget_exceeded)면 끝났다고 본다", () => {
