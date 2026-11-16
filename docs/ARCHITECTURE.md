@@ -1,4 +1,4 @@
-# 구조 (3단계 기준)
+# 구조 (4단계 기준)
 
 마이에이전트는 화면(Next.js)과 에이전트 서버(FastAPI)를 나눈 모노레포다.
 1단계까지: 로그인, 모든 테이블, 채팅 메시지 → 에이전트 실행(메모·할 일 도구) → 작업 기록 조회.
@@ -27,21 +27,22 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 
 | 파일 | 역할 |
 | --- | --- |
-| `app/main.py` | `create_app(settings)`: 앱, 미들웨어, 라우터, 에이전트, 전송 제한기, 워크플로 시작기, 푸시 전송기 조립. lifespan에서 DBOS 시작·복구·종료. uvicorn은 `--factory`로 부른다 |
+| `app/main.py` | `create_app(settings)`: 앱, 미들웨어, 라우터, 에이전트, 전송 제한기, 워크플로 시작기, 푸시 전송기, 외부 API HTTP 클라이언트(`app.state.http_client`) 조립. lifespan에서 DBOS 시작·복구·종료, HTTP 클라이언트 닫기. uvicorn은 `--factory`로 부른다 |
 | `app/push.py` | 웹 푸시: `PushNotifier.notify(user_id, kind, url)`, kind별 고정 문구, 404·410 구독 삭제, pywebpush 전송기 |
 | `app/config.py` | `.env`를 읽는 Settings(pydantic-settings), `MODEL_PRICES`(공식 가격) |
 | `app/db.py` | 비동기 엔진, 요청마다 세션 하나를 주는 `get_session`/`DbSession` |
-| `app/security.py` | bcrypt 비밀번호 해시, 서명된 세션 쿠키, Origin 검사 미들웨어, `CurrentUser` |
+| `app/security.py` | bcrypt 비밀번호 해시, 서명된 세션 쿠키, Origin 검사 미들웨어, `CurrentUser`, OAuth 토큰 암호화(`token_cipher`: Fernet, `TOKEN_ENCRYPTION_KEY`) |
+| `app/google_auth.py` | Google OAuth(4단계): 동의 화면 주소(state·PKCE), 토큰 교환·갱신·철회(httpx로 REST 직접), 토큰 암호화 저장, 도구용 `access_token(deps)`(만료 1분 전·401이면 갱신, invalid_grant면 연결 삭제) |
 | `app/rate_limit.py` | 메시지 전송 제한(사용자당 분당 20회, 메모리 슬라이딩 윈도) |
 | `app/users.py`, `app/cli.py` | 사용자 조회·생성, `python -m app.cli create-user`, 시험 푸시 `python -m app.cli send-test-push` |
 | `app/event_loop.py` | Windows에서 SelectorEventLoop를 쓰는 이유와 CLI용 `run_async` |
 | `app/models/` | 15개 테이블 |
 | `app/schemas/` | 요청·응답 Pydantic 모델(웹이 OpenAPI로 타입 생성) |
-| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push |
+| `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계) |
 | `app/agent/` | 에이전트(아래 절) |
-| `app/tools/` | 도구. 1단계는 `notes.py`(메모, 할 일) |
+| `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 엔드포인트·한도 요약은 `docs/TOOLS.md` |
 | `alembic/` | 마이그레이션. env.py는 동기 엔진(같은 psycopg 3 드라이버) |
-| `tests/` | pytest. DB·DBOS 픽스처는 `tests/conftest.py` 한 곳, 가짜 모델 대본은 `tests/model_scripts.py`(DBOS에 등록된 가짜 모델 하나), 테스트 전용 EXTERNAL 도구는 `tests/fake_tools.py`, 가짜 푸시 전송기는 `tests/fake_push.py` |
+| `tests/` | pytest. DB·DBOS 픽스처는 `tests/conftest.py` 한 곳, 가짜 모델 대본은 `tests/model_scripts.py`(DBOS에 등록된 가짜 모델 하나), 테스트 전용 EXTERNAL 도구는 `tests/fake_tools.py`, 가짜 푸시 전송기는 `tests/fake_push.py`, 가짜 외부 HTTP는 `tests/fake_http.py`, 외부 API 응답은 `tests/fixtures/`(실제 녹화본과 문서 형식으로 만든 것의 구분은 그 폴더의 README.md) |
 
 ### API (3단계)
 
@@ -62,6 +63,10 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | GET | `/api/push/public-key` | 200 `{"enabled": bool, "public_key": str \| null}`. enabled는 VAPID 세 값(공개 키, 개인 키, VAPID_SUBJECT)이 모두 있을 때만 true |
 | POST | `/api/push/subscribe` | 204. 본문은 브라우저 `PushSubscription.toJSON()` 그대로 `{"endpoint", "keys": {"p256dh", "auth"}, "expirationTime"?}`. endpoint는 푸시 서비스의 https 주소만(아니면 422). 같은 endpoint면 키·사용자를 갱신 |
 | POST | `/api/push/unsubscribe` | 204. 본문 `{"endpoint"}`. 없거나 남의 것이어도 204 |
+| GET | `/api/connections` | 200 `[{"provider": "google", "available", "connected", "calendar", "scopes", "connected_at"}]`(4단계). available은 서버 설정(GOOGLE_* 세 값 + 유효한 TOKEN_ENCRYPTION_KEY)이 갖춰졌을 때만 true. 토큰은 응답에 없다 |
+| GET | `/api/connections/google/start` | 302 Google 동의 화면(4단계). 화면은 fetch가 아니라 **링크 이동**으로 연다. state·PKCE를 세션 쿠키에 저장. 설정이 없으면 302 `{APP_ORIGIN}/connections?google=error&reason=not_configured`. 로그인 안 했으면 401 |
+| GET | `/api/connections/google/callback` | Google이 브라우저를 보내는 주소(4단계). 302 `{APP_ORIGIN}/connections?google=connected` 또는 `?google=error&reason=<코드>`(not_logged_in, access_denied, google_error, invalid_state, invalid_request, exchange_failed, scope_missing, not_configured) |
+| DELETE | `/api/connections/{provider}` | 204(4단계, provider는 `google`만, 그 밖은 404). Google 쪽 권한 철회를 시도하고 실패해도 토큰을 지운다. 연결이 없어도 204 |
 | GET | `/api/openapi.json`, `/api/docs` | OpenAPI 문서 |
 
 승인 API 오류의 본문은 `{"detail": {"code": "...", "message": "한국어 문장"}}`이고 OpenAPI에 `ApprovalErrorOut`(`detail: ApprovalErrorDetail{code, message}`) 모델로 드러난다(3단계).
@@ -156,14 +161,14 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `approvals.py` | 승인 요청 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`) |
 | `guard.py` | 감시 에이전트(도구 없음, AGENT_MODEL_GUARD). 입력 4가지만, 실패는 unsure |
 | `tracking.py` | 도구 실행 hook(wrap_tool_execute)으로 steps 기록, 예상 못 한 예외를 ok=false로 바꿈. 복구 때 끝난 호출은 기록된 결과를 재생, 도중에 끊긴 INTERNAL·EXTERNAL 호출은 다시 실행하지 않고 failed("실행 여부를 확인할 수 없음") |
-| `toolsets.py` | read_tools / internal_tools / external_tools(비어 있음, requires_approval, `build_external_toolset`) 와 origin별 조합, step 문구(TOOL_LABELS), 승인 카드 문장(TOOL_PREVIEWS) |
+| `toolsets.py` | read_tools / internal_tools / external_tools(일정 쓰기 셋, requires_approval, `build_external_toolset`) 와 origin별 조합, step 문구(TOOL_LABELS), 승인 카드 문장(TOOL_PREVIEWS), 외부 콘텐츠 도구 목록(EXTERNAL_CONTENT_TOOLS) |
 | `model_choice.py` | FAST/SMART 선택 규칙, 설정의 API 키로 AnthropicModel 만들기 |
 | `budget.py` | UsageLimits, 비용 계산(MODEL_PRICES), 하루 비용 검사 |
 | `history.py` | 이전 기록 저장 형식(JSON), 자르기, 실패한 run 기록 정리, 승인 대기 기록 저장·결과 없는 호출 찾기 |
-| `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 오늘 날짜 |
-| `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장), ToolResult |
+| `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 동적 지시문(오늘 날짜·요일, 이번 주 날짜표, 다음 주 월요일) |
+| `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장, settings, http), ToolResult(`external()`: 지시문 무시 안내로 감싸고 6,000자로 자름) |
 
-### 도구 (1단계)
+### 도구 (1단계 + 4단계)
 
 | 도구 | 등급 | 하는 일 |
 | --- | --- | --- |
@@ -172,8 +177,16 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `add_todo(title)` | INTERNAL | 할 일 추가 |
 | `complete_todo(todo_id)` | INTERNAL | 할 일 완료 표시(이미 완료면 그대로 성공) |
 | `save_note(content)` | INTERNAL | 메모 저장 |
+| `get_weather(place, date)` | READ, 외부 콘텐츠 | 카카오로 좌표 변환 → Open-Meteo 예보(최저·최고, 강수 확률, 3시간 간격). 오늘~15일 뒤 |
+| `search_places(query, near?, radius_m=2000, size=5)` | READ, 외부 콘텐츠 | 카카오 로컬 키워드 검색. 이름·주소·카테고리·전화·링크·좌표·거리 |
+| `web_search(query, size=5)` | READ, 외부 콘텐츠 | NAVER API HUB 웹문서 검색. 제목·요약·링크(태그 제거) |
+| `list_events(date_from, date_to)` | READ, 외부 콘텐츠 | Google 기본 캘린더 일정(최대 31일, 50개). id·제목·시작·끝·종일·장소 |
+| `create_event(title, start, end, location?, description?)` | EXTERNAL | 일정 만들기. 시각은 서울 `YYYY-MM-DDTHH:MM` |
+| `update_event(event_id, title?, start?, end?, location?, description?)` | EXTERNAL | 바꿀 칸만 PATCH |
+| `delete_event(event_id)` | EXTERNAL | 일정 삭제 |
 
-origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘긴다.
+origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘긴다(일정 쓰기 도구는 자동 작업에 없다).
+외부 API 호출 규칙(타임아웃 10초, GET만 1회 재시도, 쓰기는 재시도 없음, 오류 문장에 키·본문 없음)은 `app/tools/http.py` 한 곳에 있다.
 
 ## 테이블 (15개)
 
@@ -194,4 +207,6 @@ origin이 chat이면 3개 toolset 전부, schedule·watch면 read_tools만 넘�
 - `tasks.workflow_id`(3단계부터 채움): 그 task를 지금(마지막으로) 실행한 DBOS 워크플로 ID. 다음 재개 번호를 여기서 계산한다.
 - `push_subscriptions`(3단계부터 사용): endpoint UNIQUE. 발송 성공 때 `last_used_at`, 404·410이면 행 삭제.
 - EXTERNAL 호출 한 번 = steps 1행 + approvals 1행(tool_call_id UNIQUE) + guard_checks 1행.
+- `connections`(4단계부터 사용): `(user_id, provider)` UNIQUE. `encrypted_token`은 `{access_token, refresh_token, expires_at}` JSON을
+  Fernet으로 암호화한 문자열, `scopes`·`expires_at`(access token 만료)은 평문. 갱신이 invalid_grant로 실패하면 행을 지운다. 마이그레이션 변경 없음.
 - 사용자 메시지와 assistant 답변 모두 `messages.task_id`로 task에 연결된다.

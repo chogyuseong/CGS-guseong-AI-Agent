@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from fastapi import FastAPI
+from pydantic import SecretStr
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo
@@ -31,7 +32,7 @@ from app.config import Settings
 from app.models import Approval, Conversation, GuardCheck, Message, Step, Task, Todo, User
 from app.models.enums import ApprovalStatus, RiskLevel, StepStatus, TaskOrigin, TaskStatus
 from app.security import hash_password
-from tests.conftest import login, make_client
+from tests.conftest import TEST_ORIGIN, SettingsWithoutEnvFile, login, make_client
 from tests.fake_tools import FakeExternalCounter, fake_external
 from tests.model_scripts import GuardScript, ScriptedModel, call, registered, scripted, text
 from tests.test_agent_run import send
@@ -70,7 +71,14 @@ async def make_chat_task(db_session: AsyncSession, user: User) -> Task:
 def direct_context(
     task: Task, session_factory: async_sessionmaker[AsyncSession], tool_call_id: str
 ) -> RunContext[AgentDeps]:
-    deps = AgentDeps(user_id=task.user_id, task_id=task.id, origin=TaskOrigin.CHAT, db=session_factory)
+    deps = AgentDeps(
+        user_id=task.user_id,
+        task_id=task.id,
+        origin=TaskOrigin.CHAT,
+        db=session_factory,
+        settings=SettingsWithoutEnvFile(database_url="unused", session_secret=SecretStr("x"), app_origin=TEST_ORIGIN),
+        http=httpx.AsyncClient(),  # fake_external은 HTTP를 쓰지 않는다
+    )
     return RunContext(
         deps=deps, model=TestModel(), usage=RunUsage(), tool_name="fake_external", tool_call_id=tool_call_id
     )

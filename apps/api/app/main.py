@@ -9,16 +9,17 @@
     create_app: 에이전트를 만든다(DBOS.launch 전에 있어야 한다) → 워크플로가 쓸 app.state를 알려 준다
     lifespan 시작: DBOS를 만들고 launch → 끝나지 않은 워크플로를 DBOS가 이어서 실행(복구)
                    → 워크플로를 시작하지 못한 task(queued 등)를 이어서 시작
-    lifespan 끝: DBOS 종료 → DB 연결 정리
+    lifespan 끝: DBOS 종료 → 외부 API HTTP 클라이언트 닫기 → DB 연결 정리
 테스트(httpx ASGITransport)는 lifespan을 돌리지 않는다. DBOS는 tests/conftest.py가 따로 시작한다.
 """
 
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import pydantic_ai
 from fastapi import FastAPI
 from pydantic_ai.models import Model
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.agent import workflows
 from app.agent.agent import build_agent
@@ -29,6 +30,22 @@ from app.push import send_with_pywebpush
 from app.rate_limit import SlidingWindowRateLimiter
 from app.routers import api_router
 from app.security import add_security_middleware
+from app.tools.http import build_http_client
+
+
+def build_lifespan(settings: Settings, engine: AsyncEngine) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        workflows.launch_dbos(settings)
+        await workflows.restart_orphaned_tasks(app.state.launcher, app.state.session_factory)
+        yield
+        # 서버가 꺼질 때 DBOS·HTTP 클라이언트·DB 연결을 정리한다.
+        # 끝나지 않은 워크플로는 다음 시작 때 DBOS가 이어서 실행한다.
+        workflows.shutdown_dbos()
+        await app.state.http_client.aclose()
+        await engine.dispose()
+
+    return lifespan
 
 
 def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, Model] | None = None) -> FastAPI:
@@ -38,20 +55,10 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     # (PYDANTIC_AI_NO_BANNER 환경변수와 같은 효과. 설치된 버전의 pydantic_ai.BANNER_ENABLED 문서 참고)
     pydantic_ai.BANNER_ENABLED = False
     engine = create_engine_for(settings.database_url)
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        workflows.launch_dbos(settings)
-        await workflows.restart_orphaned_tasks(app.state.launcher, app.state.session_factory)
-        yield
-        # 서버가 꺼질 때 DBOS와 DB 연결을 정리한다. 끝나지 않은 워크플로는 다음 시작 때 DBOS가 이어서 실행한다.
-        workflows.shutdown_dbos()
-        await engine.dispose()
-
     app = FastAPI(
         title="마이에이전트 API",
         version="0.1.0",
-        lifespan=lifespan,
+        lifespan=build_lifespan(settings, engine),
         # 문서도 /api 아래에 둔다. 웹의 rewrites(/api/*)로 같은 주소에서 볼 수 있다.
         openapi_url="/api/openapi.json",
         docs_url="/api/docs",
@@ -67,6 +74,8 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     # 워크플로 시작기와 푸시 전송기. 테스트는 기다리는 시작기와 가짜 전송기로 바꿔 끼운다.
     app.state.launcher = workflows.WorkflowLauncher()
     app.state.push_sender = send_with_pywebpush
+    # 외부 API(카카오, 네이버, Open-Meteo, Google)를 부르는 HTTP 클라이언트 하나. 테스트는 가짜 전송으로 바꿔 끼운다.
+    app.state.http_client = build_http_client()
     workflows.bind_app_state(app.state)
     add_security_middleware(app, settings)
     app.include_router(api_router)

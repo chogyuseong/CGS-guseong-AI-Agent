@@ -20,6 +20,11 @@
   받은 뒤 결과를 바로 확인할 수 있고 연결 하나를 두 코루틴이 동시에 쓰지 않는다. "바로 응답"을 확인하는 테스트만
   committed_app + 기다리지 않는 시작기를 쓴다.
 - 푸시 전송기는 FakePushSender(tests/fake_push.py)로 바꾼다. VAPID 설정이 비어 있으면 notify는 아무것도 보내지 않는다.
+
+4단계(외부 API):
+- fake_http 픽스처가 앱의 HTTP 클라이언트를 가짜 전송(tests/fake_http.py)으로 바꾸고 가짜 키를 설정에 넣는다.
+  외부로 나가는 요청은 없다. 등록하지 않은 주소로 요청이 가면 테스트가 실패한다.
+- tool_deps는 도구 함수를 직접 부를 때 쓰는 deps(로그인한 사용자의 chat task)다. 응답은 tests/fixtures/(README.md 참고).
 """
 
 import asyncio
@@ -27,22 +32,28 @@ import os
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from cryptography.fernet import Fernet
 from dbos import DBOS, WorkflowHandleAsync
 from fastapi import FastAPI
 from pydantic import SecretStr
-from pydantic_ai import models
+from pydantic_ai import RunContext, models
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RunUsage
 from pydantic_settings import SettingsConfigDict
 from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.agent.agent import MyAgent
+from app.agent.deps import AgentDeps
 from app.agent.guard import GuardAgent
+from app.agent.results import ToolResult
 from app.agent.toolsets import (
     TOOL_LABELS,
     TOOL_PREVIEWS,
@@ -55,9 +66,10 @@ from app.agent.workflows import DBOS_SYSTEM_SCHEMA, WorkflowLauncher
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
-from app.models import User
-from app.models.enums import TaskOrigin
+from app.models import Conversation, Task, User
+from app.models.enums import TaskOrigin, TaskStatus
 from app.security import hash_password
+from tests.fake_http import FakeHttp
 from tests.fake_push import FakePushSender
 from tests.fake_tools import COUNTER, FakeExternalCounter, fake_external, preview_fake_external
 from tests.model_scripts import TEST_AGENT_MODELS
@@ -237,6 +249,67 @@ def fake_external_counter(monkeypatch: pytest.MonkeyPatch) -> FakeExternalCounte
     monkeypatch.setitem(TOOL_PREVIEWS, "fake_external", preview_fake_external)
     monkeypatch.setitem(TOOL_LABELS, "fake_external", lambda args: "가짜 외부 도구 실행하는 중")
     return COUNTER
+
+
+# ---- 4단계: 외부 API (가짜 HTTP와 테스트 키) ----
+# 실제 .env의 키는 쓰지 않는다. 아래 값은 가짜이고 외부로 나가지 않는다(FakeHttp가 요청을 가로챈다).
+TEST_FERNET_KEY = Fernet.generate_key().decode("ascii")
+TEST_GOOGLE_REDIRECT = f"{TEST_ORIGIN}/api/connections/google/callback"
+
+
+def configure_external_keys(settings: Settings) -> None:
+    settings.kakao_rest_api_key = SecretStr("test-kakao-key")
+    settings.naver_client_id = "test-naver-id"
+    settings.naver_client_secret = SecretStr("test-naver-secret")
+    settings.google_client_id = "test-google-client.apps.googleusercontent.com"
+    settings.google_client_secret = SecretStr("test-google-secret")
+    settings.google_redirect_uri = TEST_GOOGLE_REDIRECT
+    settings.token_encryption_key = SecretStr(TEST_FERNET_KEY)
+
+
+@pytest.fixture
+def fake_http(app: FastAPI, test_settings: Settings) -> FakeHttp:
+    """앱(워크플로의 도구 포함)이 쓰는 HTTP 클라이언트를 가짜로 바꾸고 테스트 키를 넣는다."""
+    fake = FakeHttp()
+    app.state.http_client = fake.client()
+    configure_external_keys(test_settings)
+    return fake
+
+
+@pytest.fixture
+async def tool_deps(
+    fake_http: FakeHttp,
+    test_settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    logged_in_user: User,
+) -> AgentDeps:
+    """도구 함수를 직접 부를 때 쓰는 deps(로그인한 사용자의 chat task 하나)."""
+    conversation = Conversation(user_id=logged_in_user.id, title="도구 직접 호출")
+    db_session.add(conversation)
+    await db_session.flush()
+    task = Task(
+        conversation_id=conversation.id, user_id=logged_in_user.id, origin=TaskOrigin.CHAT, status=TaskStatus.RUNNING
+    )
+    db_session.add(task)
+    await db_session.commit()
+    return AgentDeps(
+        user_id=logged_in_user.id,
+        task_id=task.id,
+        origin=TaskOrigin.CHAT,
+        db=session_factory,
+        settings=test_settings,
+        http=fake_http.client(),
+    )
+
+
+def payload(result: ToolResult) -> Any:
+    """ToolResult.data(JsonValue)를 테스트에서 키로 꺼내 보기 위한 도우미(타입 검사용)."""
+    return result.data
+
+
+def tool_context(deps: AgentDeps, tool_name: str, tool_call_id: str = "call-direct") -> RunContext[AgentDeps]:
+    return RunContext(deps=deps, model=TestModel(), usage=RunUsage(), tool_name=tool_name, tool_call_id=tool_call_id)
 
 
 def make_client(app: FastAPI) -> httpx.AsyncClient:

@@ -6,7 +6,7 @@
   같은 task의 DB 쓰기가 겹치지 않는다.
 - external_tools(EXTERNAL)는 toolset 전체가 requires_approval=True다(첫 번째 방어선). 모델이 이 도구를 부르면
   Pydantic AI가 도구를 실행하지 않고 run을 DeferredToolRequests로 끝낸다. 두 번째 방어선은 각 도구 함수 첫 줄의
-  assert_approved(ctx)다(approvals.py). 4단계에서 일정 도구가 들어오기 전까지 external_tools는 비어 있다.
+  assert_approved(ctx)다(approvals.py). 4단계부터 일정 쓰기 도구 셋(create/update/delete_event)이 들어 있다.
   테스트는 build_external_toolset([fake_external])로 같은 설정의 묶음을 만들어 끼운다.
 - 실행할 때 origin에 맞는 toolset만 agent.run(toolsets=...)으로 넘긴다. 넘기지 않은 도구는 모델에게 보이지도 않고
   실행되지도 않는다. (DBOS 문서: 실행 시점 FunctionToolset 전달은 내구성 실행에서도 지원된다.)
@@ -22,7 +22,7 @@ from pydantic_ai.toolsets import FunctionToolset
 
 from app.agent.deps import AgentDeps
 from app.models.enums import RiskLevel, TaskOrigin
-from app.tools import notes
+from app.tools import gcal, notes, places, weather, websearch
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,14 @@ def build_external_toolset(
 
 
 read_tools = FunctionToolset[AgentDeps](
-    [notes.list_todos, notes.list_notes],
+    [
+        notes.list_todos,
+        notes.list_notes,
+        weather.get_weather,
+        places.search_places,
+        websearch.web_search,
+        gcal.list_events,
+    ],
     id="read_tools",
     metadata=risk_metadata(RiskLevel.READ),
     sequential=True,
@@ -61,7 +68,8 @@ internal_tools = FunctionToolset[AgentDeps](
     metadata=risk_metadata(RiskLevel.INTERNAL),
     sequential=True,
 )
-external_tools = build_external_toolset([])
+# 일정 쓰기 도구. 함수 첫 줄은 모두 assert_approved(ctx)다(두 번째 방어선, app/tools/gcal.py).
+external_tools = build_external_toolset([gcal.create_event, gcal.update_event, gcal.delete_event])
 
 # 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4).
 TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
@@ -70,9 +78,18 @@ TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
     TaskOrigin.WATCH: [read_tools],
 }
 
-TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {**notes.LABELS}
-# EXTERNAL 도구 이름 → preview 함수. 4단계의 일정 도구가 자기 preview를 여기에 넣는다.
-TOOL_PREVIEWS: dict[str, PreviewFunc] = {}
+TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
+    **notes.LABELS,
+    "get_weather": weather.get_weather_label,
+    "search_places": places.search_places_label,
+    "web_search": websearch.web_search_label,
+    **gcal.LABELS,
+}
+# 결과가 외부 콘텐츠(남이 쓴 글)인 도구. data를 지시문 무시 안내로 감싸고 6,000자로 자른다(ToolResult.external).
+# 5단계 remember 서버 검사("이 task에서 외부 콘텐츠 도구를 쓰지 않았어야 한다")가 이 목록을 쓴다.
+EXTERNAL_CONTENT_TOOLS = frozenset({"get_weather", "search_places", "web_search", "list_events"})
+# EXTERNAL 도구 이름 → preview 함수(승인 카드 문장). 일정 도구 셋은 app/tools/gcal.py의 PREVIEWS.
+TOOL_PREVIEWS: dict[str, PreviewFunc] = {**gcal.PREVIEWS}
 
 
 def toolsets_for(origin: TaskOrigin) -> list[FunctionToolset[AgentDeps]]:

@@ -32,6 +32,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from pydantic_ai import capture_run_messages
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import ModelMessage, ModelResponse
@@ -81,6 +82,7 @@ class RunServices:
     session_factory: async_sessionmaker[AsyncSession]
     settings: Settings
     notifier: PushNotifier
+    http: httpx.AsyncClient  # 외부 API 도구가 쓰는 클라이언트(4단계, app/tools/http.py)
 
 
 @dataclass(frozen=True)
@@ -195,8 +197,19 @@ def outcome_of(output: str | DeferredToolRequests, new_messages: list[ModelMessa
     return Outcome(TaskStatus.WAITING_APPROVAL, new_messages=new_messages, deferred=output)
 
 
+def deps_for(services: RunServices, info: TaskInfo) -> AgentDeps:
+    return AgentDeps(
+        user_id=info.user_id,
+        task_id=info.id,
+        origin=info.origin,
+        db=services.session_factory,
+        settings=services.settings,
+        http=services.http,
+    )
+
+
 async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInput) -> Outcome:
-    deps = AgentDeps(user_id=info.user_id, task_id=info.id, origin=info.origin, db=services.session_factory)
+    deps = deps_for(services, info)
     history = run_input.history
     with capture_run_messages() as captured:
         try:
@@ -230,7 +243,7 @@ async def prepare_requests(
 
     감시 에이전트에는 원래 요청·도구 이름·도구 입력·preview만 넘긴다. 도구 결과와 메시지 기록은 넘기지 않는다.
     """
-    deps = AgentDeps(user_id=info.user_id, task_id=info.id, origin=info.origin, db=services.session_factory)
+    deps = deps_for(services, info)
     requests, reviews = [], []
     for call in deferred.approvals:
         args = call.args_as_dict()

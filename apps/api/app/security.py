@@ -1,4 +1,4 @@
-"""보안: 비밀번호 해시, 세션 쿠키, Origin 검사(CSRF 방어).
+"""보안: 비밀번호 해시, 세션 쿠키, Origin 검사(CSRF 방어), OAuth 토큰 암호화(Fernet, 4단계).
 
 세션: Starlette의 SessionMiddleware(서명된 쿠키)를 쓴다. 쿠키에는 user_id만 들어가고,
 SESSION_SECRET으로 서명돼 있어 브라우저에서 값을 바꾸면 서명이 깨져 무시된다(내용은 암호화되지 않음).
@@ -8,10 +8,12 @@ CSRF: 상태를 바꾸는 요청(GET/HEAD/OPTIONS 외)은 Origin 헤더가 APP_O
 다르거나 없으면 403. SameSite=Lax 쿠키와 함께 이중으로 막는다.
 """
 
+import logging
 from functools import lru_cache
 from typing import Annotated
 
 import bcrypt
+from cryptography.fernet import Fernet
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from starlette.datastructures import Headers
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,6 +23,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.config import Settings
 from app.db import DbSession
 from app.models import User
+
+logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "myagent_session"
 SESSION_MAX_AGE_SECONDS = 14 * 24 * 60 * 60  # 14일
@@ -100,6 +104,25 @@ class OriginCheckMiddleware:
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+# ---- 토큰 암호화 (4단계) ----
+
+
+def token_cipher(settings: Settings) -> Fernet | None:
+    """OAuth 토큰을 DB에 저장할 때 쓰는 Fernet. TOKEN_ENCRYPTION_KEY가 비었거나 형식이 틀리면 None.
+
+    None이면 토큰을 안전하게 저장할 수 없으므로 Google 연결 자체를 막는다(키를 대신 만들지 않는다).
+    키를 바꾸면 이미 저장한 토큰을 풀 수 없어 다시 연결해야 한다.
+    """
+    key = settings.token_encryption_key.get_secret_value()
+    if not key:
+        return None
+    try:
+        return Fernet(key.encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        logger.warning("TOKEN_ENCRYPTION_KEY 형식이 Fernet 키가 아니다(값은 남기지 않음)")
+        return None
 
 
 def add_security_middleware(app: FastAPI, settings: Settings) -> None:

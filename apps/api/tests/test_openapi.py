@@ -34,3 +34,18 @@ async def test_push_endpoints_are_documented(client: httpx.AsyncClient) -> None:
     spec = (await client.get("/api/openapi.json")).json()
 
     assert {"/api/push/public-key", "/api/push/subscribe", "/api/push/unsubscribe"} <= set(spec["paths"])
+
+
+async def test_connection_endpoints_are_documented(client: httpx.AsyncClient) -> None:
+    spec = (await client.get("/api/openapi.json")).json()
+
+    paths = {
+        "/api/connections",
+        "/api/connections/google/start",
+        "/api/connections/google/callback",
+        "/api/connections/{provider}",
+    }
+    assert paths <= set(spec["paths"])
+    assert "delete" in spec["paths"]["/api/connections/{provider}"]
+    listed = spec["paths"]["/api/connections"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert listed["items"]["$ref"] == "#/components/schemas/ConnectionOut"

@@ -1,0 +1,288 @@
+"""Google OAuth: 계정 연결(인증 시작·콜백·해제)과 토큰 보관·갱신. 라우터(connections)와 캘린더 도구(gcal)가 쓴다.
+
+공식 문서(2026-11-17 확인, docs/TOOLS.md): https://developers.google.com/identity/protocols/oauth2/web-server
+- 동의 화면:   GET  https://accounts.google.com/o/oauth2/v2/auth  (client_id, redirect_uri, response_type=code,
+               scope, access_type=offline, state, prompt=consent, code_challenge, code_challenge_method=S256)
+- 토큰 교환:   POST https://oauth2.googleapis.com/token  (grant_type=authorization_code, code, code_verifier, ...)
+- 토큰 갱신:   POST 같은 주소 (grant_type=refresh_token). 실패하면 400 invalid_grant → 다시 연결해야 한다.
+               외부 사용자 + '테스트' 게시 상태 앱의 refresh token은 7일 뒤 만료된다(공식 문서).
+- 권한 철회:   POST https://oauth2.googleapis.com/revoke  (token)
+
+google-auth-oauthlib 대신 httpx로 REST를 직접 부른다: 타임아웃·오류 문장·키 숨기기를 다른 외부 도구와 같은 곳
+(app/tools/http.py)에서 지키고, 가짜 HTTP로 콜백·갱신·실패를 테스트하기 쉽다(docs/DECISIONS.md 4단계).
+
+보안:
+- state(CSRF 방어)와 PKCE code_verifier는 서명된 세션 쿠키에 넣고 콜백에서 한 번만 쓴다(10분 안).
+- 토큰(access, refresh, 만료 시각)은 JSON 통째로 Fernet 암호화해 connections.encrypted_token에 둔다.
+  범위(scopes)와 만료 시각만 평문 칸에 둔다(권한 확인은 복호화 없이).
+- 토큰은 로그, 오류 문장, 모델, 화면 어디에도 넣지 않는다.
+"""
+
+import base64
+import hashlib
+import json
+import logging
+import secrets
+import time
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from urllib.parse import urlencode
+
+import httpx
+from cryptography.fernet import Fernet, InvalidToken
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agent.deps import AgentDeps
+from app.config import Settings
+from app.models import Connection
+from app.security import token_cipher
+from app.tools import http
+from app.tools.http import ExternalApiError
+
+logger = logging.getLogger(__name__)
+
+PROVIDER = "google"
+SERVICE = "Google"
+AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+# 기본 캘린더(내가 소유한 캘린더)의 일정 보기·만들기·수정·삭제에 필요한 가장 좁은 범위.
+# events.list/insert/patch/delete 문서의 허용 범위에 모두 들어 있다. 메일(gmail.readonly)은 7단계에서 따로 요청한다.
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned"
+SESSION_KEY = "google_oauth"
+STATE_TTL_SECONDS = 600
+REFRESH_MARGIN = timedelta(seconds=60)  # 만료 1분 전이면 미리 갱신한다
+
+NOT_CONNECTED_MESSAGE = "Google 계정이 연결되어 있지 않습니다. 설정에서 Google 계정을 연결해 주세요."
+RECONNECT_MESSAGE = "Google 연결이 끊겼습니다(권한이 만료되었거나 취소됨). 설정에서 Google 계정을 다시 연결해 주세요."
+UNAVAILABLE_MESSAGE = "서버에 Google 연결 설정이 없어 캘린더를 쓸 수 없습니다. 관리자가 .env를 확인해야 합니다."
+
+
+class GoogleNotConnectedError(ExternalApiError):
+    def __init__(self) -> None:
+        super().__init__(NOT_CONNECTED_MESSAGE)
+
+
+class GoogleReconnectRequiredError(ExternalApiError):
+    def __init__(self) -> None:
+        super().__init__(RECONNECT_MESSAGE)
+
+
+@dataclass(frozen=True)
+class GoogleTokens:
+    access_token: str
+    refresh_token: str | None
+    expires_at: datetime
+    scopes: list[str]
+
+    def encrypt(self, cipher: Fernet) -> str:
+        payload = {
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "expires_at": self.expires_at.isoformat(),
+        }
+        return cipher.encrypt(json.dumps(payload).encode("utf-8")).decode("ascii")
+
+    @classmethod
+    def decrypt(cls, row: Connection, cipher: Fernet) -> "GoogleTokens":
+        payload = json.loads(cipher.decrypt(row.encrypted_token.encode("ascii")))
+        expires_at = datetime.fromisoformat(payload["expires_at"])
+        return cls(payload["access_token"], payload.get("refresh_token"), expires_at, list(row.scopes or []))
+
+    @property
+    def has_calendar(self) -> bool:
+        return CALENDAR_SCOPE in self.scopes
+
+
+def google_available(settings: Settings) -> bool:
+    """Google 연결에 필요한 설정이 모두 있는가. TOKEN_ENCRYPTION_KEY가 없으면 연결할 수 없다."""
+    has_client = bool(settings.google_client_id and settings.google_client_secret.get_secret_value())
+    return has_client and bool(settings.google_redirect_uri) and token_cipher(settings) is not None
+
+
+# ---- 1. 인증 시작 ----
+
+
+def code_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def new_authorization(settings: Settings) -> tuple[str, dict[str, Any]]:
+    """Google 동의 화면 주소와 세션에 넣을 값(state, code_verifier, 만든 시각)을 만든다."""
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)  # PKCE: 43~128자
+    params = {
+        "client_id": settings.google_client_id,
+        "redirect_uri": settings.google_redirect_uri,
+        "response_type": "code",
+        "scope": CALENDAR_SCOPE,
+        "access_type": "offline",  # refresh token을 받는다
+        "prompt": "consent",  # 다시 연결할 때도 refresh token을 새로 받는다
+        "include_granted_scopes": "true",
+        "state": state,
+        "code_challenge": code_challenge(verifier),
+        "code_challenge_method": "S256",
+    }
+    pending = {"state": state, "verifier": verifier, "created_at": time.time()}
+    return f"{AUTH_URL}?{urlencode(params)}", pending
+
+
+def verifier_for(pending: object, state: str | None) -> str | None:
+    """세션에 저장한 state와 같고 10분이 지나지 않았으면 code_verifier를, 아니면 None을 돌려준다."""
+    if not isinstance(pending, dict) or not state:
+        return None
+    saved, verifier, created_at = pending.get("state"), pending.get("verifier"), pending.get("created_at")
+    if not (isinstance(saved, str) and isinstance(verifier, str) and isinstance(created_at, int | float)):
+        return None
+    if time.time() - created_at > STATE_TTL_SECONDS or not secrets.compare_digest(saved, state):
+        return None
+    return verifier
+
+
+# ---- 2. 토큰 교환·갱신·철회 (Google 서버) ----
+
+
+def tokens_from(body: Any, *, previous_refresh: str | None = None) -> GoogleTokens:
+    if not isinstance(body, dict) or not isinstance(body.get("access_token"), str):
+        raise ExternalApiError("Google 토큰 응답을 해석하지 못했습니다.")
+    expires_in = int(body.get("expires_in") or 3600)
+    return GoogleTokens(
+        access_token=body["access_token"],
+        refresh_token=body.get("refresh_token") or previous_refresh,  # 갱신 응답에는 refresh token이 없다
+        expires_at=datetime.now(UTC) + timedelta(seconds=expires_in),
+        scopes=str(body.get("scope") or "").split(),
+    )
+
+
+def client_form(settings: Settings) -> dict[str, str]:
+    return {"client_id": settings.google_client_id, "client_secret": settings.google_client_secret.get_secret_value()}
+
+
+async def exchange_code(client: httpx.AsyncClient, settings: Settings, code: str, verifier: str) -> GoogleTokens:
+    form = {
+        **client_form(settings),
+        "grant_type": "authorization_code",
+        "code": code,
+        "code_verifier": verifier,
+        "redirect_uri": settings.google_redirect_uri,
+    }
+    body = await http.request_json(client, SERVICE, "POST", TOKEN_URL, data=form)
+    return tokens_from(body)
+
+
+async def refresh_tokens(client: httpx.AsyncClient, settings: Settings, tokens: GoogleTokens) -> GoogleTokens:
+    """refresh token으로 access token을 새로 받는다. 400(invalid_grant: 만료·철회)이면 다시 연결해야 한다."""
+    if not tokens.refresh_token:
+        raise GoogleReconnectRequiredError
+    form = {**client_form(settings), "grant_type": "refresh_token", "refresh_token": tokens.refresh_token}
+    try:
+        body = await http.request_json(client, SERVICE, "POST", TOKEN_URL, data=form)
+    except ExternalApiError as error:
+        if error.status == 400:
+            raise GoogleReconnectRequiredError from error
+        raise
+    refreshed = tokens_from(body, previous_refresh=tokens.refresh_token)
+    return refreshed if refreshed.scopes else replace(refreshed, scopes=tokens.scopes)
+
+
+async def revoke(client: httpx.AsyncClient, token: str) -> None:
+    """Google 쪽 권한 철회. 실패해도(이미 만료된 토큰 등) 예외를 내지 않는다.
+
+    토큰은 주소(쿼리)가 아니라 본문으로 보낸다. 주소는 프록시·서버 로그에 남을 수 있다.
+    """
+    try:
+        await http.request_json(client, SERVICE, "POST", REVOKE_URL, data={"token": token})
+    except ExternalApiError:
+        logger.info("Google 권한 철회 실패(무시하고 우리 쪽 토큰은 지운다)")
+
+
+# ---- 3. DB 보관 ----
+
+
+async def find_row(session: AsyncSession, user_id: int) -> Connection | None:
+    return await session.scalar(
+        select(Connection).where(Connection.user_id == user_id, Connection.provider == PROVIDER)
+    )
+
+
+async def save_tokens(session: AsyncSession, user_id: int, tokens: GoogleTokens, cipher: Fernet) -> None:
+    """연결을 만들거나 바꾼다. 커밋은 호출한 쪽이 한다."""
+    row = await find_row(session, user_id)
+    if row is None:
+        row = Connection(user_id=user_id, provider=PROVIDER, encrypted_token="", scopes=[])
+        session.add(row)
+    row.encrypted_token = tokens.encrypt(cipher)
+    row.scopes = tokens.scopes
+    row.expires_at = tokens.expires_at
+
+
+async def load_tokens(session: AsyncSession, user_id: int, cipher: Fernet) -> GoogleTokens | None:
+    """저장된 토큰. 없으면 None. 풀 수 없으면(키가 바뀜) 다시 연결해야 한다."""
+    row = await find_row(session, user_id)
+    if row is None:
+        return None
+    try:
+        return GoogleTokens.decrypt(row, cipher)
+    except (InvalidToken, ValueError, KeyError) as error:
+        logger.warning("저장된 Google 토큰을 풀 수 없음: user=%s", user_id)
+        raise GoogleReconnectRequiredError from error
+
+
+async def load_tokens_or_none(session: AsyncSession, user_id: int, cipher: Fernet) -> GoogleTokens | None:
+    """풀 수 없는 토큰도 None으로 본다(연결 해제·다시 연결할 때)."""
+    try:
+        return await load_tokens(session, user_id, cipher)
+    except GoogleReconnectRequiredError:
+        return None
+
+
+async def delete_connection(session: AsyncSession, user_id: int) -> None:
+    await session.execute(delete(Connection).where(Connection.user_id == user_id, Connection.provider == PROVIDER))
+
+
+# ---- 4. 도구가 쓰는 access token ----
+
+
+def require_cipher(settings: Settings) -> Fernet:
+    cipher = token_cipher(settings)
+    if cipher is None or not google_available(settings):
+        raise ExternalApiError(UNAVAILABLE_MESSAGE)
+    return cipher
+
+
+async def is_connected(deps: AgentDeps) -> bool:
+    """캘린더 권한이 있는 연결이 있는가(DB만 본다). preview가 "승인해도 실패한다"를 미리 알리는 데 쓴다."""
+    cipher = token_cipher(deps.settings)
+    if cipher is None:
+        return False
+    async with deps.db() as session:
+        row = await find_row(session, deps.user_id)
+    return row is not None and CALENDAR_SCOPE in (row.scopes or [])
+
+
+async def access_token(deps: AgentDeps, *, force_refresh: bool = False) -> str:
+    """캘린더 API에 쓸 access token. 만료가 가까우면(또는 force_refresh면) 갱신해 저장한다.
+
+    갱신이 invalid_grant로 실패하면 연결을 지우고 GoogleReconnectRequiredError(“다시 연결해 주세요”).
+    """
+    cipher = require_cipher(deps.settings)
+    async with deps.db() as session:
+        tokens = await load_tokens(session, deps.user_id, cipher)
+    if tokens is None or not tokens.has_calendar:
+        raise GoogleNotConnectedError
+    if not force_refresh and tokens.expires_at - REFRESH_MARGIN > datetime.now(UTC):
+        return tokens.access_token
+    try:
+        refreshed = await refresh_tokens(deps.http, deps.settings, tokens)
+    except GoogleReconnectRequiredError:
+        async with deps.db() as session:
+            await delete_connection(session, deps.user_id)
+            await session.commit()
+        raise
+    async with deps.db() as session:
+        await save_tokens(session, deps.user_id, refreshed, cipher)
+        await session.commit()
+    return refreshed.access_token

@@ -1,0 +1,19 @@
+{
+  "kind": "calendar#event",
+  "etag": "\"3500000000000100\"",
+  "id": "evt0dinner0100",
+  "status": "confirmed",
+  "htmlLink": "https://www.google.com/calendar/event?eid=ZXZ0MGRpbm5lcjAxMDA",
+  "created": "2026-11-17T01:00:00.000Z",
+  "updated": "2026-11-17T01:00:00.000Z",
+  "summary": "저녁 약속",
+  "location": "성수동",
+  "creator": {"email": "owner@example.com", "self": true},
+  "organizer": {"email": "owner@example.com", "self": true},
+  "start": {"dateTime": "2026-11-20T19:00:00+09:00", "timeZone": "Asia/Seoul"},
+  "end": {"dateTime": "2026-11-20T21:00:00+09:00", "timeZone": "Asia/Seoul"},
+  "iCalUID": "evt0dinner0100@google.com",
+  "sequence": 0,
+  "reminders": {"useDefault": true},
+  "eventType": "default"
+}

@@ -63,6 +63,7 @@ def services_from_state(state: Any) -> RunServices:
         session_factory=state.session_factory,
         settings=state.settings,
         notifier=PushNotifier(state.session_factory, state.settings, state.push_sender),
+        http=state.http_client,
     )
 
 

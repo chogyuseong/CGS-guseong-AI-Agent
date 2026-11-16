@@ -1,0 +1,19 @@
+{
+  "kind": "calendar#event",
+  "etag": "\"3500000000000000\"",
+  "id": "evt0meeting001",
+  "status": "confirmed",
+  "htmlLink": "https://www.google.com/calendar/event?eid=ZXZ0MG1lZXRpbmcwMDE",
+  "created": "2026-11-10T01:00:00.000Z",
+  "updated": "2026-11-10T01:00:00.000Z",
+  "summary": "팀 회의",
+  "location": "회의실 A",
+  "creator": {"email": "owner@example.com", "self": true},
+  "organizer": {"email": "owner@example.com", "self": true},
+  "start": {"dateTime": "2026-11-20T10:00:00+09:00", "timeZone": "Asia/Seoul"},
+  "end": {"dateTime": "2026-11-20T11:00:00+09:00", "timeZone": "Asia/Seoul"},
+  "iCalUID": "evt0meeting001@google.com",
+  "sequence": 0,
+  "reminders": {"useDefault": true},
+  "eventType": "default"
+}

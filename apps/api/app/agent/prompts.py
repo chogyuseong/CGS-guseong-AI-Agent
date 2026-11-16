@@ -7,11 +7,15 @@ Django판 실사용에서 승인 카드가 떠 있는데 모델이 채팅으로 
 아직 없는 도구(일정, 기억, 감시, 예약, 초안)를 가리키는 문장도 그대로 둔다. 모델이 없는 도구를 부르면
 Pydantic AI가 "없는 도구"라고 모델에게 다시 알려 주고, 서버는 죽지 않는다(테스트 8).
 
+4단계: 시스템 프롬프트는 그대로 두고, 동적 지시문(date_instruction)에 이번 주 날짜표를 더했다.
+"이번 주 금요일 저녁 7시"를 모델이 요일 계산 없이 실제 날짜로 바꿀 수 있게 하려는 것이다.
+도구 사용법(시각 형식, 끝 시각 기본값, 수정·삭제 전 list_events)은 각 도구의 설명(docstring)과 인자 설명에 있다.
+
 Pydantic AI의 instructions로 넘긴다. system_prompt와 달리 instructions는 메시지 기록에 저장되지 않고
 요청마다 새로 붙으므로, 이전 task의 기록을 이어받아도 지시문이 중복되거나 낡지 않는다.
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -36,7 +40,27 @@ SYSTEM_PROMPT = """너는 사용자 한 사람을 위한 개인 비서다.
 - 승인 카드가 뜨는 행동은 채팅으로 한 번 더 확인하지 않는다. 사용자는 승인 카드에서 결정한다."""
 
 
+def day_label(day: date, today: date) -> str:
+    """'11월 20일(금)'. 올해가 아니면 연도도 붙인다."""
+    year = f"{day.year}년 " if day.year != today.year else ""
+    return f"{year}{day.month}월 {day.day}일({WEEKDAYS_KO[day.weekday()][0]})"
+
+
+def date_instruction(today: date) -> str:
+    """오늘 날짜·요일과 이번 주(월~일) 날짜, 다음 주 월요일.
+
+    4단계: '이번 주 금요일 저녁 7시' 같은 말을 모델이 직접 계산하다 틀리지 않도록 이번 주 날짜표를 준다.
+    날짜에만 달려 있어 하루 동안은 같은 문장이다.
+    """
+    monday = today - timedelta(days=today.weekday())
+    week = ", ".join(day_label(monday + timedelta(days=offset), today) for offset in range(7))
+    next_monday = day_label(monday + timedelta(days=7), today).removesuffix("(월)")
+    return (
+        f"오늘은 {today.year}년 {today.month}월 {today.day}일 {WEEKDAYS_KO[today.weekday()]}이다(Asia/Seoul). "
+        f"이번 주: {week}. 다음 주 월요일은 {next_monday}이다. 도구에 넣는 날짜와 시각은 모두 서울 기준이다."
+    )
+
+
 def current_date_instruction() -> str:
-    """오늘 날짜와 요일(Asia/Seoul). 날짜만 넣는다(시각까지 넣으면 요청마다 지시문이 바뀌어 캐시가 깨진다)."""
-    today = datetime.now(SEOUL)
-    return f"오늘은 {today.year}년 {today.month}월 {today.day}일 {WEEKDAYS_KO[today.weekday()]}이다(Asia/Seoul)."
+    """오늘 날짜(Asia/Seoul)로 만든 동적 지시문. 날짜만 넣는다(시각까지 넣으면 요청마다 지시문이 바뀐다)."""
+    return date_instruction(datetime.now(SEOUL).date())

@@ -1,0 +1,84 @@
+{
+  "documents": [
+    {
+      "address_name": "서울 성동구 성수동1가 668-123",
+      "category_group_code": "FD6",
+      "category_group_name": "음식점",
+      "category_name": "음식점 > 간식 > 제과,베이커리",
+      "distance": "70",
+      "id": "799001769",
+      "phone": "02-468-0789",
+      "place_name": "성수베이킹스튜디오",
+      "place_url": "http://place.map.kakao.com/799001769",
+      "road_address_name": "서울 성동구 서울숲2길 46",
+      "x": "127.04375872148695",
+      "y": "37.54618518238096"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 668-30",
+      "category_group_code": "FD6",
+      "category_group_name": "음식점",
+      "category_name": "음식점 > 양식 > 햄버거",
+      "distance": "134",
+      "id": "1965582130",
+      "phone": "02-2205-2622",
+      "place_name": "제스티살룬 성수",
+      "place_url": "http://place.map.kakao.com/1965582130",
+      "road_address_name": "서울 성동구 서울숲4길 13",
+      "x": "127.04244685499071",
+      "y": "37.547564189547295"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 656-881",
+      "category_group_code": "FD6",
+      "category_group_name": "음식점",
+      "category_name": "음식점 > 한식",
+      "distance": "379",
+      "id": "702274365",
+      "phone": "",
+      "place_name": "선채 성수",
+      "place_url": "http://place.map.kakao.com/702274365",
+      "road_address_name": "서울 성동구 아차산로1길 11",
+      "x": "127.045754363619",
+      "y": "37.5490883449927"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 656-442",
+      "category_group_code": "FD6",
+      "category_group_name": "음식점",
+      "category_name": "음식점 > 간식 > 제과,베이커리",
+      "distance": "165",
+      "id": "27300932",
+      "phone": "02-497-5050",
+      "place_name": "밀도 성수본점",
+      "place_url": "http://place.map.kakao.com/27300932",
+      "road_address_name": "서울 성동구 왕십리로 96",
+      "x": "127.04487903117139",
+      "y": "37.54623882183776"
+    },
+    {
+      "address_name": "서울 성동구 성수동1가 656-1082",
+      "category_group_code": "FD6",
+      "category_group_name": "음식점",
+      "category_name": "음식점 > 중식",
+      "distance": "285",
+      "id": "1483073499",
+      "phone": "02-499-9256",
+      "place_name": "빠오즈푸 서울숲점",
+      "place_url": "http://place.map.kakao.com/1483073499",
+      "road_address_name": "서울 성동구 왕십리로6길 13",
+      "x": "127.04620282598931",
+      "y": "37.54596260560189"
+    }
+  ],
+  "meta": {
+    "is_end": false,
+    "pageable_count": 45,
+    "same_name": {
+      "keyword": "맛집",
+      "region": [],
+      "selected_region": ""
+    },
+    "total_count": 3081
+  }
+}

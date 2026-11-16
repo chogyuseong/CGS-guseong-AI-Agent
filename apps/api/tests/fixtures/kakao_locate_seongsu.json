@@ -1,0 +1,30 @@
+{
+  "documents": [
+    {
+      "address_name": "서울 성동구 성수동1가 668-11",
+      "category_group_code": "AT4",
+      "category_group_name": "관광명소",
+      "category_name": "여행 > 관광,명소 > 테마거리 > 카페거리",
+      "distance": "",
+      "id": "1780698606",
+      "phone": "",
+      "place_name": "서울숲카페거리",
+      "place_url": "http://place.map.kakao.com/1780698606",
+      "road_address_name": "",
+      "x": "127.043028992489",
+      "y": "37.5464440372535"
+    }
+  ],
+  "meta": {
+    "is_end": false,
+    "pageable_count": 45,
+    "same_name": {
+      "keyword": "",
+      "region": [
+        "서울 성동구 성수동2가"
+      ],
+      "selected_region": "서울 성동구 성수동1가"
+    },
+    "total_count": 5497
+  }
+}

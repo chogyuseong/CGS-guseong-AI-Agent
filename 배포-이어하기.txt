@@ -15,8 +15,9 @@
   1단계 에이전트      완료  내부 도구 5개, 채팅 화면, 단계 타임라인, 작업 기록 탭
   2단계 승인과 감시   완료(2026-11-17)  승인·거절 API, 감시 에이전트, 승인 카드
   3단계 내구성·푸시   완료(2026-11-17)  DBOS 워크플로, 강제 종료 복구, 웹 푸시
-  4단계 실제 도구     API 진행 중(날씨, 장소 검색, 웹 검색, Google Calendar)
+  4단계 실제 도구     API 완료(2026-11-17), 화면(Google 연결 페이지) 진행 중
   5~6단계             시작 전
+    (아래 "4단계 API에서 만든 것" 참고)
   7단계 음성·메일     음성 입력만 완료(마이크 버튼, ko-KR, 입력창에만 넣음). 메일 읽기는 시작 전
   8~9단계             시작 전
 
@@ -55,6 +56,24 @@
   - API: pytest 42개, ruff, pyright, alembic check
   - 웹: Biome, tsc, Vitest 17개, Playwright 2개(360px)
   - 실제 모델 호출 2건 확인(할 일 추가, 모델 전환). 비용 $0.0073
+
+4단계 API에서 만든 것:
+  - get_weather(Open-Meteo), search_places(카카오), web_search(네이버) - READ
+  - Google Calendar: list_events(READ), create/update/delete_event(EXTERNAL, 승인 필요)
+  - Google 연결 API: /api/connections, /api/connections/google/start|callback, DELETE /api/connections/google
+  - OAuth 범위는 calendar.events.owned(내 캘린더만). 토큰은 암호화해 DB에 저장
+  - pytest 181개 통과. 날씨·카카오·네이버 정상 응답 fixture는 실제 응답, Google 응답은 문서 형식으로 만든 것
+  - 도구별 엔드포인트와 한도: docs/TOOLS.md
+
+직접 하실 일 (Google 연결, 제가 대신할 수 없음):
+  1) Google Cloud 콘솔 > 사용자 인증 정보 > OAuth 클라이언트 > 승인된 리디렉션 URI에
+     http://localhost:3000/api/connections/google/callback 추가(끝에 / 없음)
+  2) Google Calendar API 사용 설정 확인, OAuth 동의 화면 범위에 .../auth/calendar.events.owned 추가,
+     테스트 사용자에 본인 계정 확인
+  3) 이 컴퓨터의 .env GOOGLE_REDIRECT_URI는 위 주소로 이미 바꿔 두었다(2026-11-17).
+     다른 컴퓨터로 .env를 옮겼다면 그 값이 위 주소인지 확인한다
+  4) 앱에서 연결한 뒤 "이번 주 금요일 저녁 7시에 성수동에서 저녁 약속 잡아줘"로
+     검색 > 승인 카드 > 승인 > 구글 캘린더 등록을 확인(실제 모델 비용 발생)
 
 아직 확인하지 못한 것:
   - 브라우저 화면에서 실제 모델로 메시지를 보내는 흐름(API와 화면을 따로만 확인함)

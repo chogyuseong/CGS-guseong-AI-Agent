@@ -15,6 +15,11 @@ from app.push import PushNotifier
 from tests.fake_push import FakePushSender
 from tests.model_scripts import call, scripted, text
 
+# 등급별 도구 이름(4단계에서 실제 도구가 더해졌다). 예약·감시 task는 READ만, chat task는 세 등급 모두를 받는다.
+READ_TOOL_NAMES = sorted(["get_weather", "list_events", "list_notes", "list_todos", "search_places", "web_search"])
+INTERNAL_TOOL_NAMES = sorted(["add_todo", "complete_todo", "save_note"])
+EXTERNAL_TOOL_NAMES = sorted(["create_event", "delete_event", "update_event"])
+
 
 async def send(client: httpx.AsyncClient, conversation_id: int, content: str) -> dict:
     """메시지를 보내고 task 상세를 돌려준다."""
@@ -141,24 +146,27 @@ async def test_schedule_task_gets_read_tools_only(
     model = scripted(text("오늘 할 일은 없습니다."))
     notifier = PushNotifier(session_factory, test_settings, FakePushSender())
     services = RunServices(
-        agent=agent, guard=guard, session_factory=session_factory, settings=test_settings, notifier=notifier
+        agent=agent,
+        guard=guard,
+        session_factory=session_factory,
+        settings=test_settings,
+        notifier=notifier,
+        http=httpx.AsyncClient(),
     )
 
     with agent.override(model=model.model()):
         await run_task(services, task.id, prompt="오늘 할 일 요약해줘")
 
-    assert model.seen_tool_names == [["list_notes", "list_todos"]]
+    assert model.seen_tool_names == [READ_TOOL_NAMES]
 
 
-async def test_chat_task_gets_read_and_internal_tools(
-    client: httpx.AsyncClient, agent: MyAgent, conversation: int
-) -> None:
+async def test_chat_task_gets_all_tool_levels(client: httpx.AsyncClient, agent: MyAgent, conversation: int) -> None:
     model = scripted(text("네"))
 
     with agent.override(model=model.model()):
         await send(client, conversation, "안녕")
 
-    assert model.seen_tool_names == [["add_todo", "complete_todo", "list_notes", "list_todos", "save_note"]]
+    assert model.seen_tool_names == [sorted([*READ_TOOL_NAMES, *INTERNAL_TOOL_NAMES, *EXTERNAL_TOOL_NAMES])]
 
 
 async def test_next_task_receives_previous_tool_calls(
