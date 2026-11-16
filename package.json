@@ -1,0 +1,20 @@
+{
+  "name": "myagent",
+  "private": true,
+  "description": "마이에이전트 모노레포 실행 스크립트. 이 PC에는 make가 없어서 Makefile 대신 여기에 둔다.",
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "dev": "pnpm run db:up && pnpm run db:migrate && concurrently --kill-others -n api,web -c blue,green \"pnpm run api\" \"pnpm run web\"",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:stop": "docker compose stop postgres",
+    "db:migrate": "cd apps/api && uv run python -m alembic upgrade head",
+    "api": "cd apps/api && uv run python -m uvicorn app.main:create_app --factory --loop asyncio:SelectorEventLoop --host 127.0.0.1 --port 8000 --reload",
+    "api:create-user": "cd apps/api && uv run python -m app.cli create-user",
+    "api:test": "cd apps/api && uv run python -m pytest",
+    "api:check": "cd apps/api && uv run ruff check . && uv run ruff format --check . && uv run python -m pyright",
+    "web": "pnpm --dir apps/web dev"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.6"
+  }
+}

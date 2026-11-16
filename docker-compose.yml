@@ -1,0 +1,23 @@
+# 로컬 개발용 PostgreSQL 16.
+# - 앱 데이터와 (3단계부터) DBOS의 시스템 테이블이 같은 DB 서버를 쓴다.
+# - 포트는 127.0.0.1에만 열어 같은 와이파이의 다른 기기에서 DB에 직접 붙지 못하게 한다.
+# - 아이디/비밀번호는 로컬 전용 값이다. 배포 환경에서는 쓰지 않는다.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: myagent
+      POSTGRES_PASSWORD: myagent
+      POSTGRES_DB: myagent
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myagent -d myagent"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres-data:
