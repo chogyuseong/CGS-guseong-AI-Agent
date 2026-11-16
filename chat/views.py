@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from agent.loop import run_task
-from agent.models import Task
+from agent.models import Approval, Task
 
 from .models import Conversation, Message
 
@@ -30,7 +30,21 @@ def conversation_detail(request, pk):
     # 다른 사람의 대화 id를 넣어도 404가 나도록 항상 user 조건을 붙인다.
     conversation = get_object_or_404(Conversation, pk=pk, user=request.user)
     messages_list = conversation.messages.select_related("task").prefetch_related("task__steps")
-    context = {"active_tab": "chat", "conversation": conversation, "messages_list": messages_list}
+    pending_approvals = (
+        Approval.objects.filter(
+            step__task__conversation=conversation,
+            step__task__user=request.user,
+            status=Approval.Status.PENDING,
+        )
+        .select_related("step__task", "step__guard_check")
+        .order_by("created_at")
+    )
+    context = {
+        "active_tab": "chat",
+        "conversation": conversation,
+        "messages_list": messages_list,
+        "pending_approvals": pending_approvals,
+    }
     return render(request, "chat/conversation.html", context)
 
 
