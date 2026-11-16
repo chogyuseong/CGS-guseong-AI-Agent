@@ -9,7 +9,10 @@ remember는 아래를 모두 통과해야 저장한다. 하나라도 걸리면 o
        ctx.messages에는 이번 run의 메시지뿐 아니라 이어받은 기록(같은 대화의 이전 task들)과, 승인 재개 run이면
        같은 task의 앞선 run 기록도 들어 있다. 외부 글이 문맥에 남아 있는 동안은 무엇이 사용자 말이고 무엇이
        남의 글인지 서버가 구분할 수 없으므로 기억을 만들지 않는다.
-       외부 콘텐츠 = EXTERNAL_CONTENT_TOOLS의 이름이거나, 결과가 ToolResult.external로 감싸져 있는 것.
+       외부 콘텐츠 = MEMORY_BLOCKING_TOOLS의 이름이거나, 결과가 ToolResult.external로 감싸져 있는 것.
+       MEMORY_BLOCKING_TOOLS = EXTERNAL_CONTENT_TOOLS(검색·장소·날씨·일정·메일)
+       + STORED_TEXT_TOOLS(7단계: 메모·할 일·자동화 설정처럼 모델이 예전에 쓴 글을 다시 가져오는 도구.
+       외부 글을 옮겨 적은 메모로 기억이 오염되는 경로를 막는다).
        호출만 있어도(결과가 실패여도, 같은 응답에서 remember보다 먼저 불렀어도) 거부한다.
     4. DB의 steps에도 이 task가 외부 콘텐츠 도구를 부른 기록이 없다(명세 문장 그대로의 검사. 3과 겹치지만
        메시지 기록이 어떤 이유로 잘려도 이 task의 기록은 DB에 남아 있다).
@@ -32,7 +35,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.deps import AgentDeps
-from app.agent.results import EXTERNAL_CONTENT_TOOLS, ToolResult, is_wrapped_external
+from app.agent.results import MEMORY_BLOCKING_TOOLS, ToolResult, is_wrapped_external
 from app.models import Memory, Step, Task
 from app.models.enums import TaskOrigin
 from app.tools.notes import short
@@ -41,7 +44,8 @@ MAX_CONTENT_LENGTH = 300
 MAX_MEMORIES = 200
 ONLY_USER_WORDS = "사용자가 직접 말한 내용만 기억할 수 있다."
 EXTERNAL_REASON = (
-    "이 대화에서 검색 결과·일정·날씨·장소 같은 외부 내용을 읽은 뒤라 저장하지 않았다. "
+    "이 대화에서 검색 결과·일정·날씨·장소·메일 같은 외부 내용이나 저장된 메모·할 일·자동화 목록을 읽은 뒤라 "
+    "저장하지 않았다. "
     "새 대화에서 다시 말해 달라고 안내하라."
 )
 SENSITIVE_REFUSAL = "비밀번호, PIN, 카드 번호, 주민등록번호 같은 정보는 기억에 저장하지 않는다."
@@ -97,7 +101,7 @@ def memory_view(memory: Memory) -> dict[str, Any]:
 
 
 def is_external_part(part: object) -> bool:
-    if isinstance(part, ToolCallPart | ToolReturnPart | RetryPromptPart) and part.tool_name in EXTERNAL_CONTENT_TOOLS:
+    if isinstance(part, ToolCallPart | ToolReturnPart | RetryPromptPart) and part.tool_name in MEMORY_BLOCKING_TOOLS:
         return True
     return isinstance(part, ToolReturnPart) and is_wrapped_external(part.content)
 
@@ -109,7 +113,7 @@ def context_has_external_content(messages: Sequence[ModelMessage]) -> bool:
 
 async def task_used_external_tool(session: AsyncSession, task_id: int) -> bool:
     found = await session.scalar(
-        select(Step.id).where(Step.task_id == task_id, Step.tool_name.in_(EXTERNAL_CONTENT_TOOLS)).limit(1)
+        select(Step.id).where(Step.task_id == task_id, Step.tool_name.in_(MEMORY_BLOCKING_TOOLS)).limit(1)
     )
     return found is not None
 

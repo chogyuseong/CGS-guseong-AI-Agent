@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 10.0
 READ_ATTEMPTS = 2  # 처음 1번 + 다시 시도 1번 (GET만)
 KAKAO_QUOTA_CODE = -10
-GOOGLE_RATE_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"})
+# dailyLimitExceeded는 7단계에 더했다(Gmail 오류 문서: 프로젝트 하루 한도).
+GOOGLE_RATE_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "dailyLimitExceeded"})
 
 
 class ExternalApiError(Exception):

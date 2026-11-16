@@ -43,6 +43,8 @@ INTERNAL_TOOL_NAMES = sorted(
     ]
 )
 EXTERNAL_TOOL_NAMES = sorted(["create_event", "delete_event", "update_event"])
+# 7단계: 메일 도구는 READ지만 chat에만 넘긴다(예약·감시 task에는 없다). app/agent/toolsets.py의 mail_tools.
+MAIL_TOOL_NAMES = sorted(["list_mail", "read_mail"])
 
 
 async def send(client: httpx.AsyncClient, conversation_id: int, content: str) -> dict:
@@ -190,7 +192,9 @@ async def test_chat_task_gets_all_tool_levels(client: httpx.AsyncClient, agent: 
     with agent.override(model=model.model()):
         await send(client, conversation, "안녕")
 
-    assert model.seen_tool_names == [sorted([*READ_TOOL_NAMES, *INTERNAL_TOOL_NAMES, *EXTERNAL_TOOL_NAMES])]
+    assert model.seen_tool_names == [
+        sorted([*READ_TOOL_NAMES, *MAIL_TOOL_NAMES, *INTERNAL_TOOL_NAMES, *EXTERNAL_TOOL_NAMES])
+    ]
 
 
 async def test_next_task_receives_previous_tool_calls(

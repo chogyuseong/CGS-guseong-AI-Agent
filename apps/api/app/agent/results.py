@@ -12,6 +12,7 @@ data가 {"notice": 지시문 무시 안내, "content": 원래 내용, "truncated
 import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, JsonValue
 
@@ -26,6 +27,16 @@ MAX_EXTERNAL_CHARS = 6000
 EXTERNAL_CONTENT_TOOLS = frozenset(
     {"get_weather", "search_places", "web_search", "list_events", "list_mail", "read_mail"}
 )
+# 7단계: 메일 도구. 감시에 쓸 수 없고(명세), 저장분(steps.output, tasks.message_history)을 500자로 자른다(명세 [보안]).
+MAIL_TOOLS = frozenset({"list_mail", "read_mail"})
+STORED_MAIL_CHARS = 500
+# 7단계: 모델이 예전에 쓴 글(메모·할 일 제목·예약 프롬프트·감시 조건)을 문맥으로 다시 가져오는 도구.
+# 그 글은 외부 검색 결과를 옮겨 적은 것일 수 있다(예: web_search → save_note → 다른 대화에서 list_notes).
+# 출처를 따로 기록하지 않으므로 remember 검사는 이 도구들도 외부 콘텐츠처럼 본다(docs/DECISIONS.md 7단계).
+STORED_TEXT_TOOLS = frozenset({"list_notes", "list_todos", "complete_todo", "list_schedules", "list_watches"})
+# remember 서버 검사(app/tools/memories.py)가 쓰는 목록:
+# 이 도구의 호출이 문맥이나 이 task의 steps에 있으면 기억을 만들지 않는다.
+MEMORY_BLOCKING_TOOLS = EXTERNAL_CONTENT_TOOLS | STORED_TEXT_TOOLS
 
 
 def is_wrapped_external(content: object) -> bool:
@@ -45,6 +56,23 @@ def wrap_external(content: JsonValue) -> dict[str, JsonValue]:
     if len(text) <= MAX_EXTERNAL_CHARS:
         return {"notice": EXTERNAL_NOTICE, "content": content, "truncated": False}
     return {"notice": EXTERNAL_NOTICE, "content": text[:MAX_EXTERNAL_CHARS], "truncated": True}
+
+
+def output_for_storage(tool_name: str, output: dict[str, Any]) -> dict[str, Any]:
+    """DB에 남길 도구 결과(JSON). 메일 도구의 성공 결과는 content를 앞 500자 문자열로 자른다.
+
+    모델에게 가는 결과(본문 4,000자)는 그대로이고, 저장분만 줄인다. 모양은 감싸기({notice, content, truncated})
+    그대로라 복구 재생(ToolResult.model_validate)과 remember 검사(is_wrapped_external)가 그대로 동작한다.
+    """
+    data = output.get("data")
+    if tool_name not in MAIL_TOOLS or data is None:
+        return output
+    content = data.get("content") if isinstance(data, dict) and "notice" in data else data
+    text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+    if len(text) <= STORED_MAIL_CHARS and is_wrapped_external(output):
+        return output
+    clipped = {"notice": EXTERNAL_NOTICE, "content": text[:STORED_MAIL_CHARS], "truncated": True}
+    return {**output, "data": clipped}
 
 
 class ToolResult(BaseModel):

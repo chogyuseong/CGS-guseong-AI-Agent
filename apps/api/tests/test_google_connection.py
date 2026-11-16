@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.google_auth import CALENDAR_SCOPE
+from app.google_auth import CALENDAR_SCOPE, GMAIL_SCOPE
 from app.models import Connection, User
 from tests.conftest import TEST_FERNET_KEY, TEST_GOOGLE_REDIRECT, TEST_ORIGIN
 from tests.fake_http import FakeHttp, fixture_response, json_response
@@ -67,6 +67,7 @@ async def test_connections_lists_google_not_connected(
             "available": True,
             "connected": False,
             "calendar": False,
+            "mail": False,
             "scopes": [],
             "connected_at": None,
         }
@@ -274,3 +275,88 @@ async def test_connected_at_is_first_connection_time_not_token_refresh(
 
     assert listed["connected_at"] is not None
     assert listed["connected_at"].startswith(first_connected.isoformat()[:19])
+
+
+# ---- 7단계: '메일 읽기 권한 추가' (gmail.readonly는 이 버튼을 눌렀을 때만 요청) ----
+
+
+async def start_mail(client: httpx.AsyncClient) -> dict[str, list[str]]:
+    response = await client.get("/api/connections/google/start", params={"scope": "mail"})
+    assert response.status_code == 302, response.text
+    location = urlsplit(response.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == "https://accounts.google.com/o/oauth2/v2/auth"
+    return parse_qs(location.query)
+
+
+async def test_default_start_never_requests_mail(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp
+) -> None:
+    query = await start(client)
+
+    assert GMAIL_SCOPE not in query["scope"][0]
+    assert "gmail" not in query["scope"][0]
+
+
+async def test_mail_start_requests_readonly_scope_incrementally(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp
+) -> None:
+    query = await start_mail(client)
+
+    assert query["scope"][0].split() == [CALENDAR_SCOPE, GMAIL_SCOPE]
+    assert query["include_granted_scopes"] == ["true"]  # 점진적 권한 부여: 이미 허용한 범위와 합친다
+    assert query["access_type"] == ["offline"]
+    assert "gmail.send" not in query["scope"][0] and "gmail.modify" not in query["scope"][0]
+    assert fake_http.requests == []
+
+
+async def test_mail_callback_stores_mail_scope(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp, db_session: AsyncSession
+) -> None:
+    fake_http.route("POST", TOKEN_URL, fixture_response("google_token_exchange_mail.json"))
+    query = await start_mail(client)
+
+    response = await callback(client, code="auth-code-mail", state=query["state"][0])
+
+    assert response.headers["location"] == f"{CONNECTED}&added=mail"
+    row = await stored(db_session, logged_in_user)
+    assert row is not None and set(row.scopes) == {CALENDAR_SCOPE, GMAIL_SCOPE}
+    listed = (await client.get("/api/connections")).json()[0]
+    assert (listed["connected"], listed["calendar"], listed["mail"]) == (True, True, True)
+
+
+async def test_mail_callback_without_mail_grant_keeps_calendar(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp, db_session: AsyncSession
+) -> None:
+    """세부 동의 화면에서 메일만 빼고 허용하면 캘린더 연결은 그대로 저장하고 메일 권한이 없다고 알린다."""
+    fake_http.route("POST", TOKEN_URL, fixture_response("google_token_exchange.json"))
+    query = await start_mail(client)
+
+    response = await callback(client, code="auth-code-mail", state=query["state"][0])
+
+    assert response.headers["location"] == error_redirect("mail_scope_missing")
+    row = await stored(db_session, logged_in_user)
+    assert row is not None and row.scopes == [CALENDAR_SCOPE]
+    listed = (await client.get("/api/connections")).json()[0]
+    assert (listed["calendar"], listed["mail"]) == (True, False)
+    assert fake_http.sent("POST", REVOKE_URL) == []  # 캘린더 권한까지 철회하지 않는다
+
+
+async def test_calendar_callback_does_not_report_mail(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp
+) -> None:
+    fake_http.route("POST", TOKEN_URL, fixture_response("google_token_exchange.json"))
+    query = await start(client)
+
+    response = await callback(client, code="auth-code-123", state=query["state"][0])
+
+    assert response.headers["location"] == CONNECTED
+
+
+async def test_start_with_unknown_scope_is_rejected(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp
+) -> None:
+    response = await client.get("/api/connections/google/start", params={"scope": "gmail.send"})
+
+    assert response.status_code == 302
+    assert response.headers["location"] == error_redirect("invalid_request")
+    assert fake_http.requests == []

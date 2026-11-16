@@ -1,0 +1,35 @@
+{
+  "id": "19a3f0c2d4e5b603",
+  "threadId": "19a3f0c2d4e5b603",
+  "labelIds": [
+    "INBOX",
+    "CATEGORY_PROMOTIONS"
+  ],
+  "snippet": "11월 소식 안녕하세요 구독자님 &amp; 가족 여러분.",
+  "internalDate": "1794870000000",
+  "sizeEstimate": 8800,
+  "historyId": "880013",
+  "payload": {
+    "partId": "",
+    "mimeType": "text/html",
+    "filename": "",
+    "headers": [
+      {
+        "name": "From",
+        "value": "뉴스레터 <news@example.com>"
+      },
+      {
+        "name": "Subject",
+        "value": "11월 뉴스레터"
+      },
+      {
+        "name": "Content-Type",
+        "value": "text/html; charset=\"UTF-8\""
+      }
+    ],
+    "body": {
+      "size": 375,
+      "data": "PGh0bWw-PGhlYWQ-PHN0eWxlPi54e2NvbG9yOnJlZH08L3N0eWxlPjx0aXRsZT7ribTsiqTroIjthLAg7KCc66qpIO2DnOq3uDwvdGl0bGU-PC9oZWFkPjxib2R5PjxzY3JpcHQ-YWxlcnQoJ-yKpO2BrOumve2KuCDrgrTsmqknKTwvc2NyaXB0PjxoMT4xMeyblCDshozsi508L2gxPjxwPuyViOuFle2VmOyEuOyalCZuYnNwO-q1rOuPheyekOuLmCAmYW1wOyDqsIDsobEg7Jes65-s67aELjwvcD48ZGl2PuydtOuyiCDso7wgPGI-7ZWg7J24PC9iPiDslYjrgrTsnoXri4jri6QuPGJyPuyekOyEuO2VnCDrgrTsmqnsnYAg7IKs7J207Yq47JeQ7IScIO2ZleyduO2VmOyEuOyalC48L2Rpdj48IS0tIOyIqOydgCDso7zshJ0g64K07JqpIC0tPjwvYm9keT48L2h0bWw-"
+    }
+  }
+}

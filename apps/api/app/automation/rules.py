@@ -15,6 +15,8 @@ from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.agent.results import MAIL_TOOLS as MAIL_TOOLS
+
 SEOUL = ZoneInfo("Asia/Seoul")
 
 MAX_ACTIVE_SCHEDULES = 10
@@ -36,7 +38,8 @@ BRIEFING_PROMPT = "오늘 일정, 날씨, 미완료 할 일을 요약해라. 행
 EVERY_DAY = (0, 1, 2, 3, 4, 5, 6)
 
 # 감시에 쓸 수 없는 READ 도구: 메일(명세), 자동화 목록(감시가 자기 설정을 보는 것은 뜻이 없다).
-MAIL_TOOLS = frozenset({"list_mail", "read_mail"})
+# MAIL_TOOLS는 app/agent/results.py에 있다(steps 저장 500자 규칙도 같은 목록을 쓴다). 7단계부터 메일 도구는
+# read_tools가 아닌 mail_tools 묶음(chat 전용)이라 감시 도구 목록에 애초에 없지만, 이름으로 한 번 더 막는다.
 NOT_WATCHABLE_TOOLS = MAIL_TOOLS | {"list_schedules", "list_watches"}
 
 WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]

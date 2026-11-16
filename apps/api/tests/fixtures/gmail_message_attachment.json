@@ -1,0 +1,116 @@
+{
+  "id": "19a3f0c2d4e5b604",
+  "threadId": "19a3f0c2d4e5b604",
+  "labelIds": [
+    "INBOX",
+    "IMPORTANT"
+  ],
+  "snippet": "견적서를 첨부합니다. 확인 부탁드립니다.",
+  "internalDate": "1794866400000",
+  "sizeEstimate": 61200,
+  "historyId": "880014",
+  "payload": {
+    "partId": "",
+    "mimeType": "multipart/mixed",
+    "filename": "",
+    "headers": [
+      {
+        "name": "From",
+        "value": "박거래 <deal@example.com>"
+      },
+      {
+        "name": "Subject",
+        "value": "11월 견적서 보내드립니다"
+      },
+      {
+        "name": "Content-Type",
+        "value": "multipart/mixed; boundary=\"000000000000abcd\""
+      }
+    ],
+    "body": {
+      "size": 0
+    },
+    "parts": [
+      {
+        "partId": "0",
+        "mimeType": "multipart/alternative",
+        "filename": "",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "multipart/alternative; boundary=\"000000000000efgh\""
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "partId": "0.0",
+            "mimeType": "text/plain",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=\"UTF-8\""
+              }
+            ],
+            "body": {
+              "size": 56,
+              "data": "6rKs7KCB7ISc66W8IOyyqOu2gO2VqeuLiOuLpC4K7ZmV7J24IOu2gO2DgeuTnOumveuLiOuLpC4="
+            }
+          },
+          {
+            "partId": "0.1",
+            "mimeType": "text/html",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=\"UTF-8\""
+              }
+            ],
+            "body": {
+              "size": 69,
+              "data": "PHA-6rKs7KCB7ISc66W8IOyyqOu2gO2VqeuLiOuLpC48L3A-PHA-7ZmV7J24IOu2gO2DgeuTnOumveuLiOuLpC48L3A-"
+            }
+          }
+        ]
+      },
+      {
+        "partId": "1",
+        "mimeType": "application/pdf",
+        "filename": "견적서_2026-11.pdf",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/pdf; name=\"견적서_2026-11.pdf\""
+          },
+          {
+            "name": "Content-Disposition",
+            "value": "attachment; filename=\"견적서_2026-11.pdf\""
+          }
+        ],
+        "body": {
+          "attachmentId": "ANGjdJ_test_attachment_pdf",
+          "size": 48213
+        }
+      },
+      {
+        "partId": "2",
+        "mimeType": "image/png",
+        "filename": "logo.png",
+        "headers": [
+          {
+            "name": "Content-Disposition",
+            "value": "attachment; filename=\"logo.png\""
+          }
+        ],
+        "body": {
+          "attachmentId": "ANGjdJ_test_attachment_png",
+          "size": 5120
+        }
+      }
+    ]
+  }
+}

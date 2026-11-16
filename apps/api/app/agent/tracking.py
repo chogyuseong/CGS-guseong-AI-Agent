@@ -30,6 +30,9 @@
                                  failed + "실행 여부를 확인할 수 없음"으로 닫는다(at-most-once, docs/SAFETY.md)
     waiting_approval             승인된 EXTERNAL 호출의 첫 실행. 그대로 실행한다(assert_approved가 다시 검사)
 
+7단계(메일): list_mail·read_mail 결과는 output_for_storage로 앞 500자만 steps.output에 저장한다(명세 [보안]).
+모델에게는 원래 결과(본문 4,000자)가 간다. 복구 재생 때는 저장된 500자 결과가 돌아간다(READ라 다시 읽으면 된다).
+
 EXTERNAL 도구(2단계): requires_approval 도구는 첫 run에서 실행되지 않으므로 이 hook도 불리지 않는다. step 행은
 runner가 승인 요청을 저장할 때(approvals.save_requests) waiting_approval로 만든다. 승인 후 재개한 run에서 이 hook이
 불리면 start_step은 그 행을 그대로 쓰고, 도구 첫 줄의 assert_approved가 waiting_approval → running으로 바꾼다.
@@ -51,7 +54,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import func, select
 
 from app.agent.deps import AgentDeps
-from app.agent.results import ToolResult
+from app.agent.results import ToolResult, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
 from app.models.enums import RiskLevel, StepStatus
@@ -171,10 +174,15 @@ class StepTracking(AbstractCapability[AgentDeps]):
             if recorded.status == StepStatus.RUNNING and recorded.risk_level != RiskLevel.READ:
                 return await close_uncertain_step(ctx.deps, recorded.id)
             step_id = recorded.id
-        return await self.run_and_record(ctx, step_id, args, handler)
+        return await self.run_and_record(ctx, call.tool_name, step_id, args, handler)
 
     async def run_and_record(
-        self, ctx: RunContext[AgentDeps], step_id: int, args: dict[str, Any], handler: WrapToolExecuteHandler
+        self,
+        ctx: RunContext[AgentDeps],
+        tool_name: str,
+        step_id: int,
+        args: dict[str, Any],
+        handler: WrapToolExecuteHandler,
     ) -> Any:
         started = time.perf_counter()
         try:
@@ -184,7 +192,9 @@ class StepTracking(AbstractCapability[AgentDeps]):
             await finish_step(ctx.deps, step_id, output=None, ok=False, duration_ms=elapsed_ms(started))
             raise
         output, ok = describe_result(result)
-        await finish_step(ctx.deps, step_id, output=output, ok=ok, duration_ms=elapsed_ms(started))
+        # 7단계: 메일 도구 결과는 500자만 저장한다(모델에게 돌려주는 result는 그대로 4,000자까지).
+        stored = output_for_storage(tool_name, output)
+        await finish_step(ctx.deps, step_id, output=stored, ok=ok, duration_ms=elapsed_ms(started))
         return result
 
     async def on_tool_execute_error(

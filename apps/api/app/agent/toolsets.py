@@ -23,7 +23,7 @@ from pydantic_ai.toolsets import FunctionToolset
 from app.agent.deps import AgentDeps
 from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
 from app.models.enums import RiskLevel, TaskOrigin
-from app.tools import automation, gcal, memories, notes, places, weather, websearch
+from app.tools import automation, gcal, gmail, memories, notes, places, weather, websearch
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,16 @@ read_tools = FunctionToolset[AgentDeps](
     metadata=risk_metadata(RiskLevel.READ),
     sequential=True,
 )
+# 7단계: 메일 읽기(READ, 외부 콘텐츠). read_tools와 따로 둔 이유: 예약·감시 task는 read_tools를 받는데, 메일은
+# 사용자가 보고 있는 채팅에서만 읽게 한다(감시는 명세가 금지, 예약은 더 안전한 쪽으로 작업자가 정함.
+# docs/DECISIONS.md 7단계).
+# 등급 metadata는 READ라 steps.risk_level도 READ다.
+mail_tools = FunctionToolset[AgentDeps](
+    [gmail.list_mail, gmail.read_mail],
+    id="mail_tools",
+    metadata=risk_metadata(RiskLevel.READ),
+    sequential=True,
+)
 internal_tools = FunctionToolset[AgentDeps](
     # remember·forget(5단계): 3단계 복구 규칙에 따라 INTERNAL은 at-most-once다(도중에 끊긴 호출은 다시 실행하지 않음).
     # 자동화 생성·삭제(6단계)도 INTERNAL이다(명세). 자동 작업(예약·감시)에는 이 묶음이 없어 스스로 늘릴 수 없다.
@@ -87,9 +97,9 @@ internal_tools = FunctionToolset[AgentDeps](
 # 일정 쓰기 도구. 함수 첫 줄은 모두 assert_approved(ctx)다(두 번째 방어선, app/tools/gcal.py).
 external_tools = build_external_toolset([gcal.create_event, gcal.update_event, gcal.delete_event])
 
-# 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4).
+# 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4). 메일(mail_tools)은 READ지만 chat에만 넘긴다.
 TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
-    TaskOrigin.CHAT: [read_tools, internal_tools, external_tools],
+    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools],
     TaskOrigin.SCHEDULE: [read_tools],
     TaskOrigin.WATCH: [read_tools],
 }
@@ -102,6 +112,7 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "web_search": websearch.web_search_label,
     **gcal.LABELS,
     **automation.LABELS,
+    **gmail.LABELS,
 }
 # 결과가 외부 콘텐츠(남이 쓴 글)인 도구 목록은 app/agent/results.py의 EXTERNAL_CONTENT_TOOLS다.
 # (5단계 remember 검사가 도구 모듈에서 쓰므로 순환 import를 피해 그쪽으로 옮겼다. 여기서는 다시 내보내기만 한다.)

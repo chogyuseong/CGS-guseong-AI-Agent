@@ -49,8 +49,13 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 # 기본 캘린더(내가 소유한 캘린더)의 일정 보기·만들기·수정·삭제에 필요한 가장 좁은 범위.
-# events.list/insert/patch/delete 문서의 허용 범위에 모두 들어 있다. 메일(gmail.readonly)은 7단계에서 따로 요청한다.
+# events.list/insert/patch/delete 문서의 허용 범위에 모두 들어 있다.
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned"
+# 7단계: 메일 읽기. '메일 읽기 권한 추가'(start?scope=mail)를 눌렀을 때만 요청한다(명세).
+# 보내기·수정 범위는 쓰지 않는다.
+# Google 분류상 restricted 범위다(docs/TOOLS.md). 점진적 권한 부여(include_granted_scopes=true)로 캘린더 권한과
+# 합친 토큰을 받는다. 합친 권한은 철회하면 한꺼번에 사라진다(메일만 따로 철회할 수 없다, 공식 문서).
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 SESSION_KEY = "google_oauth"
 STATE_TTL_SECONDS = 600
 REFRESH_MARGIN = timedelta(seconds=60)  # 만료 1분 전이면 미리 갱신한다
@@ -58,11 +63,14 @@ REFRESH_MARGIN = timedelta(seconds=60)  # 만료 1분 전이면 미리 갱신한
 NOT_CONNECTED_MESSAGE = "Google 계정이 연결되어 있지 않습니다. 설정에서 Google 계정을 연결해 주세요."
 RECONNECT_MESSAGE = "Google 연결이 끊겼습니다(권한이 만료되었거나 취소됨). 설정에서 Google 계정을 다시 연결해 주세요."
 UNAVAILABLE_MESSAGE = "서버에 Google 연결 설정이 없어 캘린더를 쓸 수 없습니다. 관리자가 .env를 확인해야 합니다."
+MAIL_SCOPE_MESSAGE = "메일을 읽을 권한이 없습니다. 설정의 Google 연결에서 메일 읽기 권한을 추가해 주세요."
+# 연결은 있는데 이 범위가 없을 때의 안내. 캘린더 범위가 없는 연결은 저장하지 않으므로 '연결 없음'과 같다.
+MISSING_SCOPE_MESSAGES = {CALENDAR_SCOPE: NOT_CONNECTED_MESSAGE, GMAIL_SCOPE: MAIL_SCOPE_MESSAGE}
 
 
 class GoogleNotConnectedError(ExternalApiError):
-    def __init__(self) -> None:
-        super().__init__(NOT_CONNECTED_MESSAGE)
+    def __init__(self, message: str = NOT_CONNECTED_MESSAGE) -> None:
+        super().__init__(message)
 
 
 class GoogleReconnectRequiredError(ExternalApiError):
@@ -95,6 +103,10 @@ class GoogleTokens:
     def has_calendar(self) -> bool:
         return CALENDAR_SCOPE in self.scopes
 
+    @property
+    def has_mail(self) -> bool:
+        return GMAIL_SCOPE in self.scopes
+
 
 def google_available(settings: Settings) -> bool:
     """Google 연결에 필요한 설정이 모두 있는가. TOKEN_ENCRYPTION_KEY가 없으면 연결할 수 없다."""
@@ -110,24 +122,34 @@ def code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def new_authorization(settings: Settings) -> tuple[str, dict[str, Any]]:
-    """Google 동의 화면 주소와 세션에 넣을 값(state, code_verifier, 만든 시각)을 만든다."""
+def new_authorization(settings: Settings, *, add_mail: bool = False) -> tuple[str, dict[str, Any]]:
+    """Google 동의 화면 주소와 세션에 넣을 값(state, code_verifier, 만든 시각, 메일 요청 여부)을 만든다.
+
+    add_mail=True('메일 읽기 권한 추가')면 캘린더 범위와 gmail.readonly를 함께 요청한다. 이미 허용한 범위는
+    include_granted_scopes=true로 합쳐지고(점진적 권한 부여), 처음 연결이어도 캘린더가 같이 요청되어 연결이 성립한다.
+    """
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)  # PKCE: 43~128자
+    scopes = [CALENDAR_SCOPE, GMAIL_SCOPE] if add_mail else [CALENDAR_SCOPE]
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": settings.google_redirect_uri,
         "response_type": "code",
-        "scope": CALENDAR_SCOPE,
+        "scope": " ".join(scopes),
         "access_type": "offline",  # refresh token을 받는다
         "prompt": "consent",  # 다시 연결할 때도 refresh token을 새로 받는다
-        "include_granted_scopes": "true",
+        "include_granted_scopes": "true",  # 이미 허용한 범위와 합친 토큰(점진적 권한 부여)
         "state": state,
         "code_challenge": code_challenge(verifier),
         "code_challenge_method": "S256",
     }
-    pending = {"state": state, "verifier": verifier, "created_at": time.time()}
+    pending = {"state": state, "verifier": verifier, "created_at": time.time(), "mail": add_mail}
     return f"{AUTH_URL}?{urlencode(params)}", pending
+
+
+def requested_mail(pending: object) -> bool:
+    """세션에 저장한 인증 요청이 '메일 읽기 권한 추가'였는가."""
+    return isinstance(pending, dict) and pending.get("mail") is True
 
 
 def verifier_for(pending: object, state: str | None) -> str | None:
@@ -263,9 +285,11 @@ async def is_connected(deps: AgentDeps) -> bool:
     return row is not None and CALENDAR_SCOPE in (row.scopes or [])
 
 
-async def access_token(deps: AgentDeps, *, force_refresh: bool = False) -> str:
-    """캘린더 API에 쓸 access token. 만료가 가까우면(또는 force_refresh면) 갱신해 저장한다.
+async def access_token(deps: AgentDeps, *, scope: str = CALENDAR_SCOPE, force_refresh: bool = False) -> str:
+    """scope(캘린더 또는 메일) 권한이 있는 access token. 만료가 가까우면(또는 force_refresh면) 갱신해 저장한다.
 
+    연결이 없으면 "연결해 주세요", 연결은 있는데 메일 범위가 없으면 "메일 읽기 권한을 추가해 주세요"
+    (어느 쪽이든 Google에 요청을 보내지 않는다).
     갱신이 invalid_grant로 실패하면 연결을 지우고 GoogleReconnectRequiredError(“다시 연결해 주세요”).
     """
     cipher = require_cipher(deps.settings)
@@ -273,6 +297,8 @@ async def access_token(deps: AgentDeps, *, force_refresh: bool = False) -> str:
         tokens = await load_tokens(session, deps.user_id, cipher)
     if tokens is None or not tokens.has_calendar:
         raise GoogleNotConnectedError
+    if scope not in tokens.scopes:
+        raise GoogleNotConnectedError(MISSING_SCOPE_MESSAGES.get(scope, NOT_CONNECTED_MESSAGE))
     if not force_refresh and tokens.expires_at - REFRESH_MARGIN > datetime.now(UTC):
         return tokens.access_token
     try:

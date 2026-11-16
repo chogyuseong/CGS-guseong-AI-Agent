@@ -13,12 +13,14 @@
 
 저장 규칙(finalize_for_storage):
 - 실패한 run의 중간 메시지(state='interrupted')와 결과 없이 끝난 마지막 도구 호출은 저장하지 않는다.
+- 메일 도구(list_mail·read_mail) 결과는 앞 500자만 저장한다(7단계, clip_mail_returns).
 - 답변 없이 끝난 task(실패, 상한 초과)는 끝에 "중단됨" 응답을 붙여 저장한다. 이미 실행된 도구 호출과 결과는
   남기므로 다음 task의 모델이 "그때 할 일을 이미 추가했다"는 사실을 안다.
 """
 
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
 from pydantic_ai.messages import (
@@ -31,9 +33,11 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.results import MAIL_TOOLS, output_for_storage
 from app.models import Task
 from app.models.enums import TaskStatus
 
@@ -80,10 +84,30 @@ def history_for_storage(
     승인 대기(waiting_approval)일 때는 결과 없는 도구 호출을 지우지 않는다. 재개할 때 그 호출에 승인·거절 결과를
     붙여야 하기 때문이다. 다른 상태는 finalize_for_storage 규칙을 따른다.
     """
-    combined = [*previous, *without_interrupted(new)]
+    combined = clip_mail_returns([*previous, *without_interrupted(new)])
     if status == TaskStatus.WAITING_APPROVAL:
         return combined
     return finalize_for_storage(combined, finished=status == TaskStatus.DONE)
+
+
+def clip_mail_returns(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
+    """7단계: 메일 도구 결과는 저장하는 기록에도 500자만 남긴다(steps.output과 같은 규칙, results.output_for_storage).
+
+    다음 task(같은 대화)와 승인 재개 run의 모델은 잘린 결과를 본다. 메일을 다시 봐야 하면 read_mail을 다시 부른다.
+    호출과 결과의 짝(tool_call_id)과 도구 이름은 그대로라 remember 검사는 그대로 걸린다.
+    """
+    return [
+        replace(m, parts=[clip_mail_part(p) for p in m.parts]) if isinstance(m, ModelRequest) else m for m in messages
+    ]
+
+
+def clip_mail_part(part: Any) -> Any:
+    if not isinstance(part, ToolReturnPart) or part.tool_name not in MAIL_TOOLS:
+        return part
+    content = to_jsonable_python(part.content)
+    if not isinstance(content, dict):
+        content = {"ok": True, "data": content}
+    return replace(part, content=output_for_storage(part.tool_name, content))
 
 
 def pending_tool_call_ids(messages: Sequence[ModelMessage]) -> list[str]:

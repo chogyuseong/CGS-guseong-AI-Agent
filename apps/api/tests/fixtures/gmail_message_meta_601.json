@@ -1,0 +1,32 @@
+{
+  "id": "19a3f0c2d4e5b601",
+  "threadId": "19a3f0c2d4e5b601",
+  "labelIds": [
+    "INBOX",
+    "UNREAD",
+    "CATEGORY_UPDATES"
+  ],
+  "snippet": "안녕하세요 고객님, 주문하신 상품이 오늘 오후 2~6시 사이에 도착할 예정입니다. &#39;배송 조회&#39;에서 확인하세요.",
+  "internalDate": "1794877200000",
+  "sizeEstimate": 4120,
+  "historyId": "880011",
+  "payload": {
+    "partId": "",
+    "mimeType": "multipart/alternative",
+    "filename": "",
+    "headers": [
+      {
+        "name": "From",
+        "value": "택배 알림 <noreply@example.com>"
+      },
+      {
+        "name": "Subject",
+        "value": "[배송 안내] 주문하신 상품이 오늘 도착합니다"
+      },
+      {
+        "name": "Date",
+        "value": "Tue, 17 Nov 2026 10:00:00 +0900"
+      }
+    ]
+  }
+}

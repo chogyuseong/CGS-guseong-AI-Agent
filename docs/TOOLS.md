@@ -1,4 +1,4 @@
-# 외부 도구 (4단계)
+# 외부 도구 (4단계 + 7단계 Gmail)
 
 공식 문서를 2026-11-17에 확인해 요약했다. 문서가 바뀌면 이 표와 각 도구 파일의 머리 주석을 함께 고친다.
 공식 API만 쓴다(크롤링·브라우저 자동화 없음). 호출 규칙은 모두 `apps/api/app/tools/http.py` 한 곳에 있다.
@@ -10,7 +10,7 @@
 | 타임아웃 | 10초 | 모델 요청 한 번보다 오래 기다리지 않는다 |
 | 재시도 | GET만 1회(타임아웃, 연결 실패, 5xx). 4xx는 재시도 없음 | 조회는 몇 번 해도 흔적이 없다 |
 | 쓰기(POST·PATCH·DELETE) | 재시도 없음. 타임아웃이면 "실제로 반영됐는지 직접 확인해 주세요. 같은 요청을 다시 보내지 마세요." | 일정이 두 번 생기지 않게(3단계 at-most-once와 같은 원칙) |
-| 한도 초과 | 429, 카카오 400 + code -10, Google 403 + rateLimitExceeded·userRateLimitExceeded·quotaExceeded → "호출 한도를 넘었습니다" | 서비스마다 모양이 다르다 |
+| 한도 초과 | 429, 카카오 400 + code -10, Google 403 + rateLimitExceeded·userRateLimitExceeded·quotaExceeded·dailyLimitExceeded(7단계) → "호출 한도를 넘었습니다" | 서비스마다 모양이 다르다 |
 | 인증 실패 | 401·403 → "인증에 실패했습니다. API 키와 사용 설정을 확인해 주세요." (Google 캘린더 401은 토큰 갱신 후 1회 재시도) | |
 | 오류 문장·로그 | 응답 본문, 요청 주소(쿼리), 헤더(키·토큰)를 넣지 않는다 | 키가 모델·화면·로그에 새지 않게 |
 | 리디렉션 | 따라가지 않는다 | 키가 든 요청이 다른 주소로 가지 않게 |
@@ -67,7 +67,7 @@
   이 앱의 값은 **`{APP_ORIGIN}/api/connections/google/callback`** (로컬: `http://localhost:3000/api/connections/google/callback`).
   화면(3000)을 거쳐야 세션 쿠키가 함께 와서 state를 검증할 수 있다.
 - 범위: `https://www.googleapis.com/auth/calendar.events.owned` 하나. events list·get·insert·patch·delete 문서의 허용 범위에 모두 있고,
-  `calendar.events`보다 좁다(내가 소유한 캘린더의 일정만). Gmail(`gmail.readonly`)은 7단계에서 따로 요청한다.
+  `calendar.events`보다 좁다(내가 소유한 캘린더의 일정만). Gmail(`gmail.readonly`)은 '메일 읽기 권한 추가'에서만 요청한다(아래 Gmail 절).
 
 ### Calendar API (`app/tools/gcal.py`)
 
@@ -85,6 +85,47 @@
 - 오류: 401 authError → 토큰 갱신 후 1회 재시도(쓰기도: 401은 Google이 요청을 받아들이지 않은 것이라 두 번 생기지 않는다).
   403·429 rateLimitExceeded·userRateLimitExceeded·quotaExceeded → 한도, 그 밖의 403 → 권한 없음(Calendar API 사용 설정 확인), 404 notFound·410 deleted → "찾지 못함".
 - 한도: Calendar API 사용량 한도는 Google Cloud 콘솔의 할당량 페이지에서 확인한다(문서는 지수 백오프를 권장. 이 앱은 백오프 없이 실패로 알린다).
+
+## Gmail (list_mail · read_mail, READ + 외부 콘텐츠, 7단계)
+
+### 권한: '메일 읽기 권한 추가' (`app/google_auth.py`, `app/routers/connections.py`)
+
+- 문서: https://developers.google.com/identity/protocols/oauth2/web-server (점진적 권한 부여, 세부 동의, 철회),
+  https://developers.google.com/workspace/gmail/api/auth/scopes
+- 범위: `https://www.googleapis.com/auth/gmail.readonly` 하나("View your email messages and settings"). 보내기·수정 범위
+  (`gmail.send`, `gmail.modify`, `mail.google.com`)는 쓰지 않는다.
+- **restricted 범위다.** 공개 앱은 restricted 범위 검증(서버에 데이터를 저장·전송하면 보안 평가)이 필요하다. 개인용 '테스트' 게시
+  상태에서는 테스트 사용자로 등록한 계정만 쓸 수 있고 동의 화면에 "확인되지 않은 앱" 경고가 뜬다.
+- 기본 연결(`GET /api/connections/google/start`)은 캘린더만 요청한다. `GET /api/connections/google/start?scope=mail`일 때만
+  `scope=calendar.events.owned gmail.readonly`, `include_granted_scopes=true`로 요청한다. 공식 문서: 합친 권한(combined
+  authorization)의 토큰은 합친 모든 범위에 쓸 수 있고, 응답의 `scope`에 허용된 범위가 공백으로 구분되어 온다.
+- 세부 동의: 사용자가 메일만 빼고 허용할 수 있다(문서: 앱은 응답의 `scope`를 확인해 빠진 기능을 끈다). 이때 캘린더 연결은 저장하고
+  `?google=error&reason=mail_scope_missing`으로 돌려보낸다.
+- **메일 권한만 따로 철회할 수 없다.** 공식 문서: "합친 권한을 나타내는 토큰을 철회하면 그 권한의 모든 범위가 한꺼번에 철회된다."
+  범위 하나만 철회하는 방법은 문서에 없다. 그래서 '메일 권한만 끄기' API는 없고, 빼려면 연결 해제(전체 철회) 후 캘린더만 다시 연결한다.
+  같은 이유로 연결된 채 [다시 연결](캘린더만 요청)해도 include_granted_scopes 때문에 메일 권한은 그대로 남는다.
+
+### Gmail API (`app/tools/gmail.py`, `app/tools/mail_text.py`)
+
+- 문서: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages ,
+  오류: https://developers.google.com/workspace/gmail/api/guides/handle-errors ,
+  한도: https://developers.google.com/workspace/gmail/api/reference/quota
+- 헤더 `Authorization: Bearer {access_token}`(캘린더와 같은 토큰). 사용자는 `me`.
+
+| 도구 | 요청 | 비고 |
+| --- | --- | --- |
+| list_mail | `GET https://gmail.googleapis.com/gmail/v1/users/me/messages?q&maxResults&labelIds` | 결과는 id·threadId뿐. `maxResults` 문서 기본 100·최대 500, 이 앱은 1~10(명세). `includeSpamTrash`를 보내지 않는다(스팸·휴지통 제외) |
+| (list_mail) | `GET .../messages/{id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date` | 목록 한 통마다. 본문은 가져오지 않는다. 보낸 사람·제목·받은 시각(internalDate)·안 읽음(labelIds의 UNREAD)·snippet(HTML 문자 참조를 글자로) |
+| read_mail | `GET .../messages/{id}?format=full` | payload의 MIME 부분 트리에서 text/plain(없으면 text/html을 텍스트로) 본문 앞 4,000자, filename이 있는 부분은 이름만(최대 20개). 첨부 내용(`attachments.get`)은 부르지 않는다 |
+
+- 본문 데이터: `body.data`는 base64url. 부분의 `Content-Type` charset으로 풀고(모르면 UTF-8, 깨진 글자는 대체 문자).
+  큰 본문이 `attachmentId`로만 오면 본문을 찾지 못한 것으로 보고 미리보기(snippet)를 넣는다.
+- 오류: 401 authError → 토큰 갱신 후 1회 재시도. 403·429 rateLimitExceeded·userRateLimitExceeded·dailyLimitExceeded → 한도,
+  그 밖의 403(insufficientPermissions 등) → "메일을 읽을 권한이 없습니다…메일 읽기 권한 추가, Gmail API 사용 설정 확인", 404 → 메일 없음.
+- 한도(문서): 프로젝트 분당 1,200,000 단위, 사용자당 분당 6,000 단위. `messages.list` 5단위, `messages.get` 20단위
+  (format=full·raw면 60). list_mail 한 번은 최대 205단위, read_mail은 60단위.
+- 결과 크기: 모델에게 본문 4,000자까지(감싸기 6,000자 안). DB(steps.output, tasks.message_history)에는 앞 500자만(명세 [보안]).
+- 하지 않는 것: 보내기, 답장, 삭제, 라벨 변경, 읽음 표시(명세 7단계 6번). 그런 요청을 보내는 코드가 없다.
 
 ## fixture
 

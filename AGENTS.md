@@ -122,6 +122,9 @@
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
 - `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트
+- 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
+  (메일 결과는 steps.output·message_history에 500자만)와 `MEMORY_BLOCKING_TOOLS`(remember 검사: 외부 콘텐츠 + 메모·할 일 조회),
+  도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`/api/connections/google/start?scope=mail`)
 - `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch)와 1분 검사 예약 등록
 
 ## 자동화 코드 지도 (apps/api/app/automation, 6단계)
