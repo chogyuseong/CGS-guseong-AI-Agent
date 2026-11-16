@@ -27,6 +27,12 @@ STUCK_EXTERNAL_MESSAGE = (
 )
 CRASH_MESSAGE = "작업 중 예상하지 못한 오류가 났습니다."
 
+# 외부 검색 결과 보관 기간. 네이버 API 이용약관 7.3조는 결과를 허용 범위를 넘어 저장하는 것을 금지한다.
+# 검색 API 특약의 정확한 보관 기간은 공식 문서로 확인하지 못했고(기사 기준 서버 21일), 그 안쪽으로 맞춘다.
+SEARCH_RESULT_TOOLS = ("web_search",)
+SEARCH_RESULT_RETENTION = timedelta(days=21)
+PURGED_RESULT = {"purged": True, "data": None, "note": "보관 기간이 지나 검색 결과를 삭제했습니다."}
+
 
 def run_once():
     """queued Task 하나를 실행한다. 실행한 Task id, 없으면 None."""
@@ -66,7 +72,23 @@ def run_maintenance():
     """주기적인 정리 작업. 처리한 개수를 돌려준다(로그용)."""
     expired = approvals.expire_old()
     reclaimed = reclaim_stuck_tasks()
-    return {"expired_approvals": expired, "reclaimed_tasks": reclaimed}
+    purged = purge_expired_search_results()
+    return {"expired_approvals": expired, "reclaimed_tasks": reclaimed, "purged_results": purged}
+
+
+def purge_expired_search_results():
+    """보관 기간이 지난 외부 검색 결과를 Step 기록에서 지운다. 성공 여부(ok)와 입력은 남긴다.
+
+    JSON 키로 거르는 쿼리는 DB마다 '키 없음' 처리가 달라서, 대상만 가져와 파이썬에서 확인한다.
+    """
+    cutoff = timezone.now() - SEARCH_RESULT_RETENTION
+    old = Step.objects.filter(tool_name__in=SEARCH_RESULT_TOOLS, created_at__lt=cutoff).only(
+        "id", "output_json"
+    )
+    targets = [step.id for step in old if not (step.output_json or {}).get("purged")]
+    if targets:
+        Step.objects.filter(id__in=targets).update(output_json=PURGED_RESULT)
+    return len(targets)
 
 
 def reclaim_stuck_tasks():
