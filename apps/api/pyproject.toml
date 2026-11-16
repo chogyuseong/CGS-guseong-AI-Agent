@@ -1,0 +1,55 @@
+[project]
+name = "myagent-api"
+version = "0.1.0"
+description = "마이에이전트 API 서버 (FastAPI)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic==1.20.1",
+    "bcrypt>=5.0.0",
+    "fastapi==0.163.1",
+    "itsdangerous>=2.2.0",
+    "psycopg[binary]>=3.3.9",
+    "pydantic==2.14.3",
+    "pydantic-settings==2.16.3",
+    "sqlalchemy[asyncio]==2.1.8",
+    "uvicorn>=0.54.0",
+]
+
+[tool.uv]
+# 앱 프로젝트라서 패키지로 빌드하지 않는다. app/ 폴더를 그대로 실행한다.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# async 테스트 함수를 anyio 플러그인이 자동으로 실행한다(백엔드와 루프는 tests/conftest.py의 anyio_backend).
+anyio_mode = "auto"
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: 기본 오류, I: import 정렬, B: 흔한 버그 패턴, UP: 최신 문법, SIM: 단순화, N: 이름 규칙
+select = ["E", "F", "I", "B", "UP", "SIM", "N"]
+
+[tool.ruff.lint.isort]
+# 프로젝트 안의 alembic/ 폴더(마이그레이션) 때문에 alembic 패키지를 자체 코드로 착각하지 않게 한다.
+known-third-party = ["alembic"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+include = ["app", "tests", "alembic"]
+
+[dependency-groups]
+dev = [
+    "anyio==4.16.0",
+    "httpx>=0.28.1",
+    "pyright==1.1.414",
+    "pytest==9.2.0",
+    "ruff==0.17.5",
+]
