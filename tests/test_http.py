@@ -93,6 +93,36 @@ def test_invalid_json_is_an_error(respond):
         http.get_json("날씨", "https://api.example/x")
 
 
+def test_writes_are_never_retried(respond):
+    """쓰기 요청은 타임아웃이 나도 다시 보내지 않는다. 이미 반영됐다면 같은 일정이 두 번 생긴다."""
+    calls = respond(httpx.ReadTimeout("느림"), httpx.Response(200, json={"id": "e1"}))
+
+    with pytest.raises(http.ExternalAPIError, match="10초"):
+        http.request_json("Google 캘린더", "POST", "https://api.example/events", json={"summary": "약속"})
+    assert len(calls) == 1
+
+
+def test_server_error_on_write_is_not_retried(respond):
+    calls = respond(httpx.Response(503), httpx.Response(200, json={}))
+
+    with pytest.raises(http.ExternalAPIError):
+        http.request_json("Google 캘린더", "DELETE", "https://api.example/events/e1")
+    assert len(calls) == 1
+
+
+def test_empty_success_body_is_empty_dict(respond):
+    respond(httpx.Response(204))
+    assert http.request_json("Google 캘린더", "DELETE", "https://api.example/events/e1") == {}
+
+
+def test_error_keeps_status_for_callers(respond):
+    respond(httpx.Response(404, json={"error": {"code": 404}}))
+
+    with pytest.raises(http.ExternalAPIError) as error:
+        http.get_json("Google 캘린더", "https://api.example/events/missing")
+    assert error.value.status == 404
+
+
 def test_error_message_never_contains_api_key(respond):
     respond(httpx.Response(401))
 
