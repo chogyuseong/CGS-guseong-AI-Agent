@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Approval } from "./approvals";
 import {
   isTaskFinished,
+  openScheduleTaskIds,
   PHASE_TEXT,
   sendErrorMessage,
   type TaskStatus,
@@ -89,5 +90,32 @@ describe("전송 오류 문구", () => {
     expect(sendErrorMessage(422)).toContain("4,000자");
     expect(sendErrorMessage(429)).toContain("1분");
     expect(sendErrorMessage(500)).toContain("500");
+  });
+});
+
+describe("openScheduleTaskIds: 답변이 아직 없는 예약 작업 task", () => {
+  const base = {
+    request_text: null,
+    final_answer: null,
+    error: null,
+    step_count: 0,
+    created_at: "2026-11-17T00:00:00Z",
+    updated_at: "2026-11-17T00:00:00Z",
+  };
+  const tasks = [
+    { ...base, id: 1, conversation_id: 5, origin: "schedule" as const, status: "running" as const },
+    { ...base, id: 2, conversation_id: 5, origin: "schedule" as const, status: "done" as const },
+    { ...base, id: 3, conversation_id: 6, origin: "schedule" as const, status: "queued" as const },
+    { ...base, id: 4, conversation_id: 5, origin: "chat" as const, status: "running" as const },
+    { ...base, id: 5, conversation_id: 5, origin: "schedule" as const, status: "queued" as const },
+    { ...base, id: 7, conversation_id: 5, origin: "schedule" as const, status: "queued" as const },
+  ];
+  const answered = [
+    { id: 1, role: "assistant" as const, content: "끝", task_id: 5, created_at: base.created_at },
+  ];
+
+  it("이 대화방의 끝나지 않은 예약 task 중 답변이 없는 것만, 오래된 것(id 작은 것)부터", () => {
+    expect(openScheduleTaskIds([...tasks].reverse(), 5, answered)).toEqual([1, 7]);
+    expect(openScheduleTaskIds(undefined, 5, answered)).toEqual([]);
   });
 });

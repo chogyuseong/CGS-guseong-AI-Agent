@@ -1,11 +1,12 @@
 "use client";
 
-import { MessagesSquare, Plus } from "lucide-react";
+import { CalendarClock, MessagesSquare, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { isAutomationRoom } from "@/lib/automations";
 import { useConversations, useCreateConversation } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
@@ -67,11 +68,30 @@ function ConversationLinks({ currentId, onPick }: ConversationLinksProps) {
                 conversation.id === currentId && "bg-muted font-semibold",
               )}
             >
-              <span className="truncate">{conversation.title}</span>
+              {isAutomationRoom(conversation.title) ? (
+                <AutomationRoomLabel title={conversation.title} />
+              ) : (
+                <span className="truncate">{conversation.title}</span>
+              )}
             </Link>
           </li>
         ))}
       </ul>
     </nav>
+  );
+}
+
+// '예약 작업' 대화방(6단계)은 사용자가 만든 대화가 아니라 자동 결과가 쌓이는 곳이라 아이콘과 한 줄 설명을 붙인다.
+function AutomationRoomLabel({ title }: { title: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2 py-1">
+      <CalendarClock aria-hidden="true" className="size-4 shrink-0" />
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate">{title}</span>
+        <span className="truncate text-xs font-normal text-muted-foreground">
+          자동 실행 결과·감시 알림
+        </span>
+      </span>
+    </span>
   );
 }

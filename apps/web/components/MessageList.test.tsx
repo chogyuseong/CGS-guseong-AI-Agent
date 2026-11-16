@@ -79,3 +79,72 @@ describe("MessageList", () => {
     expect(screen.getByText("대화를 시작해 보세요.")).toBeInTheDocument();
   });
 });
+
+describe("MessageList: '예약 작업' 대화방", () => {
+  const roomMessages: Message[] = [
+    {
+      id: 21,
+      role: "assistant",
+      content: "오늘 일정은 2개입니다.\n[제안] 우산 챙기라고 할 일에 추가해줘",
+      task_id: 30,
+      created_at: "2026-11-16T22:31:00Z",
+    },
+    {
+      id: 22,
+      role: "assistant",
+      content: "[조건 감시] 내일 서울 비\n[제안] 감시 알림 안의 제안",
+      task_id: null,
+      created_at: "2026-11-16T23:00:00Z",
+    },
+    {
+      id: 23,
+      role: "user",
+      content: "고마워",
+      task_id: 31,
+      created_at: "2026-11-16T23:01:00Z",
+    },
+    {
+      id: 24,
+      role: "assistant",
+      content: "[제안] 채팅 답변 안의 제안",
+      task_id: 31,
+      created_at: "2026-11-16T23:01:05Z",
+    },
+  ];
+
+  it("예약 작업 결과에만 [제안] 버튼을 붙이고, 감시 알림·채팅 답변에는 붙이지 않는다", () => {
+    render(<MessageList messages={roomMessages} automationRoom onSuggestion={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "우산 챙기라고 할 일에 추가해줘" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "감시 알림 안의 제안" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "채팅 답변 안의 제안" })).toBeNull();
+  });
+
+  it("보낼 함수(onSuggestion)를 받지 않은 대화에서는 [제안] 버튼을 그리지 않는다", () => {
+    render(<MessageList messages={roomMessages} automationRoom />);
+    expect(screen.queryByRole("button", { name: "우산 챙기라고 할 일에 추가해줘" })).toBeNull();
+  });
+
+  it("다른 대화에서는 내 메시지 없는 답변이라도 [제안] 버튼을 그리지 않는다", () => {
+    render(<MessageList messages={roomMessages} onSuggestion={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "우산 챙기라고 할 일에 추가해줘" })).toBeNull();
+    expect(screen.getAllByRole("listitem")[0]).not.toHaveTextContent("예약 작업 결과");
+  });
+
+  it("자동으로 생긴 메시지에는 어디서 왔는지 표시한다", () => {
+    render(<MessageList messages={roomMessages} automationRoom />);
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("예약 작업 결과");
+    expect(items[1]).toHaveTextContent("조건 감시 알림");
+    expect(items[3]).not.toHaveTextContent("예약 작업 결과");
+  });
+
+  it("답변이 아직 없는 예약 task는 목록 끝에 진행 상황을 붙인다(내 메시지가 없어도)", () => {
+    render(<MessageList messages={roomMessages} automationRoom openTaskIds={[40]} />);
+    const items = screen.getAllByRole("listitem");
+    expect(items.at(-1)).toHaveTextContent("task 40 진행 상황");
+    expect(items.at(-1)).toHaveTextContent("예약 작업 실행 중");
+  });
+});

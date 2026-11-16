@@ -273,7 +273,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Google Start */
+        /**
+         * Google Start
+         * @description 화면이 링크 이동으로 여는 주소라 로그인하지 않았으면 JSON 401 대신 연결 화면으로 돌려보낸다(6단계).
+         */
         get: operations["google_start_api_connections_google_start_get"];
         put?: never;
         post?: never;
@@ -352,10 +355,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Schedules */
+        get: operations["list_schedules_api_schedules_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Schedule */
+        delete: operations["delete_schedule_api_schedules__schedule_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Schedule */
+        patch: operations["update_schedule_api_schedules__schedule_id__patch"];
+        trace?: never;
+    };
+    "/api/watches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Watches */
+        get: operations["list_watches_api_watches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/watches/{watch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Watch */
+        delete: operations["delete_watch_api_watches__watch_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Watch */
+        patch: operations["update_watch_api_watches__watch_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActiveUpdate
+         * @description PATCH 본문: 켜기(true)·끄기(false).
+         */
+        ActiveUpdate: {
+            /** Is Active */
+            is_active: boolean;
+        };
         /**
          * ApprovalDecisionOut
          * @description 승인·거절 결과. 이미 결정된 승인에 다시 요청하면 changed=false와 현재 상태를 돌려준다.
@@ -426,6 +507,21 @@ export interface components {
              */
             confirm_mismatch: boolean;
         };
+        /** @enum {string} */
+        AutomationErrorCode: "not_found" | "limit_reached" | "duplicate" | "expired" | "invalid";
+        /** AutomationErrorDetail */
+        AutomationErrorDetail: {
+            code: components["schemas"]["AutomationErrorCode"];
+            /** Message */
+            message: string;
+        };
+        /**
+         * AutomationErrorOut
+         * @description 자동화 API의 404·409 응답 본문.
+         */
+        AutomationErrorOut: {
+            detail: components["schemas"]["AutomationErrorDetail"];
+        };
         /** ConnectionOut */
         ConnectionOut: {
             /**
@@ -479,6 +575,28 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * LastTaskOut
+         * @description 예약 작업의 마지막 실행이 만든 task.
+         *
+         *     결과 글은 '예약 작업' 대화방(conversation_id)에도 assistant 메시지로 있다.
+         */
+        LastTaskOut: {
+            /** Id */
+            id: number;
+            /** Conversation Id */
+            conversation_id: number;
+            status: components["schemas"]["TaskStatus"];
+            /** Final Answer */
+            final_answer: string | null;
+            /** Error */
+            error: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -603,6 +721,43 @@ export interface components {
          * @enum {string}
          */
         RiskLevel: "READ" | "INTERNAL" | "EXTERNAL";
+        /**
+         * ScheduleListOut
+         * @description GET /api/schedules. schedules는 시각 순. max_active는 켜 둘 수 있는 최대 개수(10).
+         */
+        ScheduleListOut: {
+            /** Schedules */
+            schedules: components["schemas"]["ScheduleOut"][];
+            /** Max Active */
+            max_active: number;
+        };
+        /** ScheduleOut */
+        ScheduleOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Prompt Text */
+            prompt_text: string;
+            /** Time Of Day */
+            time_of_day: string;
+            /** Weekdays */
+            weekdays: number[];
+            /** Repeat Text */
+            repeat_text: string;
+            /** Is Active */
+            is_active: boolean;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            /** Last Run At */
+            last_run_at: string | null;
+            /** Is Briefing */
+            is_briefing: boolean;
+            last_task: components["schemas"]["LastTaskOut"] | null;
+        };
         /**
          * StepOut
          * @description 도구 호출 한 번. 타임라인 한 줄.
@@ -740,6 +895,76 @@ export interface components {
          * @enum {string}
          */
         VerdictKind: "match" | "mismatch" | "unsure";
+        /**
+         * WatchListOut
+         * @description GET /api/watches. watches는 만든 순. max_active는 켜 둘 수 있는 최대 개수(10).
+         */
+        WatchListOut: {
+            /** Watches */
+            watches: components["schemas"]["WatchOut"][];
+            /** Max Active */
+            max_active: number;
+        };
+        /** WatchOut */
+        WatchOut: {
+            /** Id */
+            id: number;
+            /** Description */
+            description: string;
+            /** Tool Name */
+            tool_name: string;
+            /** Tool Input */
+            tool_input: {
+                [key: string]: unknown;
+            };
+            /** Condition Text */
+            condition_text: string;
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Repeat */
+            repeat: boolean;
+            /** Is Active */
+            is_active: boolean;
+            /**
+             * Next Run At
+             * Format: date-time
+             */
+            next_run_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Last Notified At */
+            last_notified_at: string | null;
+            last_result: components["schemas"]["WatchResultOut"] | null;
+        };
+        /**
+         * WatchResultOut
+         * @description 감시의 마지막 확인 결과(watches.last_result).
+         *
+         *     status: met(조건 충족, 대화방에 알림) | not_met | tool_failed(조회 실패) | judge_failed(판정 실패, met=false로 봄)
+         *     | skipped_budget(하루 비용 상한으로 건너뜀) | expired(만료로 꺼짐)
+         */
+        WatchResultOut: {
+            status: components["schemas"]["WatchStatus"];
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Error */
+            error?: string | null;
+            /** Sources */
+            sources?: string[];
+        };
+        /** @enum {string} */
+        WatchStatus: "met" | "not_met" | "tool_failed" | "judge_failed" | "skipped_budget" | "expired";
     };
     responses: never;
     parameters: never;
@@ -1381,6 +1606,228 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_schedules_api_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleListOut"];
+                };
+            };
+        };
+    };
+    delete_schedule_api_schedules__schedule_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 내 것 중에 그 id가 없다(not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_schedule_api_schedules__schedule_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActiveUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description 내 것 중에 그 id가 없다(not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description 켤 수 없다(limit_reached, duplicate, expired) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_watches_api_watches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchListOut"];
+                };
+            };
+        };
+    };
+    delete_watch_api_watches__watch_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                watch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 내 것 중에 그 id가 없다(not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_watch_api_watches__watch_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                watch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActiveUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+            /** @description 내 것 중에 그 id가 없다(not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description 켤 수 없다(limit_reached, duplicate, expired) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
             };
             /** @description Validation Error */
             422: {

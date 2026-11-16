@@ -169,9 +169,35 @@ export function useTask(taskId: number) {
   });
 }
 
+// '예약 작업' 대화방에서 아직 답변이 없는 예약 task(6단계).
+// 예약 task는 사용자 메시지 없이 시작해 "답변 없는 내 메시지" 규칙(MessageList)에 잡히지 않으므로,
+// 작업 목록에서 이 대화방의 끝나지 않은 schedule task를 찾아 진행 상황을 붙인다. 오래된 것(id 작은 것)부터.
+export function openScheduleTaskIds(
+  tasks: readonly TaskSummary[] | undefined,
+  conversationId: number,
+  messages: readonly Message[],
+): number[] {
+  if (tasks === undefined) return [];
+  const answered = new Set(
+    messages.filter((message) => message.role === "assistant").map((message) => message.task_id),
+  );
+  return tasks
+    .filter(
+      (task) =>
+        task.conversation_id === conversationId &&
+        task.origin === "schedule" &&
+        !isTaskFinished(task.status) &&
+        !answered.has(task.id),
+    )
+    .map((task) => task.id)
+    .sort((a, b) => a - b);
+}
+
 // 작업 기록 탭의 목록. 끝나지 않은 task가 있으면 상태 배지가 바뀌도록 3초마다 다시 가져온다.
-export function useTasks() {
+// enabled=false면 가져오지 않는다('예약 작업' 대화방에서만 진행 중인 예약 task를 찾으려고 쓴다).
+export function useTasks({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
+    enabled,
     queryKey: chatKeys.tasks,
     queryFn: async () => {
       const { data, response } = await api.GET("/api/tasks", { params: { query: { limit: 50 } } });
