@@ -151,11 +151,12 @@ DAILY_COST_LIMIT_USD = Decimal(env_str("DAILY_COST_LIMIT_USD", "1.0"))
 TASK_MAX_STEPS = int(env_str("TASK_MAX_STEPS", "12"))
 TASK_MAX_TOKENS = int(env_str("TASK_MAX_TOKENS", "60000"))
 
-# 모델별 가격(100만 토큰당 달러). 값은 공식 가격표를 보고 직접 채운다.
-# None이 남아 있으면 비용 계산이 불가능하다는 뜻이므로 1단계에서 경고한다.
+# 모델별 가격(100만 토큰당 달러). Anthropic 공식 가격표 기준, 2026-11-16 확인.
+# 가격이 None인 모델은 실제 호출이 막힌다(agent/llm.py). 모델을 바꾸면 가격도 함께 넣는다.
+# Haiku 5.5는 프롬프트 10만 토큰까지의 가격이다. 이 앱은 Task당 6만 토큰 상한이라 넘지 않는다.
 MODEL_PRICES = {
-    "claude-haiku-5-5": {"input": None, "output": None},
-    "claude-sonnet-5-5": {"input": None, "output": None},
+    "claude-haiku-5-5": {"input": Decimal("0.10"), "output": Decimal("0.50")},
+    "claude-sonnet-5-5": {"input": Decimal("2.00"), "output": Decimal("10.00")},
 }
 
 # ── 외부 API 키 (해당 도구를 만드는 단계에서 발급) ─────
