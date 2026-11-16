@@ -33,6 +33,22 @@ def cost_for(model, input_tokens, output_tokens, cache_write_tokens=0, cache_rea
     return (total / MILLION).quantize(COST_PLACES)
 
 
+def record_usage(task, model, response, purpose=UsageLog.Purpose.AGENT):
+    """LLM 호출 한 번의 토큰과 비용을 남긴다. 에이전트 호출만 Task 토큰 상한에 더한다."""
+    tokens = {
+        "input_tokens": response.input_tokens,
+        "output_tokens": response.output_tokens,
+        "cache_write_tokens": response.cache_write_tokens,
+        "cache_read_tokens": response.cache_read_tokens,
+    }
+    cost = cost_for(model, **tokens)
+    UsageLog.objects.create(task=task, purpose=purpose, model=model, cost_usd=cost, **tokens)
+    if task is not None and purpose == UsageLog.Purpose.AGENT:
+        # 캐시에서 읽은 토큰도 모델이 실제로 읽은 맥락이므로 Task 토큰 상한에 포함한다.
+        task.total_tokens += sum(tokens.values())
+        task.save(update_fields=["total_tokens", "updated_at"])
+
+
 def today_cost():
     """서울 기준 오늘 0시부터 쓴 비용 합계. 에이전트, 감시 에이전트, 조건 감시를 모두 포함한다."""
     midnight = timezone.make_aware(datetime.combine(timezone.localdate(), time.min))

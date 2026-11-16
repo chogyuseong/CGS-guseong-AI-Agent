@@ -1,8 +1,10 @@
 """
 도구 등록과 위험 등급.
 
-모든 도구는 Tool로 등록되고, 실행은 반드시 run_tool을 거친다.
-EXTERNAL 도구는 run_tool로 실행할 수 없다. 승인 게이트(2단계 approvals.py)만 실행할 수 있다.
+실행 경로는 두 개뿐이다.
+  run_tool:     READ, INTERNAL 도구. EXTERNAL을 넣으면 PermissionError.
+  run_external: EXTERNAL 도구. 승인된 Approval 레코드가 없으면 PermissionError.
+                approvals.execute_approved 한 곳에서만 부른다.
 """
 
 import logging
@@ -12,7 +14,7 @@ from dataclasses import dataclass
 from django.utils import timezone
 from jsonschema import Draft202012Validator
 
-from agent.models import RiskLevel
+from agent.models import Approval, RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,9 @@ _TOOLS: dict[str, Tool] = {}
 def register(tool):
     if tool.name in _TOOLS:
         raise ValueError(f"같은 이름의 도구가 이미 있습니다: {tool.name}")
+    if tool.risk_level == RiskLevel.EXTERNAL and tool.preview is None:
+        # 사용자는 preview 문장을 보고 승인한다. 설명할 수 없는 외부 행동은 등록 자체를 막는다.
+        raise ValueError(f"EXTERNAL 도구는 preview가 있어야 합니다: {tool.name}")
     _TOOLS[tool.name] = tool
     return tool
 
@@ -72,6 +77,35 @@ def run_tool(tool, user, tool_input):
     if tool.risk_level == RiskLevel.EXTERNAL:
         # 프롬프트가 아니라 코드로 막는다. 외부 행동은 승인 레코드를 확인하는 경로로만 실행된다.
         raise PermissionError(f"{tool.name}은 승인이 필요한 도구라 이 경로로 실행할 수 없습니다.")
+    return _call(tool, user, tool_input)
+
+
+def run_external(tool, approval):
+    """EXTERNAL 도구를 실행한다. 승인된 Approval이 그 도구의 Step을 가리킬 때만 실행된다.
+
+    approvals.execute_approved가 이미 검사하지만, 실수로 다른 곳에서 불러도 뚫리지 않게 한 번 더 막는다.
+    """
+    if (
+        tool.risk_level != RiskLevel.EXTERNAL
+        or approval is None
+        or approval.status != Approval.Status.APPROVED
+        or approval.step.tool_name != tool.name
+    ):
+        raise PermissionError("승인되지 않은 외부 행동은 실행할 수 없습니다.")
+    step = approval.step
+    return _call(tool, step.task.user, step.input_json)
+
+
+def preview_text(tool, user, tool_input):
+    """승인 카드에 보일 문장. preview가 실패해도 무엇을 하려는지는 보여 준다."""
+    try:
+        return str(tool.preview(user, **tool_input))[:500]
+    except Exception:
+        logger.exception("preview 생성 실패: %s", tool.name)
+        return f"{tool.name} 실행 (설명을 만들지 못했습니다. 입력값을 확인하세요.)"
+
+
+def _call(tool, user, tool_input):
     try:
         result = tool.run(user, **tool_input)
     except Exception:
