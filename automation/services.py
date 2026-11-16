@@ -79,6 +79,13 @@ def create_schedule(user, title, prompt_text, time_of_day, weekdays):
         )
     # 시각 하나 + 요일 목록 구조라서 하루에 두 번 이상 실행될 수 없다(명세: 하루 1회보다 잦을 수 없음).
     weekdays = sorted(set(weekdays))
+    same = ScheduledJob.objects.filter(
+        user=user, is_active=True, time_of_day=time_of_day, weekdays=weekdays, prompt_text=prompt_text
+    ).first()
+    if same:  # 모델이 이미 한 등록을 모르고 다시 부르는 경우를 서버에서 한 번 더 막는다
+        raise AutomationError(
+            f"이미 같은 예약 작업 '{same.title}'이 있습니다(id {same.id}). 다시 만들지 않았습니다."
+        )
     return ScheduledJob.objects.create(
         user=user,
         title=title,
@@ -112,6 +119,15 @@ def create_watch(user, description, tool_name, tool_input, condition_text, inter
     if Watch.objects.filter(user=user, is_active=True).count() >= MAX_ACTIVE:
         raise AutomationError(
             f"조건 감시는 {MAX_ACTIVE}개까지 켜 둘 수 있습니다. 자동화 화면에서 정리해 주세요."
+        )
+    same = Watch.objects.filter(
+        user=user, is_active=True, tool_name=tool_name, tool_input_json=tool_input
+    ).first()
+    if same:  # 같은 조회를 두 번 감시하지 않는다. 조건을 바꾸려면 기존 감시를 지우고 다시 만든다
+        raise AutomationError(
+            f"이미 같은 조회로 감시 중입니다(id {same.id}, 조건: {same.condition_text}). "
+            "다시 만들지 않았습니다. "
+            "조건을 바꾸려면 delete_watch로 기존 감시를 지운 뒤 등록하세요."
         )
     return Watch.objects.create(
         user=user,

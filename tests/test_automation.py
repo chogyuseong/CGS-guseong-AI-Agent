@@ -187,8 +187,16 @@ def test_watch_tool_input_must_match_tool_schema(user):
 
 def test_watch_limit_10_active(user):
     for i in range(10):
-        assert run_tool("create_watch", user, **watch_input(description=f"감시 {i}"))["ok"] is True
-    result = run_tool("create_watch", user, **watch_input(description="하나 더"))
+        place = {"place": f"서울 {i}구", "date": "2026-11-17"}  # 같은 조회를 두 번 감시하면 중복으로 거절된다
+        assert (
+            run_tool("create_watch", user, **watch_input(description=f"감시 {i}", tool_input=place))["ok"]
+            is True
+        )
+    result = run_tool(
+        "create_watch",
+        user,
+        **watch_input(description="하나 더", tool_input={"place": "부산", "date": "2026-11-17"}),
+    )
     assert result["ok"] is False and "10" in result["error"]
 
 
