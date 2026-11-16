@@ -28,7 +28,6 @@
 정하지 않은 것:
   - Pydantic AI의 Logfire 안내 배너를 끌지(PYDANTIC_AI_NO_BANNER=1, 끄는 쪽 권장)
   - 승인 대기 중에도 1초 폴링을 유지할지(2단계에서 결정)
-  - GitHub 저장소를 새로 만들지, 기존 저장소에 올릴지(아직 push한 적 없음)
 
 알려진 문제(고치지 않음):
   - 답변 끝에 "구글 캘린더에는 넣지 않았습니다"가 매번 붙는다(시스템 프롬프트 문구 탓).
@@ -39,20 +38,13 @@
 2. 옮겨야 하는 것
 ========================================
 
-원격 저장소가 없다. 코드는 직접 옮겨야 한다.
+(1) 코드: GitHub에서 받는다(2026-11-17 첫 push).
 
-(1) 코드: git 묶음 파일 하나로 옮긴다. 지금 컴퓨터의 프로젝트 폴더에서:
-
-      git bundle create my-agent.bundle --all
-
-    my-agent.bundle을 USB 등으로 옮긴 뒤 새 컴퓨터에서:
-
-      git clone my-agent.bundle my-agent
+      git clone https://github.com/chogyuseong/CGS-guseong-AI-Agent.git my-agent
       cd my-agent
-      git remote remove origin
 
-    폴더를 통째로 복사해도 되지만, 그때는 node_modules, apps/web/node_modules,
-    apps/web/.next, apps/api/.venv는 빼고 복사한다(새 컴퓨터에서 다시 설치한다).
+    브랜치: main이 이 프로젝트(Next.js + FastAPI판)다.
+    예전 Django판은 django 브랜치에 그대로 남아 있다(읽기 전용 참고용, 고치지 않는다).
 
 (2) .env: git에 없으므로 따로 옮긴다. 저장소 루트의 .env 파일 하나.
     - 메신저, 메일, 클라우드 메모에 붙여 넣지 않는다. USB나 암호 관리자로 옮긴다.
