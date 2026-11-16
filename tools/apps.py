@@ -7,4 +7,4 @@ class ToolsConfig(AppConfig):
 
     def ready(self):
         # 도구 모듈을 불러오면 registry에 등록된다. 새 도구 파일을 만들면 여기에 한 줄 추가한다.
-        from tools import gcal, memory_tools, notes, places, weather, websearch  # noqa: F401
+        from tools import gcal, memory_tools, notes, places, schedule_tools, weather, websearch  # noqa: F401

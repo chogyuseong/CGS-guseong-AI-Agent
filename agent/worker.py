@@ -69,11 +69,21 @@ def claim_next_task():
 
 
 def run_maintenance():
-    """주기적인 정리 작업. 처리한 개수를 돌려준다(로그용)."""
+    """주기적인 정리 작업(60초마다). 처리한 개수를 돌려준다(로그용)."""
+    from automation import services as automation  # automation이 agent를 불러오므로 여기서 불러온다
+
     expired = approvals.expire_old()
     reclaimed = reclaim_stuck_tasks()
     purged = purge_expired_search_results()
-    return {"expired_approvals": expired, "reclaimed_tasks": reclaimed, "purged_results": purged}
+    scheduled = automation.run_due_schedules()  # 예약 작업은 Task로 큐에 넣고, 실행은 run_once가 한다
+    watched = automation.run_due_watches()
+    return {
+        "expired_approvals": expired,
+        "reclaimed_tasks": reclaimed,
+        "purged_results": purged,
+        "scheduled_tasks": scheduled,
+        "checked_watches": watched,
+    }
 
 
 def purge_expired_search_results():
