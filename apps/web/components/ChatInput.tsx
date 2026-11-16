@@ -1,8 +1,12 @@
+// 'use client': 이 컴포넌트는 브라우저에서도 실행된다는 표시다(클릭 처리, 상태, 마이크 같은 브라우저 기능을 씀).
+// 표시가 없으면 서버에서만 그려지는 컴포넌트가 되어 window·SpeechRecognition에 손댈 수 없다.
+// 표시가 있어도 첫 HTML은 서버에서 한 번 그려지므로, 브라우저 전용 값은 lib/speech.ts처럼 조심해서 읽는다.
 "use client";
 
-import { SendHorizontal } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { Mic, SendHorizontal, Square } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { joinTranscript, useSpeechInput } from "@/lib/speech";
 
 type ChatInputProps = {
   // 보낼 내용을 받아 서버로 보내는 함수. Promise는 "나중에 끝나는 작업"이다(Python의 awaitable).
@@ -15,14 +19,25 @@ const MAX_LENGTH = 4000;
 
 // 채팅 입력창. 글자 16px(text-base): 아이폰 사파리는 16px 미만 입력칸을 누르면 화면을 확대한다.
 // 전송 중에는 입력과 버튼을 막아 같은 요청이 두 번 가지 않게 한다.
+// 마이크 버튼: 말한 문장을 입력창 끝에 붙이기만 한다. 보내기는 사용자가 읽고 고친 뒤 직접 한다.
 export function ChatInput({ onSend, pending }: ChatInputProps) {
   // useState: 컴포넌트가 기억하는 값과 그 값을 바꾸는 함수. (폼 객체의 cleaned_data를 화면이 직접 들고 있는 느낌)
   const [text, setText] = useState("");
   const trimmed = text.trim();
+  const speech = useSpeechInput((spoken) =>
+    setText((current) => joinTranscript(current, spoken, MAX_LENGTH)),
+  );
+  const { cancel } = speech;
+
+  // 전송 중이 되면 듣기를 취소한다. 보낸 뒤 늦게 온 결과가 비워진 입력창에 들어가지 않게.
+  useEffect(() => {
+    if (pending) cancel();
+  }, [pending, cancel]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!trimmed || pending) return;
+    cancel();
     try {
       await onSend(trimmed);
       setText("");
@@ -34,6 +49,12 @@ export function ChatInput({ onSend, pending }: ChatInputProps) {
   return (
     <form onSubmit={handleSubmit} className="border-t bg-background p-2">
       {pending && <PendingStatus />}
+      {speech.listening && <ListeningStatus />}
+      {speech.error && (
+        <p role="alert" className="break-words px-1 pb-1 text-sm text-destructive">
+          {speech.error}
+        </p>
+      )}
       <div className="flex items-end gap-2">
         <label htmlFor="chat-input" className="sr-only">
           메시지 입력
@@ -46,13 +67,46 @@ export function ChatInput({ onSend, pending }: ChatInputProps) {
           disabled={pending}
           onChange={(event) => setText(event.target.value)}
           placeholder="무엇을 도와드릴까요?"
-          className="block max-h-40 min-h-11 flex-1 resize-none rounded-lg border bg-background px-3 py-2.5 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          className="block max-h-40 min-h-11 min-w-0 flex-1 resize-none rounded-lg border bg-background px-3 py-2.5 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         />
+        {speech.supported && (
+          <MicButton listening={speech.listening} disabled={pending} onClick={speech.toggle} />
+        )}
         <Button type="submit" aria-label="전송" disabled={pending || !trimmed} className="size-11">
           <SendHorizontal aria-hidden="true" className="size-5" />
         </Button>
       </div>
     </form>
+  );
+}
+
+// 마이크 버튼(44px). aria-pressed: 화면 낭독기에 "눌림/안 눌림"을 알려 주는 켜기·끄기 버튼 표시.
+// 듣는 중에는 빨간 정지 모양으로 바뀌고, 다시 누르면 멈춘다.
+function MicButton(props: { listening: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant={props.listening ? "destructive" : "outline"}
+      aria-label="음성 입력"
+      aria-pressed={props.listening}
+      disabled={props.disabled}
+      onClick={props.onClick}
+      className={props.listening ? "size-11 motion-safe:animate-pulse" : "size-11"}
+    >
+      {props.listening ? (
+        <Square aria-hidden="true" className="size-5 fill-current" />
+      ) : (
+        <Mic aria-hidden="true" className="size-5" />
+      )}
+    </Button>
+  );
+}
+
+function ListeningStatus() {
+  return (
+    <p role="status" className="px-1 pb-1 text-xs text-muted-foreground">
+      듣는 중… 말을 마치면 입력창에 글자가 들어갑니다. 멈추려면 마이크 버튼을 다시 누르세요.
+    </p>
   );
 }
 

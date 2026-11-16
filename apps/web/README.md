@@ -116,6 +116,7 @@ lib/auth.ts             /api/auth/me, /api/auth/login 훅
 lib/chat.ts             대화·메시지·task 훅, 진행 단계(taskPhase)
 lib/approvals.ts        승인·거절 호출과 오류 문구
 lib/push.ts             웹 푸시 상태 판정, 구독·해지(브라우저·서버를 인자로 받아 테스트 가능)
+lib/speech.ts           음성 입력(브라우저 SpeechRecognition, ko-KR). 결과는 입력창에만, 서버로 보내지 않음
 public/sw.js            서비스 워커: 푸시 알림 표시, 알림 클릭 시 이동(캐싱·오프라인 없음)
 public/icons/           PWA 아이콘 192·512 (0단계는 자리만 잡은 단색 그림)
 e2e/                    Playwright
