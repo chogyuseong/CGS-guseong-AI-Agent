@@ -1,7 +1,7 @@
 """작업(task) 조회 응답. 웹은 이 모양을 OpenAPI에서 타입으로 생성한다."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -64,8 +64,25 @@ class ApprovalDecisionOut(BaseModel):
 
     approval: ApprovalOut
     changed: bool
-    # 결정 뒤의 작업 상태. 마지막 결정이면 재개한 실행이 끝난 뒤의 상태(done, waiting_approval 등)다.
+    # 응답 시점의 작업 상태. 마지막 결정이면 재개 워크플로를 시작만 하고 바로 응답하므로 보통 waiting_approval이나
+    # running이다(재개가 끝난 뒤의 상태가 아니다). 화면은 GET /api/tasks/{id} 폴링으로 끝을 확인한다.
     task_status: TaskStatus
+
+
+type ApprovalErrorCode = Literal["not_found", "task_not_waiting", "approval_expired", "mismatch_confirmation_required"]
+
+
+class ApprovalErrorDetail(BaseModel):
+    # 화면은 문구가 아니라 code로 분기한다.
+    code: ApprovalErrorCode
+    # 사용자에게 보여 줄 한국어 문장
+    message: str
+
+
+class ApprovalErrorOut(BaseModel):
+    """승인·거절 API의 404·409·410 응답 본문."""
+
+    detail: ApprovalErrorDetail
 
 
 class TaskDetail(BaseModel):

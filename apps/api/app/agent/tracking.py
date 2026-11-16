@@ -18,8 +18,17 @@
 왜 hook인가: Pydantic AI 2.x 공식 문서의 Hooks(도구 실행 wrap_tool_execute)가 "도구 호출을 감싸는" 가장 단순한
 방법이다. 도구마다 기록 코드를 넣지 않아도 되고, 새 도구를 추가해도 기록이 빠질 수 없다.
 
-3단계(DBOS) 대비: start_step은 (task_id, tool_call_id)로 이미 있는 행을 먼저 찾는다. 워크플로가 재실행되어 같은
-도구 호출이 다시 기록되려 해도 행이 두 개 생기지 않는다.
+3단계(DBOS 복구): 서버가 죽었다 살아나면 워크플로가 처음부터 다시 실행된다. 모델 요청은 DBOS 단계라 기록된
+응답이 그대로 돌아오고(같은 tool_call_id), 도구 실행은 단계가 아니라서 이 hook이 다시 불린다. 그래서 hook은
+(task_id, tool_call_id)로 steps 행을 먼저 찾아 아래처럼 처리한다. 도구가 같은 호출로 두 번 실행되지 않는다.
+
+    행 상태                     처리
+    없음                         새 행(running)을 만들고 실행한다(보통의 첫 실행)
+    done / failed(결과 있음)     실행하지 않고 저장된 결과(output)를 그대로 돌려준다(복구 재생)
+    running, READ 도구           조회만 하므로 다시 실행한다
+    running, INTERNAL·EXTERNAL   지난 실행이 도중에 끊겼다. 실제로 반영됐는지 알 수 없으므로 다시 실행하지 않고
+                                 failed + "실행 여부를 확인할 수 없음"으로 닫는다(at-most-once, docs/SAFETY.md)
+    waiting_approval             승인된 EXTERNAL 호출의 첫 실행. 그대로 실행한다(assert_approved가 다시 검사)
 
 EXTERNAL 도구(2단계): requires_approval 도구는 첫 run에서 실행되지 않으므로 이 hook도 불리지 않는다. step 행은
 runner가 승인 요청을 저장할 때(approvals.save_requests) waiting_approval로 만든다. 승인 후 재개한 run에서 이 hook이
@@ -45,7 +54,7 @@ from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
-from app.models.enums import StepStatus
+from app.models.enums import RiskLevel, StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +63,52 @@ logger = logging.getLogger(__name__)
 # - 나머지: Pydantic AI가 흐름 제어에 쓰는 예외(재시도 요청, 승인 대기, 실행 건너뛰기 등).
 PASS_THROUGH_ERRORS = (PermissionError, ModelRetry, ApprovalRequired, CallDeferred, SkipToolExecution, ToolFailed)
 UNEXPECTED_ERROR_MESSAGE = "도구를 실행하는 중 예상하지 못한 오류가 발생했습니다."
+# 서버가 도구 실행 도중 멈춘 뒤 복구했을 때. 모델에게도 이 문장이 도구 결과로 간다.
+UNCERTAIN_MESSAGE = (
+    "서버가 이 도구를 실행하는 도중 멈춰서 실제로 실행되었는지 확인할 수 없습니다. "
+    "같은 행동을 다시 하지 말고, 확인이 필요하다고 사용자에게 알리세요."
+)
+INTERRUPTED_RESULT_MESSAGE = "이전 실행에서 이 도구가 끝나지 못했습니다."
+
+
+@dataclass(frozen=True)
+class RecordedStep:
+    """이미 있는 steps 행(복구 때 다시 불린 호출)."""
+
+    id: int
+    status: StepStatus
+    risk_level: RiskLevel
+    output: dict[str, Any] | None
+
+
+async def find_step(deps: AgentDeps, tool_call_id: str) -> RecordedStep | None:
+    async with deps.db() as session:
+        step = await session.scalar(select(Step).where(Step.task_id == deps.task_id, Step.tool_call_id == tool_call_id))
+        if step is None:
+            return None
+        return RecordedStep(step.id, step.status, step.risk_level, step.output)
+
+
+def recorded_result(step: RecordedStep) -> ToolResult | None:
+    """끝난 호출이면 저장된 결과를 돌려준다(다시 실행하지 않는다). 아직 실행할 호출이면 None."""
+    if step.status not in (StepStatus.DONE, StepStatus.FAILED):
+        return None
+    if step.output is None:
+        return ToolResult.failure(INTERRUPTED_RESULT_MESSAGE)
+    return ToolResult.model_validate(step.output)
+
+
+async def close_uncertain_step(deps: AgentDeps, step_id: int) -> ToolResult:
+    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 failed로 닫는다."""
+    result = ToolResult.failure(UNCERTAIN_MESSAGE)
+    await finish_step(deps, step_id, output=result.model_dump(mode="json"), ok=False, duration_ms=None)
+    logger.warning("복구: 실행 여부를 알 수 없는 도구 호출을 실패로 닫음 task=%s step=%s", deps.task_id, step_id)
+    return result
 
 
 async def start_step(deps: AgentDeps, call: ToolCallPart, tool_def: ToolDefinition, args: dict[str, Any]) -> int:
-    """steps 행을 running으로 만들고 id를 돌려준다. 같은 tool_call_id 행이 있으면 그 행을 쓴다."""
+    """steps 행을 running으로 만들고 id를 돌려준다."""
     async with deps.db() as session:
-        existing = await session.scalar(
-            select(Step.id).where(Step.task_id == deps.task_id, Step.tool_call_id == call.tool_call_id)
-        )
-        if existing is not None:
-            return existing
         last_order = await session.scalar(select(func.max(Step.order)).where(Step.task_id == deps.task_id))
         step = Step(
             task_id=deps.task_id,
@@ -88,7 +133,7 @@ def describe_result(result: object) -> tuple[dict[str, Any], bool]:
 
 
 async def finish_step(
-    deps: AgentDeps, step_id: int, *, output: dict[str, Any] | None, ok: bool, duration_ms: int
+    deps: AgentDeps, step_id: int, *, output: dict[str, Any] | None, ok: bool, duration_ms: int | None
 ) -> None:
     async with deps.db() as session:
         step = await session.get_one(Step, step_id)
@@ -116,7 +161,21 @@ class StepTracking(AbstractCapability[AgentDeps]):
         args: dict[str, Any],
         handler: WrapToolExecuteHandler,
     ) -> Any:
-        step_id = await start_step(ctx.deps, call, tool_def, args)
+        recorded = await find_step(ctx.deps, call.tool_call_id)
+        if recorded is None:
+            step_id = await start_step(ctx.deps, call, tool_def, args)
+        else:
+            replayed = recorded_result(recorded)
+            if replayed is not None:
+                return replayed  # 복구 재생: 이미 끝난 호출은 다시 실행하지 않는다
+            if recorded.status == StepStatus.RUNNING and recorded.risk_level != RiskLevel.READ:
+                return await close_uncertain_step(ctx.deps, recorded.id)
+            step_id = recorded.id
+        return await self.run_and_record(ctx, step_id, args, handler)
+
+    async def run_and_record(
+        self, ctx: RunContext[AgentDeps], step_id: int, args: dict[str, Any], handler: WrapToolExecuteHandler
+    ) -> Any:
         started = time.perf_counter()
         try:
             result = await handler(args)

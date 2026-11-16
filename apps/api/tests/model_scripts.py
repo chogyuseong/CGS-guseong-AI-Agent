@@ -2,8 +2,14 @@
 
 FunctionModel은 "메시지 목록을 받아 모델 응답을 돌려주는 함수"로 모델을 흉내 낸다.
 여기서는 대본(script)처럼 응답을 차례대로 돌려주고, 모델이 받은 도구 목록과 메시지를 기록해 둔다.
+
+3단계(DBOS): 워크플로 안에서는 DBOSDurability에 등록된 모델 객체만 agent.override(model=...)로 끼울 수 있다
+(모델 객체는 단계 경계를 넘어 직렬화할 수 없어서). 그래서 앱을 만들 때 SCRIPTED_MODEL 하나를 등록해 두고
+(TEST_AGENT_MODELS → create_app(agent_models=...)), 테스트마다 그 모델이 부를 함수만 바꿔 끼운다(registered).
 """
 
+import inspect
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from uuid import uuid4
 
@@ -17,6 +23,31 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+type ModelFunction = Callable[[list[ModelMessage], AgentInfo], ModelResponse | Awaitable[ModelResponse]]
+
+
+class ModelSlot:
+    """등록된 가짜 모델 하나가 지금 부를 함수를 담아 두는 자리."""
+
+    def __init__(self) -> None:
+        self.current: ModelFunction | None = None
+
+    async def respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        assert self.current is not None, "가짜 모델 대본이 없다"
+        result = self.current(messages, info)
+        return await result if inspect.isawaitable(result) else result
+
+
+MODEL_SLOT = ModelSlot()
+SCRIPTED_MODEL = FunctionModel(MODEL_SLOT.respond, model_name="scripted")
+TEST_AGENT_MODELS = {"scripted": SCRIPTED_MODEL}
+
+
+def registered(function: ModelFunction) -> FunctionModel:
+    """function을 부르는 등록된 가짜 모델을 돌려준다. 워크플로 안에서도 agent.override(model=...)에 쓸 수 있다."""
+    MODEL_SLOT.current = function
+    return SCRIPTED_MODEL
 
 
 def current_run_messages(messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -49,7 +80,7 @@ class ScriptedModel:
         return ModelResponse(parts=[part])
 
     def model(self) -> FunctionModel:
-        return FunctionModel(self.respond, model_name="scripted")
+        return registered(self.respond)
 
 
 def scripted(*parts: ModelResponsePart) -> ScriptedModel:

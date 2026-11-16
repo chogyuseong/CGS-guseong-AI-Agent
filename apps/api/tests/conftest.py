@@ -5,23 +5,34 @@
   Alembic 마이그레이션으로 테이블을 만든다. 마이그레이션 자체도 함께 검증된다.
 - 테스트 하나마다 연결 하나에서 바깥 트랜잭션을 연다(db_connection). 앱(요청, 에이전트 실행기, 도구)과
   테스트 코드가 쓰는 세션은 모두 그 연결 위의 SAVEPOINT로 묶이고(session_factory), 테스트가 끝나면 통째로 되돌린다.
-- 3단계에서 DBOS가 자체 연결로 DB에 쓰면 이 "되돌리기" 방식으로는 지울 수 없다.
-  그때는 db_connection/session_factory 픽스처만 "테이블 비우기(TRUNCATE)" 방식으로 바꾸면 된다.
-- 실제 LLM 요청은 전역으로 막는다. 테스트는 agent.override(model=FunctionModel(...))로 가짜 모델을 끼운다.
-  감시 에이전트도 guard.override(model=...)로 끼운다. 끼우지 않으면 키가 없어 실패하고 unsure로 기록된다.
+- 실제 LLM 요청은 전역으로 막는다. 테스트는 agent.override(model=scripted(...).model())로 가짜 모델을 끼운다.
+  워크플로 안에서는 DBOSDurability에 등록된 모델만 끼울 수 있어서, 앱을 만들 때 TEST_AGENT_MODELS를 등록한다
+  (tests/model_scripts.py). 감시 에이전트는 DBOS를 쓰지 않으므로 guard.override(model=...)로 아무 모델이나 끼운다.
 - 2단계: fake_external_counter 픽스처가 테스트 전용 EXTERNAL 도구(tests/fake_tools.py)를 chat 도구 묶음에 잠시 넣는다.
-  동시 승인 테스트만 committed_app(연결을 따로 여는 실제 커밋 + TRUNCATE 정리)을 쓴다.
+  동시 승인 테스트처럼 진짜 동시성이 필요한 테스트는 committed_app(연결을 따로 여는 실제 커밋 + TRUNCATE 정리)을 쓴다.
+
+3단계(DBOS):
+- 세션 시작 때 DBOS를 한 번 만들고 launch한다(dbos_runtime). 시스템 테이블은 테스트 DB의 dbos 스키마에 생긴다.
+  DBOS는 자기 연결(동기 엔진)로 dbos 스키마에만 쓰므로 앱 테이블의 SAVEPOINT 되돌리기는 그대로 쓸 수 있다.
+  dbos 스키마의 행은 되돌려지지 않지만, 테스트 DB는 세션마다 새로 만들고 task id 시퀀스도 되돌려지지 않아
+  (그래서 committed_app의 TRUNCATE에서 RESTART IDENTITY를 뺐다) 같은 워크플로 ID("task-{id}")가 다시 나오지 않는다.
+- 앱의 워크플로 시작기는 WaitingLauncher로 바꾼다. 실제 워크플로를 시작하되 끝날 때까지 기다려서, 테스트는 응답을
+  받은 뒤 결과를 바로 확인할 수 있고 연결 하나를 두 코루틴이 동시에 쓰지 않는다. "바로 응답"을 확인하는 테스트만
+  committed_app + 기다리지 않는 시작기를 쓴다.
+- 푸시 전송기는 FakePushSender(tests/fake_push.py)로 바꾼다. VAPID 설정이 비어 있으면 notify는 아무것도 보내지 않는다.
 """
 
 import asyncio
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 
 import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from dbos import DBOS, WorkflowHandleAsync
 from fastapi import FastAPI
 from pydantic import SecretStr
 from pydantic_ai import models
@@ -40,13 +51,16 @@ from app.agent.toolsets import (
     internal_tools,
     read_tools,
 )
+from app.agent.workflows import DBOS_SYSTEM_SCHEMA, WorkflowLauncher
 from app.config import Settings
 from app.db import get_session
 from app.main import create_app
 from app.models import User
 from app.models.enums import TaskOrigin
 from app.security import hash_password
+from tests.fake_push import FakePushSender
 from tests.fake_tools import COUNTER, FakeExternalCounter, fake_external, preview_fake_external
+from tests.model_scripts import TEST_AGENT_MODELS
 
 # 테스트에서는 실제 LLM 요청을 전역으로 막는다. 가짜 모델(FunctionModel, TestModel)만 쓴다.
 models.ALLOW_MODEL_REQUESTS = False
@@ -94,6 +108,58 @@ def migrated_database_url() -> str:
     return TEST_DATABASE_URL
 
 
+@pytest.fixture(scope="session")
+def dbos_runtime(migrated_database_url: str) -> Iterator[None]:
+    """테스트 세션 동안 DBOS 하나를 띄운다. 시스템 테이블은 테스트 DB의 dbos 스키마에 생긴다.
+
+    이벤트 루프 밖에서 launch하므로 DBOS가 자기 백그라운드 루프를 만든다(fork·큐로 시작한 워크플로가 거기서 돈다).
+    Windows 기본 루프(Proactor)는 psycopg 비동기를 못 쓰므로 그 루프도 SelectorEventLoop가 되게 정책을 바꾼다.
+    (운영 서버는 실행 중인 루프 안에서 launch하므로 DBOS가 그 루프를 쓴다. app/agent/workflows.py)
+    """
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    DBOS(
+        config={
+            "name": "myagent-test",
+            "system_database_url": migrated_database_url,
+            "dbos_system_schema": DBOS_SYSTEM_SCHEMA,
+            "application_version": "test",
+        }
+    )
+    DBOS.launch()
+    try:
+        yield
+    finally:
+        DBOS.destroy()
+
+
+class WaitingLauncher(WorkflowLauncher):
+    """실제 DBOS 워크플로를 시작하고 끝날 때까지 기다리는 시작기(테스트 전용)."""
+
+    async def start_run(self, task_id: int, prompt: str) -> WorkflowHandleAsync[None]:
+        handle = await super().start_run(task_id, prompt)
+        await handle.get_result()
+        return handle
+
+    async def start_resume(self, task_id: int, current_workflow_id: str | None) -> WorkflowHandleAsync[None]:
+        handle = await super().start_resume(task_id, current_workflow_id)
+        await handle.get_result()
+        return handle
+
+
+def configure_test_app(application: FastAPI, factory: async_sessionmaker[AsyncSession]) -> None:
+    """앱의 DB 세션, 워크플로 시작기, 푸시 전송기를 테스트용으로 바꾼다."""
+    application.state.session_factory = factory
+    application.state.launcher = WaitingLauncher()
+    application.state.push_sender = FakePushSender()
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    application.dependency_overrides[get_session] = override_get_session
+
+
 @pytest.fixture
 async def db_connection(migrated_database_url: str) -> AsyncIterator[AsyncConnection]:
     """테스트 하나 동안 쓰는 연결. 바깥 트랜잭션을 열어 두었다가 끝나면 되돌린다."""
@@ -137,17 +203,17 @@ def test_settings() -> Settings:
 
 
 @pytest.fixture
-def app(test_settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -> FastAPI:
-    application = create_app(test_settings)
-    # 요청 세션과 에이전트 실행기가 모두 테스트 연결을 쓰게 바꾼다.
-    application.state.session_factory = session_factory
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with session_factory() as session:
-            yield session
-
-    application.dependency_overrides[get_session] = override_get_session
+def app(test_settings: Settings, session_factory: async_sessionmaker[AsyncSession], dbos_runtime: None) -> FastAPI:
+    application = create_app(test_settings, agent_models=TEST_AGENT_MODELS)
+    # 요청 세션과 에이전트 실행기(워크플로)가 모두 테스트 연결을 쓰게 바꾼다.
+    configure_test_app(application, session_factory)
     return application
+
+
+@pytest.fixture
+def push_sender(app: FastAPI) -> FakePushSender:
+    """앱이 쓰는 가짜 푸시 전송기. 보낸 본문을 기록한다."""
+    return app.state.push_sender
 
 
 @pytest.fixture
@@ -192,22 +258,19 @@ async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest.fixture
-async def committed_app(migrated_database_url: str, test_settings: Settings) -> AsyncIterator[FastAPI]:
+async def committed_app(
+    migrated_database_url: str, test_settings: Settings, dbos_runtime: None
+) -> AsyncIterator[FastAPI]:
     engine = create_async_engine(migrated_database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    application = create_app(test_settings)
-    application.state.session_factory = factory
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with factory() as session:
-            yield session
-
-    application.dependency_overrides[get_session] = override_get_session
+    application = create_app(test_settings, agent_models=TEST_AGENT_MODELS)
+    configure_test_app(application, factory)
     try:
         yield application
     finally:
+        # RESTART IDENTITY를 쓰지 않는다: task id가 다시 1부터 나오면 dbos 스키마에 남은 "task-1" 워크플로와 겹친다.
         async with engine.begin() as connection:
-            await connection.execute(text("TRUNCATE users RESTART IDENTITY CASCADE"))
+            await connection.execute(text("TRUNCATE users CASCADE"))
         await engine.dispose()
 
 

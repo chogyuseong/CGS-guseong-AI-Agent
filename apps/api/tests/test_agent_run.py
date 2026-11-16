@@ -11,6 +11,8 @@ from app.agent.runner import RunServices, run_task
 from app.config import Settings
 from app.models import Conversation, Step, Task, Todo, UsageLog, User
 from app.models.enums import TaskOrigin
+from app.push import PushNotifier
+from tests.fake_push import FakePushSender
 from tests.model_scripts import call, scripted, text
 
 
@@ -137,7 +139,10 @@ async def test_schedule_task_gets_read_tools_only(
     db_session.add(task)
     await db_session.commit()
     model = scripted(text("오늘 할 일은 없습니다."))
-    services = RunServices(agent=agent, guard=guard, session_factory=session_factory, settings=test_settings)
+    notifier = PushNotifier(session_factory, test_settings, FakePushSender())
+    services = RunServices(
+        agent=agent, guard=guard, session_factory=session_factory, settings=test_settings, notifier=notifier
+    )
 
     with agent.override(model=model.model()):
         await run_task(services, task.id, prompt="오늘 할 일 요약해줘")

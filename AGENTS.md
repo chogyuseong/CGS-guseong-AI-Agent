@@ -26,6 +26,13 @@
 - 따로: `pnpm db:up` / `pnpm db:migrate` / `pnpm api` / `pnpm web`
 - 계정 만들기: `pnpm api:create-user --email 이메일 --password 비밀번호`
   (apps/api에서는 `uv run python -m app.cli create-user --email 이메일`. --password를 빼면 프롬프트로 묻는다)
+- 시험 푸시: apps/api에서 `uv run python -m app.cli send-test-push --email 이메일 [--kind task_done]` (docs/PUSH-CHECK.md)
+- 내구성 실행(DBOS, 3단계): API 서버가 시작할 때(lifespan) DBOS를 launch하고, 끝나지 않은 워크플로를 이어서 실행한다.
+  - 시스템 테이블은 같은 DB의 `dbos` 스키마(launch 때 자동 생성). Alembic과 무관하다.
+  - **앱 테이블을 초기화하면 `dbos` 스키마도 지운다**(옛 워크플로 ID "task-1"과 겹치면 새 task가 실행되지 않는다). docs/DURABILITY-CHECK.md
+  - API 서버는 하나만 띄운다(같은 executor "local"로 서로의 워크플로를 복구한다).
+  - `app/agent/workflows.py`의 단계 구성(durable_step 이름·순서)을 바꾸면 `WORKFLOW_VERSION`을 올린다.
+  - 강제 종료 복구를 확인할 때는 `--reload` 없이 띄운다(docs/DURABILITY-CHECK.md).
 - API 테스트: `pnpm api:test` (apps/api에서는 `uv run python -m pytest`)
 - API 검사: `pnpm api:check` (ruff check, ruff format --check, pyright)
 - 웹 테스트·검사: apps/web의 package.json 스크립트를 따른다
@@ -94,11 +101,17 @@
 6. **외부 콘텐츠 도구**(검색 결과, 일정 제목, 메일 본문을 돌려주는 도구, 4단계부터)는 data를 지시문 무시 안내로 감싸고 6,000자로 자른다.
 7. **테스트**: FunctionModel 대본으로 도구 호출 → step 1개(ok, label) → DB 변화를 확인한다. 실제 모델·외부 API는 부르지 않는다.
    외부 API 도구는 `tests/fixtures/`의 녹화 응답으로 정상, 타임아웃, 401, 429, 빈 결과를 테스트한다.
+   가짜 모델은 `scripted(...).model()`이나 `registered(함수)`로 만든다(워크플로 안에서는 DBOS에 등록된 모델만 끼울 수 있다).
+8. **복구(3단계)**: 도구 실행은 DBOS 단계가 아니다. 복구 때 같은 tool_call_id가 다시 오면 StepTracking이 기록된 결과를 재생하고,
+   실행 도중 끊긴 INTERNAL·EXTERNAL 호출은 다시 실행하지 않는다. 그래서 도구 한 번의 DB 쓰기는 한 트랜잭션으로 짧게 끝낸다.
 
 ## 에이전트 코드 지도 (apps/api/app/agent)
-- `runner.py` `run_task`(상태 전환, 하루 비용 검사, 이전 기록, agent.run, 결과 저장)와 `resume_task`(승인 뒤 재개, 사용량 이어받기).
-  승인 대기면 preview·감시 검사 후 승인 요청을 저장한다
+- `workflows.py` DBOS 워크플로(run_task, resume_task), 워크플로 ID, 시작기(app.state.launcher), DBOS 시작·복구
+- `durable.py` durable_step(워크플로 안이면 DBOS 단계, 밖이면 그냥 실행)
+- `runner.py` `run_task`·`resume_task`를 단계로 구성(claim → prepare → agent.run → finish → notify). 하루 비용 검사, 이전 기록,
+  사용량 이어받기. 승인 대기면 preview·감시 검사 후 승인 요청을 저장한다
+- 푸시는 `app/push.py`(`PushNotifier.notify(user_id, kind, url)`, 본문은 고정 문구)
 - `approvals.py` 승인 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`)
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
-- `agent.py` Agent 정의 / `tracking.py` Step 기록 hook / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
+- `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
 - `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트

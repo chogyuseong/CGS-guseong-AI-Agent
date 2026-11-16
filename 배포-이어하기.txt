@@ -14,8 +14,18 @@
   0단계 뼈대          완료  DB 테이블 15개, 로그인, 하단 탭, 테스트 환경
   1단계 에이전트      완료  내부 도구 5개, 채팅 화면, 단계 타임라인, 작업 기록 탭
   2단계 승인과 감시   완료(2026-11-17)  승인·거절 API, 감시 에이전트, 승인 카드
-  3단계 내구성·푸시   진행 중
+  3단계 내구성·푸시   API 완료(2026-11-17), 화면(알림 켜기, sw.js) 진행 중
   4~9단계             시작 전
+
+3단계 API에서 만든 것:
+  - DBOS 워크플로(app/agent/workflows.py). 메시지 전송과 승인 API가 기다리지 않고 바로 응답한다
+  - 서버를 강제 종료했다 켜면 이어서 실행(가짜 모델로 두 번 확인). 실행 도중이던 INTERNAL·EXTERNAL 도구는
+    다시 실행하지 않고 "실행 여부를 확인할 수 없음"으로 실패 처리
+  - 웹 푸시 API(/api/push/public-key, subscribe, unsubscribe), 본문은 고정 문구만
+  - 새 의존성: dbos 3.5.0, pywebpush 2.5.0. 새 컴퓨터에서 apps/api의 uv sync 필요
+  - DBOS가 개발 DB에 dbos 스키마를 만든다. 앱 테이블을 초기화할 때는 함께 지운다(docs/ARCHITECTURE.md)
+  - pytest 96개 통과
+  - 확인 절차 문서: docs/DURABILITY-CHECK.md, docs/PUSH-CHECK.md
 
 2단계 화면에서 만든 것:
   - ApprovalCard(요약, 감시 판정, 만료 시각, 승인/거절, mismatch면 한 번 더 묻기, 누르면 버튼 잠금)

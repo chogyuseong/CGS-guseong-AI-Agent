@@ -17,7 +17,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.function import AgentInfo
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 from sqlalchemy import select, update
@@ -33,7 +33,7 @@ from app.models.enums import ApprovalStatus, RiskLevel, StepStatus, TaskOrigin, 
 from app.security import hash_password
 from tests.conftest import login, make_client
 from tests.fake_tools import FakeExternalCounter, fake_external
-from tests.model_scripts import GuardScript, ScriptedModel, call, scripted, text
+from tests.model_scripts import GuardScript, ScriptedModel, call, registered, scripted, text
 from tests.test_agent_run import send
 
 DENIAL = "사용자가 거절함"
@@ -366,7 +366,7 @@ async def test_resume_waits_until_every_approval_is_decided(
         calls = [ToolCallPart("fake_external", {"value": 1}, "c-a"), ToolCallPart("fake_external", {"value": 2}, "c-b")]
         return ModelResponse(parts=calls)
 
-    with agent.override(model=FunctionModel(two_calls)):
+    with agent.override(model=registered(two_calls)):
         task = await send(client, conversation, "두 번 실행해줘")
         first, second = (a["id"] for a in task["approvals"])
         await approve(client, first)

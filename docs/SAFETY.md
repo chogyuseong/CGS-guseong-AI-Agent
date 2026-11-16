@@ -1,4 +1,4 @@
-# 안전 설계 (2단계 기준)
+# 안전 설계 (3단계 기준)
 
 프롬프트는 모델이 따를 수도 안 따를 수도 있다. 그래서 이 앱의 안전 장치는 가능한 한 코드와 DB 제약으로 둔다.
 이 문서는 단계마다 "어떤 원칙을 어디서 막는지"를 쌓는다.
@@ -21,6 +21,8 @@
 | 기억은 사용자가 말한 것만 | remember 서버 검사(origin=chat, 외부 콘텐츠 도구 미사용) | 5 |
 | 도구 결과는 데이터 | 외부 콘텐츠 감싸기, 감시 에이전트에 도구 결과를 넣지 않음 | 1, 2 |
 | 키는 .env와 암호화 컬럼에만 | SecretStr, Fernet, 로그 가리기 | 0, 4, 8 |
+| 푸시 본문에 내용을 넣지 않음 | kind별 고정 문구 표, notify 인자(url만) | 3 |
+| 외부 행동은 많아야 한 번 | 복구 때 running인 INTERNAL·EXTERNAL step은 다시 실행하지 않음(StepTracking) | 3 |
 
 ## 0단계에서 적용한 것
 
@@ -113,6 +115,43 @@ EXTERNAL 도구는 서로 독립된 두 장치를 모두 통과해야 실행된�
 - 실패(모델 오류, 키 없음, 출력 형식 오류)는 unsure로 저장하고 승인 요청은 그대로 진행한다(작업을 막지 않는다).
 - 사용량은 usage_logs에 purpose=guard로 남아 하루 비용에 합산된다.
 
+## 3단계에서 적용한 것
+
+### 서버가 죽었다 살아날 때: 외부 행동은 많아야 한 번(at-most-once)
+
+작업은 DBOS 워크플로로 돈다. 서버가 죽으면 다음 시작 때 워크플로가 처음부터 다시 실행되고, DBOS 단계(모델 요청, task 상태
+바꾸기, 결과 저장, 푸시)는 기록된 결과로 건너뛴다. 도구 실행은 DBOS 단계가 아니라서 `StepTracking`이 steps 테이블로 직접 막는다.
+
+| 죽은 시점 | 복구 때 | 왜 |
+| --- | --- | --- |
+| 도구 실행 전(모델 응답만 받음) | 모델 응답은 재생, 도구는 처음 실행 | 실행된 적이 없다 |
+| 도구가 끝나고 step이 done/failed로 기록된 뒤 | 도구를 실행하지 않고 기록된 결과를 모델에게 준다 | 같은 일을 두 번 하지 않는다 |
+| **EXTERNAL 도구 실행 도중**(assert_approved 통과로 step running) | **다시 실행하지 않는다.** step failed, "실행 여부를 확인할 수 없음"을 모델과 화면에 | 일정이 두 번 생기는 것보다 "확인 필요"가 낫다 |
+| INTERNAL 도구 실행 도중(step running) | EXTERNAL과 같다(할 일이 두 번 들어가지 않는다) | 커밋 뒤 기록 전에 죽었을 수 있다 |
+| READ 도구 실행 도중 | 다시 실행한다 | 조회는 몇 번 해도 흔적이 없다 |
+| 결과 저장(finish) 단계 커밋 뒤 | task가 이미 running이 아니면 저장하지 않는다 | 승인 요청·답변·사용량이 두 번 생기지 않는다 |
+
+- 실제 강제 종료(taskkill /F)로 두 경우를 확인했다: 모델 응답 대기 중 → 재시작 후 이어서 완료(할 일 1개),
+  INTERNAL 도구 커밋 직후 → 재시작 후 다시 넣지 않고 step failed(`docs/DURABILITY-CHECK.md`).
+- 테스트: `tests/test_workflows.py`의 `test_interrupted_external_call_is_not_executed_again`(외부 도구 0회),
+  `test_interrupted_internal_call_is_not_executed_again`, `test_recorded_internal_call_is_replayed_not_executed`,
+  `test_replayed_workflow_does_not_repeat_tools_or_results`(DBOS fork로 실제 재실행).
+- 이중 방어는 그대로다. 재생은 "끝난 호출의 결과를 돌려주는 것"이지 승인을 건너뛰는 길이 아니다: 아직 실행 안 된 EXTERNAL 호출은
+  여전히 `assert_approved`를 지나야 하고, running·done·rejected step은 `assert_approved`가 막는다.
+- 같은 task가 두 번 실행되지 않는 장치는 세 겹이다: 워크플로 ID("task-{id}", "task-{id}-resume-{n}") → claim 단계의 행 잠금
+  (queued/waiting_approval일 때만 running) → finish 단계의 행 잠금(running일 때만 저장).
+
+### 푸시 본문 규칙
+
+- 본문은 kind별 고정 문구 5개뿐이다(`app/push.py`의 `PUSH_BODIES`). 메시지 내용, 도구 입력·결과, 일정 제목, 메일 내용, 답변,
+  개인정보는 넣지 않는다. `notify(user_id, kind, url)`가 받는 문자열은 화면 경로 url 하나뿐이다(`/chat/{대화 id}`).
+- 테스트 12(`test_push_body_never_contains_message_content`): 비밀 문장을 보낸 task의 승인 필요·완료·실패 푸시 본문 모두
+  `{title, body, url, kind}`만 있고 body가 고정 문구와 같으며, 요청 문장·도구 이름·입력·답변이 없다.
+- `VAPID_SUBJECT`(또는 키)가 비어 있으면 아무것도 보내지 않는다. 발송 실패는 작업을 실패시키지 않는다. 404·410 구독은 지운다.
+- 로그에는 구독 id와 오류 종류만 남긴다. endpoint(기기 토큰이 든 URL)와 키, VAPID 개인 키는 남기지 않는다. VAPID 개인 키는 `SecretStr`.
+- 구독 endpoint는 브라우저 푸시 서비스의 https 주소만 받는다(서버가 내부망 주소로 요청을 보내게 만드는 SSRF 방지).
+- 구독·해지 API는 로그인과 Origin 검사를 거치고, 해지는 자기 endpoint만 지운다.
+
 ## 알려진 한계
 
 - 서명 쿠키 세션은 개별 세션을 서버에서 끊을 수 없다. 쿠키를 도난당하면 14일 동안 유효하다. 대응은 `SESSION_SECRET` 교체(전체 로그아웃).
@@ -120,7 +159,10 @@ EXTERNAL 도구는 서로 독립된 두 장치를 모두 통과해야 실행된�
 - 로그인 시도 횟수 제한은 아직 없다.
 - 전송 제한은 프로세스 메모리에 있다. 서버를 재시작하면 초기화되고, 프로세스를 늘리면 프로세스마다 따로 센다.
 - 가격표(`MODEL_PRICES`)에 없는 모델은 비용 0으로 기록되어 하루 비용 상한에 잡히지 않는다(경고 로그는 남긴다). 모델을 바꾸면 가격표도 함께 고친다.
-- 1단계에서는 메시지 전송 API가 run이 끝날 때까지 응답을 기다린다. 오래 걸리는 작업은 브라우저 요청이 길어진다(3단계에서 바뀐다).
-  2단계의 승인 API도 마지막 결정이면 재개한 run이 끝날 때까지 기다린다.
-- 승인 뒤 재개 직전에 하루 비용 상한에 걸리면 task는 budget_exceeded로 끝나고 승인된 호출은 실행되지 않는다(step은 waiting_approval로 남는다).
-- 서버가 재개 run 도중 죽으면 task가 running으로 남는다. 내구성 실행은 3단계 몫이다.
+- at-most-once의 대가: 도구 실행 도중 서버가 죽으면 그 행동은 "실행됐는지 모름"으로 남는다. 사용자가 직접 확인해야 한다
+  (모델에게도 다시 하지 말고 확인을 요청하라고 알린다).
+- DBOS의 `dbos` 스키마에는 워크플로 입력(요청 문장)과 단계 결과(모델 응답, 이전 대화 기록)가 pickle로 저장되고 자동으로 지워지지 않는다.
+  앱 테이블과 같은 DB라 접근 범위는 같지만, 대화를 지워도 여기에는 남는다. 오래된 워크플로 정리는 운영(9단계) 때 정한다.
+- DBOS 복구는 같은 executor("local")·같은 application_version(`WORKFLOW_VERSION`)의 워크플로만 한다. 프로세스를 둘 이상 띄우면
+  서로의 작업을 복구할 수 있으므로 API 서버는 하나만 띄운다(명세: 별도 워커 없음).
+- 앱 테이블을 초기화할 때 `dbos` 스키마를 남기면 새 task가 옛 워크플로 ID와 겹쳐 실행되지 않는다(ARCHITECTURE.md의 정리 방법).
