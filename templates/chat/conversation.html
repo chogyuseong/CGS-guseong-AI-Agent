@@ -19,6 +19,21 @@
       {% with parts=message.content|split_suggestions %}
       <div class="mb-5 border-l-2 border-ink/25 pl-3.5">
         <p class="whitespace-pre-wrap break-words">{{ parts.0|light_markdown }}</p>
+        {% for draft in message.task|drafts %}
+          {# 초안은 결재 전 기안서: 아직 보내지 않았다는 뜻으로 점선 테두리. 보내기 버튼은 없고 복사만 #}
+          <figure class="mt-3 rounded-lg border border-dashed border-ink/40 bg-sheet">
+            <figcaption class="flex items-center justify-between gap-2 border-b border-dashed border-ink/25 py-1 pl-3.5 pr-1">
+              <span class="font-display text-sm font-bold">{{ draft.recipient_label }}에게 보낼 초안</span>
+              <button type="button" onclick="copyDraft(this)"
+                      class="flex min-h-11 items-center gap-1.5 rounded-md px-3 text-sm font-semibold text-indigo">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+                <span>복사</span>
+              </button>
+            </figcaption>
+            <p class="draft-text whitespace-pre-wrap break-words px-3.5 py-3">{{ draft.draft }}</p>
+            <p class="px-3.5 pb-3 text-xs text-muted">앱은 보내지 않습니다. 복사해서 직접 보내세요.</p>
+          </figure>
+        {% endfor %}
         {% if parts.1 %}
           {# [제안] 줄은 버튼이 된다. 누르면 그 문장이 일반 채팅 요청이 되어 승인 절차를 그대로 탄다 #}
           <div class="mt-3 flex flex-col items-start gap-2" aria-label="제안">
@@ -63,6 +78,11 @@
   <textarea id="message-input" name="content" rows="1" maxlength="2000" required
             placeholder="무엇을 할까요?"
             class="min-h-12 flex-1 resize-none rounded-xl border border-line bg-sheet px-3.5 py-3 placeholder:text-muted focus:border-indigo focus:outline-none"></textarea>
+  {# 음성 입력: 지원하는 브라우저에서만 보인다. 인식한 글자는 입력창에만 채우고, 보내기는 사용자가 누른다 #}
+  <button id="mic-button" type="button" hidden aria-pressed="false" aria-label="음성으로 입력"
+          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-line bg-sheet text-ink aria-pressed:border-indigo aria-pressed:bg-indigo aria-pressed:text-on-indigo">
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+  </button>
   <button type="submit"
           class="h-12 shrink-0 rounded-xl bg-indigo px-4 font-semibold text-on-indigo disabled:opacity-40">보내기</button>
 </form>
@@ -70,6 +90,58 @@
   // 새로고침 후 가장 아래(최신 메시지)가 보이게 한다.
   const list = document.getElementById("message-list");
   list.scrollTop = list.scrollHeight;
+
+  // 초안 복사: 보내기 기능은 없다. 사용자가 복사해 직접 보낸다.
+  async function copyDraft(button) {
+    const text = button.closest("figure").querySelector(".draft-text").textContent;
+    const label = button.querySelector("span");
+    try {
+      await navigator.clipboard.writeText(text);
+      label.textContent = "복사했습니다";
+    } catch {
+      label.textContent = "길게 눌러 복사하세요";
+    }
+    setTimeout(() => (label.textContent = "복사"), 2000);
+  }
+
+  // 음성 입력: 브라우저의 SpeechRecognition만 쓴다. 음성을 서버로 보내지 않고, 자동으로 전송하지 않는다.
+  (() => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const mic = document.getElementById("mic-button");
+    const input = document.getElementById("message-input");
+    if (!Recognition || !mic) return; // 지원하지 않는 브라우저에서는 버튼이 숨겨진 채로 둔다
+    mic.hidden = false;
+    let recognition = null;
+    const placeholder = input.placeholder;
+    const setListening = (on) => {
+      mic.setAttribute("aria-pressed", on ? "true" : "false");
+      mic.setAttribute("aria-label", on ? "음성 입력 멈추기" : "음성으로 입력");
+      input.placeholder = on ? "듣고 있어요. 말씀하세요" : placeholder;
+    };
+    mic.addEventListener("click", () => {
+      if (recognition) return recognition.stop();
+      recognition = new Recognition();
+      recognition.lang = "ko-KR";
+      recognition.interimResults = true;
+      const before = input.value ? input.value.trimEnd() + " " : "";
+      recognition.onresult = (event) => {
+        const heard = Array.from(event.results, (result) => result[0].transcript).join("");
+        input.value = before + heard; // 입력창에만 채운다
+      };
+      recognition.onerror = (event) => {
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          input.placeholder = "마이크 권한이 없어 음성 입력을 쓸 수 없습니다";
+        }
+      };
+      recognition.onend = () => {
+        recognition = null;
+        setListening(false);
+        input.focus();
+      };
+      setListening(true);
+      recognition.start();
+    });
+  })();
 
   // 승인·거절을 누르면 카드의 버튼을 모두 잠근다. 서버도 두 번째 요청을 막지만 화면에서도 한 번 더 막는다.
   function disableButtons(form) {

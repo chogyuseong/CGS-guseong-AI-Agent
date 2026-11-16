@@ -68,3 +68,12 @@ def pretty_json(value):
     if value is None:
         return "(없음)"
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+@register.filter
+def drafts(task):
+    """이 작업에서 draft_message로 만든 초안들. 화면이 복사 상자로 보여 준다."""
+    if task is None:
+        return []
+    steps = task.steps.filter(tool_name="draft_message", ok=True).order_by("order")
+    return [(step.output_json or {}).get("data") or {} for step in steps]
