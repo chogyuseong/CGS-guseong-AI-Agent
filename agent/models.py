@@ -81,7 +81,8 @@ class Step(TimeStampedModel):
     # LLM이 붙인 호출 id. tool_result를 돌려줄 때 짝을 맞추는 데 쓴다.
     tool_use_id = models.CharField(max_length=100, blank=True)
     # registry에서 복사해 저장한다. 나중에 등급이 바뀌어도 당시 기록은 남는다.
-    risk_level = models.CharField(max_length=20, choices=RiskLevel.choices)
+    # LLM이 등록되지 않은 도구를 부른 기록은 등급이 없으므로 비워 둔다.
+    risk_level = models.CharField(max_length=20, choices=RiskLevel.choices, blank=True)
     input_json = models.JSONField(default=dict)
     output_json = models.JSONField(null=True, blank=True)
     ok = models.BooleanField(null=True)

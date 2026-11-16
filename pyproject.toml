@@ -18,3 +18,7 @@ extend-exclude = ["*/migrations/*", ".venv"]
 [tool.ruff.lint]
 # E/F: 기본 오류, I: import 정렬, B: 흔한 버그 패턴, UP: 최신 문법, DJ: Django 규칙
 select = ["E", "F", "I", "B", "UP", "DJ"]
+
+[tool.ruff.lint.per-file-ignores]
+# 시스템 프롬프트는 문장 단위로 한 줄씩 둔다. 줄을 나누면 프롬프트 내용이 바뀐다.
+"agent/prompts.py" = ["E501"]
