@@ -154,9 +154,20 @@ TASK_MAX_TOKENS = int(env_str("TASK_MAX_TOKENS", "60000"))
 # 모델별 가격(100만 토큰당 달러). Anthropic 공식 가격표 기준, 2026-11-16 확인.
 # 가격이 None인 모델은 실제 호출이 막힌다(agent/llm.py). 모델을 바꾸면 가격도 함께 넣는다.
 # Haiku 5.5는 프롬프트 10만 토큰까지의 가격이다. 이 앱은 Task당 6만 토큰 상한이라 넘지 않는다.
+# 캐시 가격: 쓰기(5분 유지)는 입력의 1.25배, 읽기는 Haiku 0.1배, Sonnet 5.5 0.05배.
 MODEL_PRICES = {
-    "claude-haiku-5-5": {"input": Decimal("0.10"), "output": Decimal("0.50")},
-    "claude-sonnet-5-5": {"input": Decimal("2.00"), "output": Decimal("10.00")},
+    "claude-haiku-5-5": {
+        "input": Decimal("0.10"),
+        "output": Decimal("0.50"),
+        "cache_write": Decimal("0.125"),
+        "cache_read": Decimal("0.01"),
+    },
+    "claude-sonnet-5-5": {
+        "input": Decimal("2.00"),
+        "output": Decimal("10.00"),
+        "cache_write": Decimal("2.50"),
+        "cache_read": Decimal("0.10"),
+    },
 }
 
 # ── 외부 API 키 (해당 도구를 만드는 단계에서 발급) ─────

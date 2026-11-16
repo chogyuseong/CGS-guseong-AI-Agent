@@ -30,8 +30,10 @@ class LLMResponse:
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     stop_reason: str = "end_turn"
-    input_tokens: int = 0
+    input_tokens: int = 0  # 캐시를 거치지 않은 입력
     output_tokens: int = 0
+    cache_write_tokens: int = 0  # 이번에 캐시에 새로 쓴 입력(기본 입력보다 약 1.25배 비싸다)
+    cache_read_tokens: int = 0  # 캐시에서 읽은 입력(기본 입력보다 훨씬 싸다)
 
 
 class LLMError(Exception):
@@ -92,7 +94,13 @@ class AnthropicClient(LLMClient):
 
     def complete(self, system, messages, tools, model):
         _require_known_price(model)
-        request = {"model": model, "max_tokens": MAX_OUTPUT_TOKENS, "system": system, "messages": messages}
+        cached_system, cached_messages = with_cache_breakpoints(system, messages)
+        request = {
+            "model": model,
+            "max_tokens": MAX_OUTPUT_TOKENS,
+            "system": cached_system,
+            "messages": cached_messages,
+        }
         if tools:
             request["tools"] = tools
         try:
@@ -102,10 +110,32 @@ class AnthropicClient(LLMClient):
         return _to_llm_response(response)
 
 
+CACHE_MARKER = {"type": "ephemeral"}  # 기본 5분 유지. 같은 Task 안의 연속 호출과 가까운 요청이 다시 읽는다
+PRICE_KEYS = ("input", "output", "cache_write", "cache_read")
+
+
+def with_cache_breakpoints(system, messages):
+    """프롬프트 캐시 표시를 두 군데에 붙인다. 원본은 바꾸지 않고 복사본을 돌려준다.
+
+    1) 시스템 블록 끝: API는 도구 목록 -> 시스템 -> 메시지 순으로 읽으므로, 여기 표시 하나로
+       도구 설명과 시스템 프롬프트가 함께 캐시된다. 같은 날의 모든 Task가 이 부분을 공유한다.
+    2) 마지막 메시지의 마지막 블록: 에이전트는 한 Task 안에서 대화를 조금씩 늘려 가며 다시 보낸다.
+       다음 호출은 지금까지의 대화를 캐시에서 싸게 읽고, 새로 붙은 Step만 정가로 읽는다.
+    """
+    cached_system = [{"type": "text", "text": system, "cache_control": CACHE_MARKER}]
+    cached_messages = copy.deepcopy(messages)
+    if cached_messages:
+        last = cached_messages[-1]
+        if isinstance(last["content"], str):
+            last["content"] = [{"type": "text", "text": last["content"]}]
+        last["content"][-1]["cache_control"] = CACHE_MARKER
+    return cached_system, cached_messages
+
+
 def _require_known_price(model):
     """가격을 모르면 하루 비용 상한을 지킬 수 없다. 그 상태로 돈이 나가는 호출은 하지 않는다."""
     price = settings.MODEL_PRICES.get(model) or {}
-    if price.get("input") is None or price.get("output") is None:
+    if any(price.get(key) is None for key in PRICE_KEYS):
         raise LLMNotConfigured(
             f"settings.MODEL_PRICES에 {model} 가격이 비어 있어 비용 상한을 지킬 수 없습니다. "
             "가격을 채워 주세요."
@@ -120,12 +150,16 @@ def _to_llm_response(response):
         for block in response.content
         if block.type == "tool_use"
     ]
+    usage = response.usage
     return LLMResponse(
         text=text,
         tool_calls=tool_calls,
         stop_reason=response.stop_reason,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        # 캐시 토큰은 input_tokens와 따로 온다. 빼먹으면 비용이 실제보다 적게 계산된다.
+        cache_write_tokens=usage.cache_creation_input_tokens or 0,
+        cache_read_tokens=usage.cache_read_input_tokens or 0,
     )
 
 

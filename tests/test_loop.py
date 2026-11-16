@@ -200,6 +200,35 @@ def test_usage_is_logged_for_every_llm_call(chat_task, settings):
     assert chat_task.total_tokens == 240
 
 
+def test_cache_tokens_are_logged_and_charged(chat_task, settings):
+    from agent.models import UsageLog
+
+    settings.MODEL_PRICES = {
+        settings.AGENT_MODEL_FAST: {
+            "input": Decimal("1"),
+            "output": Decimal("10"),
+            "cache_write": Decimal("1.25"),
+            "cache_read": Decimal("0.1"),
+        }
+    }
+    cached = LLMResponse(
+        text="네",
+        stop_reason="end_turn",
+        input_tokens=100,
+        output_tokens=20,
+        cache_write_tokens=1000,
+        cache_read_tokens=2000,
+    )
+    run(chat_task, [cached])
+
+    log = UsageLog.objects.get(task=chat_task)
+    assert (log.cache_write_tokens, log.cache_read_tokens) == (1000, 2000)
+    # 100x1 + 20x10 + 1000x1.25 + 2000x0.1 = 1750 → $0.00175
+    assert log.cost_usd == Decimal("0.001750")
+    # 캐시로 읽은 토큰도 모델이 실제로 읽은 맥락이므로 Task 토큰 상한에 포함한다
+    assert chat_task.total_tokens == 100 + 20 + 1000 + 2000
+
+
 def test_switches_to_smart_model_after_four_steps(chat_task, settings):
     responses = [call("add_todo", {"title": f"할 일 {i}"}, call_id=f"toolu_{i}") for i in range(5)]
     llm = run(chat_task, responses + [answer()])

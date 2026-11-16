@@ -18,13 +18,17 @@ MILLION = Decimal(1_000_000)
 COST_PLACES = Decimal("0.000001")  # UsageLog.cost_usd의 소수 6자리에 맞춘다
 
 
-def cost_for(model, input_tokens, output_tokens):
-    """토큰 수를 달러로 바꾼다. 가격을 모르면 0으로 계산한다(실제 호출은 llm.py가 막는다)."""
+def cost_for(model, input_tokens, output_tokens, cache_write_tokens=0, cache_read_tokens=0):
+    """토큰 수를 달러로 바꾼다. 가격을 모르는 항목은 0으로 계산한다(실제 호출은 llm.py가 막는다)."""
     price = settings.MODEL_PRICES.get(model) or {}
-    if price.get("input") is None or price.get("output") is None:
-        return Decimal("0")
-    total = Decimal(input_tokens) * Decimal(str(price["input"])) + Decimal(output_tokens) * Decimal(
-        str(price["output"])
+    parts = [
+        (input_tokens, price.get("input")),
+        (output_tokens, price.get("output")),
+        (cache_write_tokens, price.get("cache_write")),
+        (cache_read_tokens, price.get("cache_read")),
+    ]
+    total = sum(
+        (Decimal(tokens) * Decimal(str(unit)) for tokens, unit in parts if unit is not None), Decimal(0)
     )
     return (total / MILLION).quantize(COST_PLACES)
 

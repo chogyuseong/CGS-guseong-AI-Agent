@@ -153,8 +153,11 @@ class UsageLog(TimeStampedModel):
     )
     purpose = models.CharField(max_length=20, choices=Purpose.choices)
     model = models.CharField(max_length=100)
-    input_tokens = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)  # 캐시를 거치지 않은 입력
     output_tokens = models.PositiveIntegerField(default=0)
+    # 명세에는 없지만 프롬프트 캐싱을 쓰면 API가 캐시 토큰을 따로 보고한다. 비용 추적을 위해 함께 남긴다.
+    cache_write_tokens = models.PositiveIntegerField(default=0)
+    cache_read_tokens = models.PositiveIntegerField(default=0)
     cost_usd = models.DecimalField(max_digits=10, decimal_places=6, default=0)
 
     class Meta:
