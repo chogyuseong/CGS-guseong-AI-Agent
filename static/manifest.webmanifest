@@ -1,0 +1,15 @@
+{
+  "name": "마이에이전트",
+  "short_name": "마이에이전트",
+  "description": "공식 API 도구로 일을 대신 처리하는 개인 AI 비서",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

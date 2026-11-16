@@ -1,0 +1,29 @@
+{% extends "app_shell.html" %}
+{% block title %}{{ conversation }} · 마이에이전트{% endblock %}
+{% block header %}{{ conversation }}{% endblock %}
+{% block content %}
+{# 메시지 목록: 남은 높이를 모두 쓰고 그 안에서만 스크롤한다 #}
+<section class="min-h-0 flex-1 overflow-y-auto px-4 py-3" aria-label="메시지 목록">
+  {% for message in messages_list %}
+    <div class="mb-3 flex {% if message.role == 'user' %}justify-end{% endif %}">
+      <p class="max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2
+                {% if message.role == 'user' %}bg-blue-600 text-white{% else %}bg-neutral-100 dark:bg-neutral-800{% endif %}">{{ message.content }}</p>
+    </div>
+  {% empty %}
+    <p class="mt-10 text-center text-neutral-500">무엇을 도와드릴까요?</p>
+  {% endfor %}
+  {# 진행 중인 Task의 단계 타임라인이 들어올 자리(1단계, 3단계) #}
+  <div id="task-timeline"></div>
+</section>
+
+{# 입력창: 화면 아래에 붙어 있고, 키보드가 올라오면 dvh 덕분에 함께 올라온다 #}
+<form class="flex shrink-0 items-end gap-2 border-t border-neutral-200 p-2 dark:border-neutral-800"
+      onsubmit="return false;" aria-label="메시지 입력">
+  <label for="message-input" class="sr-only">메시지</label>
+  <textarea id="message-input" name="content" rows="1" disabled
+            placeholder="1단계에서 연결됩니다"
+            class="min-h-11 flex-1 resize-none rounded-xl border border-neutral-300 bg-transparent px-3 py-2.5 dark:border-neutral-700"></textarea>
+  <button type="submit" disabled
+          class="h-11 shrink-0 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">전송</button>
+</form>
+{% endblock %}

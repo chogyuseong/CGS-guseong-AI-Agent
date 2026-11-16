@@ -1,0 +1,24 @@
+/*
+  Tailwind 입력 파일. 빌드 결과는 static/css/app.css 로 나온다.
+  빌드: bin/tailwindcss.exe -i static/src/input.css -o static/css/app.css --minify
+  다크 모드는 Tailwind 기본값(prefers-color-scheme)을 그대로 쓴다.
+*/
+@import "tailwindcss";
+
+/* 템플릿에서 쓰는 클래스를 찾을 위치 */
+@source "../../templates";
+@source "../../**/templates";
+
+@layer base {
+  /* 아이폰은 16px보다 작은 입력창에 포커스하면 화면을 확대한다. 최소 16px로 막는다. */
+  html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 1rem;
+  }
+}

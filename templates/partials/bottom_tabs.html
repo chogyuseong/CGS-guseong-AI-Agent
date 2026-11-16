@@ -1,0 +1,13 @@
+{# 하단 탭 5개. 터치 대상은 최소 44px(h-14 = 56px). 현재 탭은 aria-current로 표시한다. #}
+<nav class="shrink-0 border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-neutral-800 dark:bg-neutral-950"
+     aria-label="주요 메뉴">
+  <ul class="grid grid-cols-5">
+    {% with base="flex h-14 flex-col items-center justify-center gap-0.5 text-xs" on="text-blue-600 font-semibold dark:text-blue-400" off="text-neutral-500" %}
+    <li><a href="{% url 'chat:home' %}" class="{{ base }} {% if active_tab == 'chat' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'chat' %}aria-current="page"{% endif %}><span aria-hidden="true">💬</span>채팅</a></li>
+    <li><a href="{% url 'agent:task_list' %}" class="{{ base }} {% if active_tab == 'tasks' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'tasks' %}aria-current="page"{% endif %}><span aria-hidden="true">📋</span>작업 기록</a></li>
+    <li><a href="{% url 'automation:schedule_list' %}" class="{{ base }} {% if active_tab == 'automation' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'automation' %}aria-current="page"{% endif %}><span aria-hidden="true">⏰</span>자동화</a></li>
+    <li><a href="{% url 'memory:list' %}" class="{{ base }} {% if active_tab == 'memory' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'memory' %}aria-current="page"{% endif %}><span aria-hidden="true">🧠</span>기억</a></li>
+    <li><a href="{% url 'settings_page:settings' %}" class="{{ base }} {% if active_tab == 'settings' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'settings' %}aria-current="page"{% endif %}><span aria-hidden="true">⚙️</span>설정</a></li>
+    {% endwith %}
+  </ul>
+</nav>
