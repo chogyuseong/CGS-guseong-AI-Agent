@@ -147,11 +147,51 @@ export interface paths {
         };
         /**
          * Get Task
-         * @description 작업 상태와 단계(steps). 승인 대기 목록(approvals)은 2단계부터 채워진다.
+         * @description 작업 상태와 단계(steps), 승인 카드(approvals: 모든 상태, step 순서).
          */
         get: operations["get_task_api_tasks__task_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/approvals/{approval_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Action
+         * @description 승인. 감시 판정이 mismatch면 body에 confirm_mismatch=true가 있어야 한다.
+         */
+        post: operations["approve_action_api_approvals__approval_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/approvals/{approval_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject Action
+         * @description 거절. 모델은 '사용자가 거절함'을 도구 결과로 받고 다른 방법을 찾는다.
+         */
+        post: operations["reject_action_api_approvals__approval_id__reject_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -163,14 +203,30 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ApprovalDecisionOut
+         * @description 승인·거절 결과. 이미 결정된 승인에 다시 요청하면 changed=false와 현재 상태를 돌려준다.
+         */
+        ApprovalDecisionOut: {
+            approval: components["schemas"]["ApprovalOut"];
+            /** Changed */
+            changed: boolean;
+            task_status: components["schemas"]["TaskStatus"];
+        };
+        /**
          * ApprovalOut
-         * @description 승인 대기 카드(2단계에서 채운다). 1단계에서는 항상 빈 배열이다.
+         * @description 승인 카드 하나. EXTERNAL 도구 호출 한 번에 하나.
          */
         ApprovalOut: {
             /** Id */
             id: number;
             /** Step Id */
             step_id: number;
+            /** Tool Name */
+            tool_name: string;
+            /** Tool Input */
+            tool_input: {
+                [key: string]: unknown;
+            };
             status: components["schemas"]["ApprovalStatus"];
             /** Summary */
             summary: string;
@@ -179,12 +235,28 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            guard: components["schemas"]["GuardOut"] | null;
+            /** Needs Mismatch Confirmation */
+            needs_mismatch_confirmation: boolean;
         };
         /**
          * ApprovalStatus
          * @enum {string}
          */
         ApprovalStatus: "pending" | "approved" | "rejected" | "expired";
+        /**
+         * ApproveRequest
+         * @description 승인 요청 본문(생략 가능).
+         */
+        ApproveRequest: {
+            /**
+             * Confirm Mismatch
+             * @default false
+             */
+            confirm_mismatch: boolean;
+        };
         /** ConversationCreate */
         ConversationCreate: {
             /** Title */
@@ -206,6 +278,15 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * GuardOut
+         * @description 감시 에이전트의 판정. 승인 카드의 배지(match=초록, mismatch=빨강+reason, unsure=회색).
+         */
+        GuardOut: {
+            verdict: components["schemas"]["VerdictKind"];
+            /** Reason */
+            reason: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -281,7 +362,7 @@ export interface components {
          * StepStatus
          * @enum {string}
          */
-        StepStatus: "running" | "waiting_approval" | "done" | "failed" | "rejected";
+        StepStatus: "running" | "waiting_approval" | "done" | "failed" | "rejected" | "expired";
         /**
          * TaskCreated
          * @description 메시지 전송 응답(202). 화면은 이 task_id로 GET /api/tasks/{id}를 조회한다.
@@ -381,6 +462,11 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * VerdictKind
+         * @enum {string}
+         */
+        VerdictKind: "match" | "mismatch" | "unsure";
     };
     responses: never;
     parameters: never;
@@ -659,6 +745,114 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TaskDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_action_api_approvals__approval_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApproveRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalDecisionOut"];
+                };
+            };
+            /** @description 없는 승인이거나 다른 사용자의 승인 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description detail.code가 mismatch_confirmation_required(감시 판정 mismatch인데 confirm_mismatch 없음) 또는 task_not_waiting(작업이 승인 대기 상태가 아님) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description detail.code가 approval_expired. 만료되어 작업이 취소되었다 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_action_api_approvals__approval_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalDecisionOut"];
+                };
+            };
+            /** @description 없는 승인이거나 다른 사용자의 승인 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description detail.code가 mismatch_confirmation_required(감시 판정 mismatch인데 confirm_mismatch 없음) 또는 task_not_waiting(작업이 승인 대기 상태가 아님) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description detail.code가 approval_expired. 만료되어 작업이 취소되었다 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

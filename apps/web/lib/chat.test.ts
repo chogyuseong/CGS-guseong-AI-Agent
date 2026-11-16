@@ -14,10 +14,16 @@ describe("task 다시 가져오기 판단", () => {
     }
   });
 
-  it("끝나지 않았으면 1초마다, 끝났거나 아직 모르면 다시 가져오지 않는다", () => {
+  it("진행 중이면 1초마다, 끝났거나 아직 모르면 다시 가져오지 않는다", () => {
+    expect(taskRefetchInterval("queued")).toBe(1000);
     expect(taskRefetchInterval("running")).toBe(1000);
     expect(taskRefetchInterval("done")).toBe(false);
+    expect(taskRefetchInterval("cancelled")).toBe(false);
     expect(taskRefetchInterval(undefined)).toBe(false);
+  });
+
+  it("승인 대기 중이면 3초마다 다시 가져온다(다른 기기에서 결정해도 반영되도록 멈추지는 않는다)", () => {
+    expect(taskRefetchInterval("waiting_approval")).toBe(3000);
   });
 });
 

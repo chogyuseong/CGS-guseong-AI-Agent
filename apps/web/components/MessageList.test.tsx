@@ -7,6 +7,9 @@ import { MessageList } from "./MessageList";
 vi.mock("./TaskSteps", () => ({
   TaskSteps: ({ taskId }: { taskId: number }) => <div>task {taskId}의 단계</div>,
 }));
+vi.mock("./PendingTask", () => ({
+  PendingTask: ({ taskId }: { taskId: number }) => <div>task {taskId} 진행 상황</div>,
+}));
 
 const messages: Message[] = [
   {
@@ -49,6 +52,26 @@ describe("MessageList", () => {
     expect(items).toHaveLength(3);
     expect(items[2]).toHaveTextContent("내일 날씨 알려줘");
     expect(items[2]).toHaveTextContent("보내는 중");
+  });
+
+  it("답변이 아직 없는 내 메시지의 task는 답변 자리에 진행 상황(승인 카드 포함)을 붙인다", () => {
+    const waiting: Message[] = [
+      ...messages,
+      {
+        id: 3,
+        role: "user",
+        content: "내일 저녁 7시에 저녁 약속 잡아줘",
+        task_id: 11,
+        created_at: "2026-11-16T12:01:00Z",
+      },
+    ];
+    render(<MessageList messages={waiting} />);
+    const items = screen.getAllByRole("listitem");
+
+    expect(items).toHaveLength(4);
+    expect(items[3]).toHaveTextContent("마이에이전트");
+    expect(items[3]).toHaveTextContent("task 11 진행 상황");
+    expect(screen.queryByText("task 10 진행 상황")).not.toBeInTheDocument();
   });
 
   it("메시지가 없으면 시작 안내를 보여 준다", () => {

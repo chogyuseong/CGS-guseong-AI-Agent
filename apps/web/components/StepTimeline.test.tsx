@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Step } from "@/lib/chat";
 import { StepTimeline } from "./StepTimeline";
@@ -28,12 +28,28 @@ describe("StepTimeline", () => {
       makeStep({ id: 3, order: 3, status: "failed", label: "실패 단계" }),
       makeStep({ id: 4, order: 4, status: "waiting_approval", label: "승인 단계" }),
       makeStep({ id: 5, order: 5, status: "rejected", label: "거절 단계" }),
+      makeStep({ id: 6, order: 6, status: "expired", label: "만료 단계" }),
     ];
     render(<StepTimeline steps={steps} />);
 
-    for (const name of ["진행 중", "완료", "실패", "승인 대기", "거절됨"]) {
+    for (const name of ["진행 중", "완료", "실패", "승인 대기", "거절됨", "만료됨"]) {
       expect(screen.getByRole("img", { name })).toBeInTheDocument();
     }
+  });
+
+  it("승인 대기·거절·만료 단계는 줄 끝에 상태 글자도 보여 준다", () => {
+    render(
+      <StepTimeline
+        steps={[
+          makeStep({ id: 1, order: 1, status: "waiting_approval", label: "일정 만들기" }),
+          makeStep({ id: 2, order: 2, status: "expired", label: "일정 지우기" }),
+        ]}
+      />,
+    );
+    const waiting = screen.getByRole("button", { name: /일정 만들기/ });
+    const expired = screen.getByRole("button", { name: /일정 지우기/ });
+    expect(within(waiting).getByText("승인 대기")).toBeVisible();
+    expect(within(expired).getByText("만료됨")).toBeVisible();
   });
 
   it("단계를 누르면 입력과 출력을 펼치고, 다시 누르면 접는다", () => {

@@ -28,10 +28,12 @@ export function isTaskFinished(status: TaskStatus): boolean {
   return FINISHED_STATUSES.includes(status);
 }
 
-// 끝나지 않은 task는 1초마다 다시 가져온다. 3단계(즉시 응답 + 폴링)에 대비한 구조이고,
-// 지금(1단계)은 전송 응답이 올 때 task가 이미 끝나 있으므로 다시 가져오는 일이 생기지 않는다.
+// 끝나지 않은 task는 1초마다 다시 가져온다. 3단계(즉시 응답 + 폴링)에 대비한 구조다.
+// 승인 대기 중에는 사용자가 결정할 때까지 바뀌지 않으므로 3초로 늦춘다. 다른 기기에서 결정한 결과가
+// 이 화면에도 반영되어야 하므로 완전히 멈추지는 않는다.
 export function taskRefetchInterval(status: TaskStatus | undefined): number | false {
   if (status === undefined || isTaskFinished(status)) return false;
+  if (status === "waiting_approval") return 3000;
   return 1000;
 }
 

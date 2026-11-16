@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { Message } from "@/lib/chat";
 import { cn } from "@/lib/utils";
+import { PendingTask } from "./PendingTask";
 import { TaskSteps } from "./TaskSteps";
 
 type MessageListProps = {
@@ -24,11 +25,20 @@ export function MessageList({ messages, pendingText }: MessageListProps) {
   if (messages.length === 0 && !pendingText) {
     return <p className="m-auto text-sm text-muted-foreground">대화를 시작해 보세요.</p>;
   }
+  // 답변이 이미 있는 task. 답변이 없는 내 메시지의 task는 답변 자리에 진행 상황(승인 카드 포함)을 그린다.
+  const answeredTaskIds = new Set(
+    messages.filter((message) => message.role === "assistant").map((message) => message.task_id),
+  );
   return (
     <div>
       <ul aria-label="메시지 목록" className="flex flex-col gap-3">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <Fragment key={message.id}>
+            <MessageBubble message={message} />
+            {message.role === "user" &&
+              message.task_id !== null &&
+              !answeredTaskIds.has(message.task_id) && <PendingTaskItem taskId={message.task_id} />}
+          </Fragment>
         ))}
         {pendingText && <PendingBubble text={pendingText} />}
       </ul>
@@ -50,6 +60,18 @@ function MessageBubble({ message }: { message: Message }) {
       >
         {message.content}
         {!isUser && message.task_id !== null && <TaskSteps taskId={message.task_id} />}
+      </div>
+    </li>
+  );
+}
+
+// 답변 자리. 승인 카드가 360px 폭에서도 넉넉하도록 말풍선(85%)보다 넓게 쓴다.
+function PendingTaskItem({ taskId }: { taskId: number }) {
+  return (
+    <li className="flex flex-col items-start gap-1">
+      <span className="text-xs text-muted-foreground">마이에이전트</span>
+      <div className="flex w-full flex-col gap-1 rounded-2xl bg-muted px-3 py-2">
+        <PendingTask taskId={taskId} />
       </div>
     </li>
   );

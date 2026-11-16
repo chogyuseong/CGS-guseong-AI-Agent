@@ -1,0 +1,271 @@
+"use client";
+
+import { LoaderCircle, ShieldCheck, ShieldQuestionMark, ShieldX } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  type Approval,
+  ApprovalActionError,
+  type ApprovalStatus,
+  type Decision,
+  formatExpiryTime,
+  formatRemaining,
+  MISMATCH_CODE,
+} from "@/lib/approvals";
+
+type ApprovalCardProps = {
+  approval: Approval;
+  // 서버에 결정을 보내고 결정 뒤 승인 상태를 돌려준다. 실패하면 ApprovalActionError를 던진다.
+  onDecide: (decision: Decision) => Promise<ApprovalStatus>;
+};
+
+const DECIDED_LABELS: Record<Exclude<ApprovalStatus, "pending">, string> = {
+  approved: "승인함",
+  rejected: "거절함",
+  expired: "만료됨",
+};
+
+// 승인 카드 하나. 외부에 흔적을 남기는 도구 호출 한 건을 실행 전에 보여 주고 사용자가 승인·거절한다.
+// 여러 건이면 카드도 여러 장이고 건마다 따로 결정한다("모두 승인"은 두지 않는다: 명세의 절대 원칙).
+export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
+  const flow = useDecisionFlow(onDecide);
+  // 서버 데이터가 아직 pending이어도 방금 받은 결정 결과가 있으면 그것을 먼저 보여 준다.
+  const status = approval.status === "pending" ? (flow.decided ?? "pending") : approval.status;
+  return (
+    <article
+      aria-label="승인 요청"
+      className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground shadow-sm"
+    >
+      <CardHeader status={status} />
+      <p className="break-words text-base">{approval.summary}</p>
+      <GuardVerdictView guard={approval.guard} />
+      <ToolInputDetails toolName={approval.tool_name} input={approval.tool_input} />
+      {status === "pending" && <ExpiryLine expiresAt={approval.expires_at} />}
+      {status === "pending" && <DecisionArea approval={approval} flow={flow} />}
+      {flow.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {flow.error}
+        </p>
+      )}
+    </article>
+  );
+}
+
+type DecisionFlow = ReturnType<typeof useDecisionFlow>;
+
+// 버튼을 누른 순간부터 응답이 올 때까지 잠근다. 상태(state)는 다음 그리기에서야 바뀌므로,
+// 같은 순간에 두 번 눌리는 경우를 ref(즉시 바뀌는 값)로 한 번 더 막는다.
+function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
+  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [decided, setDecided] = useState<ApprovalStatus | null>(null);
+  const locked = useRef(false);
+
+  async function submit(decision: Decision) {
+    if (locked.current) return;
+    locked.current = true;
+    setBusy(decision.approve ? "approve" : "reject");
+    setError(null);
+    try {
+      const status = await onDecide(decision);
+      setDecided(status);
+      // 결정됐으면 카드에서 버튼이 사라지므로 잠금을 풀지 않는다.
+      if (status === "pending") unlock();
+    } catch (caught) {
+      unlock();
+      if (caught instanceof ApprovalActionError && caught.code === MISMATCH_CODE) {
+        setConfirming(true);
+        return;
+      }
+      setError(caught instanceof Error ? caught.message : "승인을 처리하지 못했습니다.");
+    }
+  }
+
+  function unlock() {
+    locked.current = false;
+    setBusy(null);
+  }
+
+  return { busy, confirming, setConfirming, error, decided, submit };
+}
+
+function DecisionArea({ approval, flow }: { approval: Approval; flow: DecisionFlow }) {
+  const disabled = flow.busy !== null;
+  const approve = () => {
+    // mismatch면 바로 보내지 않고 카드 안에서 한 번 더 묻는다.
+    if (approval.needs_mismatch_confirmation) flow.setConfirming(true);
+    else flow.submit({ approve: true, confirmMismatch: false });
+  };
+  const reject = () => flow.submit({ approve: false, confirmMismatch: false });
+  return (
+    <div className="flex flex-col gap-2">
+      {flow.confirming ? (
+        <MismatchConfirm flow={flow} disabled={disabled} />
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <ActionButton label="승인" onClick={approve} disabled={disabled} primary />
+          <ActionButton label="거절" onClick={reject} disabled={disabled} />
+        </div>
+      )}
+      {flow.busy && <BusyNotice action={flow.busy} />}
+    </div>
+  );
+}
+
+function MismatchConfirm({ flow, disabled }: { flow: DecisionFlow; disabled: boolean }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  // 폰에서는 이 확인 영역이 화면 아래로 가려질 수 있어 열릴 때 보이는 곳까지 스크롤한다.
+  // (jsdom 테스트에는 scrollIntoView가 없어서 ?.()로 부른다)
+  useEffect(() => {
+    boxRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
+  return (
+    <div
+      ref={boxRef}
+      className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-2"
+    >
+      <p className="text-sm font-medium text-destructive">
+        요청과 다를 수 있습니다. 그래도 진행할까요?
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <ActionButton
+          label="그래도 승인"
+          onClick={() => flow.submit({ approve: true, confirmMismatch: true })}
+          disabled={disabled}
+          primary
+        />
+        <ActionButton label="취소" onClick={() => flow.setConfirming(false)} disabled={disabled} />
+      </div>
+    </div>
+  );
+}
+
+type ActionButtonProps = {
+  label: string;
+  onClick: () => void;
+  disabled: boolean;
+  primary?: boolean;
+};
+
+// 손가락으로 누르기 쉽게 높이 48px, 칸 너비 전체(명세: 승인·거절 버튼 높이 48px, 폭 전체).
+function ActionButton({ label, onClick, disabled, primary = false }: ActionButtonProps) {
+  return (
+    <Button
+      type="button"
+      variant={primary ? "default" : "outline"}
+      onClick={onClick}
+      disabled={disabled}
+      className="h-12 w-full min-w-0 text-base"
+    >
+      {label}
+    </Button>
+  );
+}
+
+function BusyNotice({ action }: { action: "approve" | "reject" }) {
+  return (
+    <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+      <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin" />
+      {action === "approve" ? "승인 처리 중… 작업을 이어서 실행하고 있습니다." : "거절 처리 중…"}
+    </p>
+  );
+}
+
+function CardHeader({ status }: { status: ApprovalStatus }) {
+  if (status === "pending") {
+    return <p className="text-sm font-semibold">승인이 필요합니다</p>;
+  }
+  return (
+    <Badge variant={status === "approved" ? "default" : "secondary"} className="h-6 text-sm">
+      {DECIDED_LABELS[status]}
+    </Badge>
+  );
+}
+
+// 감시 에이전트 판정 배지: match=초록 '요청과 일치', mismatch=빨강 경고와 이유, unsure=회색 '확인 필요'.
+function GuardVerdictView({ guard }: { guard: Approval["guard"] }) {
+  if (guard === null) {
+    return <Badge variant="secondary">감시 결과 없음</Badge>;
+  }
+  const mismatch = guard.verdict === "mismatch";
+  return (
+    <div className="flex flex-col gap-1">
+      <GuardBadge verdict={guard.verdict} />
+      <p className={mismatch ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
+        {guard.reason}
+      </p>
+    </div>
+  );
+}
+
+function GuardBadge({ verdict }: { verdict: NonNullable<Approval["guard"]>["verdict"] }) {
+  if (verdict === "match") {
+    return (
+      <Badge className="bg-green-600/10 text-green-700 dark:text-green-400">
+        <ShieldCheck aria-hidden="true" />
+        요청과 일치
+      </Badge>
+    );
+  }
+  if (verdict === "mismatch") {
+    return (
+      <Badge variant="destructive">
+        <ShieldX aria-hidden="true" />
+        요청과 다를 수 있음
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary">
+      <ShieldQuestionMark aria-hidden="true" />
+      확인 필요
+    </Badge>
+  );
+}
+
+// 도구 입력값은 접어 둔다(명세: 입력값 접기). 펼치면 항목마다 한 줄.
+function ToolInputDetails({
+  toolName,
+  input,
+}: {
+  toolName: string;
+  input: Approval["tool_input"];
+}) {
+  return (
+    <details className="rounded-md border text-sm">
+      <summary className="flex min-h-11 cursor-pointer items-center px-3">입력값 보기</summary>
+      <dl className="flex flex-col gap-1 border-t px-3 py-2 text-xs">
+        <InputRow name="도구" value={toolName} />
+        {Object.entries(input).map(([key, value]) => (
+          <InputRow key={key} name={key} value={value} />
+        ))}
+      </dl>
+    </details>
+  );
+}
+
+function InputRow({ name, value }: { name: string; value: unknown }) {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return (
+    <div className="flex min-w-0 gap-2">
+      <dt className="shrink-0 font-medium">{name}</dt>
+      <dd className="min-w-0 break-all">{text}</dd>
+    </div>
+  );
+}
+
+// 만료 시각과 남은 시간. 30초마다 다시 계산한다.
+function ExpiryLine({ expiresAt }: { expiresAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <p className="text-xs text-muted-foreground">
+      {formatExpiryTime(expiresAt)}까지 결정해 주세요 · {formatRemaining(expiresAt, now)}
+    </p>
+  );
+}

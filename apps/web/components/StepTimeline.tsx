@@ -1,24 +1,40 @@
 "use client";
 
-import { Ban, CircleCheck, CircleX, Hourglass, LoaderCircle, type LucideIcon } from "lucide-react";
+import {
+  Ban,
+  CircleCheck,
+  CircleX,
+  Hourglass,
+  LoaderCircle,
+  type LucideIcon,
+  TimerOff,
+} from "lucide-react";
 import { useState } from "react";
 import type { Step } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
+type StatusView = { icon: LucideIcon; name: string; className: string; showName?: boolean };
+
 // 단계 상태별 아이콘과 이름. Record<K, V>는 "K의 모든 값을 키로 갖는 사전" 타입이다.
 // (Python의 dict[StepStatus, ...]인데, 상태 하나라도 빠지면 tsc가 오류를 낸다)
-const STATUS_ICONS: Record<Step["status"], { icon: LucideIcon; name: string; className: string }> =
-  {
-    running: {
-      icon: LoaderCircle,
-      name: "진행 중",
-      className: "animate-spin text-muted-foreground",
-    },
-    done: { icon: CircleCheck, name: "완료", className: "text-green-600" },
-    failed: { icon: CircleX, name: "실패", className: "text-destructive" },
-    waiting_approval: { icon: Hourglass, name: "승인 대기", className: "text-amber-600" },
-    rejected: { icon: Ban, name: "거절됨", className: "text-muted-foreground" },
-  };
+// 승인과 관련된 상태(승인 대기, 거절됨, 만료됨)는 아이콘만으로 구별하기 어려워 줄 끝에 글자도 붙인다(showName).
+const STATUS_ICONS: Record<Step["status"], StatusView> = {
+  running: {
+    icon: LoaderCircle,
+    name: "진행 중",
+    className: "animate-spin text-muted-foreground",
+  },
+  done: { icon: CircleCheck, name: "완료", className: "text-green-600" },
+  failed: { icon: CircleX, name: "실패", className: "text-destructive" },
+  waiting_approval: {
+    icon: Hourglass,
+    name: "승인 대기",
+    className: "text-amber-600",
+    showName: true,
+  },
+  rejected: { icon: Ban, name: "거절됨", className: "text-muted-foreground", showName: true },
+  expired: { icon: TimerOff, name: "만료됨", className: "text-muted-foreground", showName: true },
+};
 
 // 도구 호출 단계 목록. 각 줄을 누르면 입력과 출력을 펼친다.
 export function StepTimeline({ steps }: { steps: Step[] }) {
@@ -36,7 +52,7 @@ export function StepTimeline({ steps }: { steps: Step[] }) {
 
 function StepRow({ step }: { step: Step }) {
   const [open, setOpen] = useState(false);
-  const { icon: Icon, name, className } = STATUS_ICONS[step.status];
+  const { icon: Icon, name, className, showName } = STATUS_ICONS[step.status];
   return (
     <li className="rounded-md border bg-background text-sm">
       <button
@@ -46,7 +62,12 @@ function StepRow({ step }: { step: Step }) {
         className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
       >
         <Icon role="img" aria-label={name} className={cn("size-4 shrink-0", className)} />
-        <span className="flex-1">{step.label}</span>
+        <span className="min-w-0 flex-1 break-words">{step.label}</span>
+        {showName && (
+          <span aria-hidden="true" className={cn("shrink-0 text-xs", className)}>
+            {name}
+          </span>
+        )}
       </button>
       {open && <StepDetail step={step} />}
     </li>
