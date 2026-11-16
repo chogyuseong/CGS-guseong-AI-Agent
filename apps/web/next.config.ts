@@ -21,9 +21,12 @@ function getLanAddresses(): string[] {
 }
 
 const nextConfig: NextConfig = {
-  // create-next-app 16 기본값. 서버 화면을 캐시하는 새 렌더링 방식이다.
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Cache Components(서버 화면을 캐시하는 렌더링 방식)는 끈다(2026-11-16 결정).
+  // 이 앱은 로그인 뒤에만 쓰고 화면 데이터를 브라우저에서 TanStack Query로 가져오므로 얻는 것이 적고,
+  // 켜 두면 클라이언트 쿼리를 Suspense로 감싸야 하고 개발 서버에 instant navigation 검증 오류가 찍혔다.
+  // create-next-app 16은 둘 다 true로 만든다. 다음 메이저에서 항상 켜질 예정이라고 문서에 적혀 있다.
+  cacheComponents: false,
+  partialPrefetching: false,
   // 개발 서버의 교차 출처 허용(개발 모드 전용). 호스트 이름만 적는다(포트, http:// 없이).
   allowedDevOrigins: getLanAddresses(),
   // 개발 모드 표시(N 배지)의 기본 위치는 왼쪽 아래라 360px 화면에서 하단 탭을 가린다. 오른쪽 위로 옮긴다.

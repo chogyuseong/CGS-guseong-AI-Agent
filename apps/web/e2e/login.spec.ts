@@ -13,7 +13,8 @@ test("360px 폭에서 로그인하면 채팅 화면과 하단 탭 5개가 보인
   await page.getByLabel("비밀번호").fill(E2E_PASSWORD);
   await page.getByRole("button", { name: "로그인" }).click();
 
-  await expect(page).toHaveURL(/\/chat$/);
+  // /chat은 최근 대화(없으면 새 대화)인 /chat/<번호>로 이어진다.
+  await expect(page).toHaveURL(/\/chat\/\d+$/);
   await expect(page.getByLabel("메시지 입력")).toBeVisible();
 
   const nav = page.getByRole("navigation", { name: "하단 탭" });

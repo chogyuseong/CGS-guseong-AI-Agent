@@ -36,13 +36,7 @@ export function LoginForm() {
             autoComplete="current-password"
           />
           <LoginError message={loginMutation.error?.message} />
-          <Button
-            type="submit"
-            className="h-11 w-full text-base"
-            disabled={loginMutation.isPending}
-          >
-            {loginMutation.isPending ? "로그인 중…" : "로그인"}
-          </Button>
+          <LoginSubmit pending={loginMutation.isPending} />
         </form>
       </CardContent>
     </Card>
@@ -57,6 +51,15 @@ function useRedirectWhenLoggedIn() {
   useEffect(() => {
     if (user) router.replace("/chat");
   }, [user, router]);
+}
+
+// 로그인 버튼. 높이 44px(h-11), 요청 중에는 눌리지 않게 막는다.
+function LoginSubmit({ pending }: { pending: boolean }) {
+  return (
+    <Button type="submit" className="h-11 w-full text-base" disabled={pending}>
+      {pending ? "로그인 중…" : "로그인"}
+    </Button>
+  );
 }
 
 // message?: string — 물음표는 "없을 수도 있음"(Optional[str])이라는 뜻이다.

@@ -9,6 +9,8 @@ export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/global-setup.ts",
   fullyParallel: false,
+  // 모든 테스트가 같은 e2e 계정을 쓰므로 한 번에 하나씩 돌린다(첫 대화가 동시에 두 번 만들어지지 않게).
+  workers: 1,
   retries: 0,
   reporter: "list",
   use: {

@@ -85,7 +85,8 @@ export interface paths {
         /** List Conversations */
         get: operations["list_conversations_api_conversations_get"];
         put?: never;
-        post?: never;
+        /** Create Conversation */
+        post: operations["create_conversation_api_conversations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -102,6 +103,54 @@ export interface paths {
         /** List Messages */
         get: operations["list_messages_api_conversations__conversation_id__messages_get"];
         put?: never;
+        /**
+         * Send Message
+         * @description 메시지를 저장하고 task를 만들어 실행한다.
+         *
+         *     1단계: 에이전트 실행이 끝날 때까지 기다렸다가 202를 돌려준다.
+         *     3단계: 실행을 DBOS 워크플로에 맡기고 바로 202를 돌려준다(응답 모양은 같다).
+         *     화면은 응답의 task_id로 GET /api/tasks/{id}를, 대화 내용은 GET .../messages를 조회한다.
+         */
+        post: operations["send_message_api_conversations__conversation_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tasks
+         * @description 최근 작업 목록(최신순).
+         */
+        get: operations["list_tasks_api_tasks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Task
+         * @description 작업 상태와 단계(steps). 승인 대기 목록(approvals)은 2단계부터 채워진다.
+         */
+        get: operations["get_task_api_tasks__task_id__get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -113,6 +162,34 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ApprovalOut
+         * @description 승인 대기 카드(2단계에서 채운다). 1단계에서는 항상 빈 배열이다.
+         */
+        ApprovalOut: {
+            /** Id */
+            id: number;
+            /** Step Id */
+            step_id: number;
+            status: components["schemas"]["ApprovalStatus"];
+            /** Summary */
+            summary: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /**
+         * ApprovalStatus
+         * @enum {string}
+         */
+        ApprovalStatus: "pending" | "approved" | "rejected" | "expired";
+        /** ConversationCreate */
+        ConversationCreate: {
+            /** Title */
+            title?: string | null;
+        };
         /** ConversationOut */
         ConversationOut: {
             /** Id */
@@ -142,6 +219,11 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MessageCreate */
+        MessageCreate: {
+            /** Content */
+            content: string;
+        };
         /** MessageOut */
         MessageOut: {
             /** Id */
@@ -162,6 +244,123 @@ export interface components {
          * @enum {string}
          */
         MessageRole: "user" | "assistant";
+        /**
+         * RiskLevel
+         * @enum {string}
+         */
+        RiskLevel: "READ" | "INTERNAL" | "EXTERNAL";
+        /**
+         * StepOut
+         * @description 도구 호출 한 번. 타임라인 한 줄.
+         */
+        StepOut: {
+            /** Id */
+            id: number;
+            /** Order */
+            order: number;
+            /** Tool Name */
+            tool_name: string;
+            /** Label */
+            label: string;
+            risk_level: components["schemas"]["RiskLevel"];
+            status: components["schemas"]["StepStatus"];
+            /** Ok */
+            ok: boolean | null;
+            /** Input */
+            input: {
+                [key: string]: unknown;
+            };
+            /** Output */
+            output: {
+                [key: string]: unknown;
+            } | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+        };
+        /**
+         * StepStatus
+         * @enum {string}
+         */
+        StepStatus: "running" | "waiting_approval" | "done" | "failed" | "rejected";
+        /**
+         * TaskCreated
+         * @description 메시지 전송 응답(202). 화면은 이 task_id로 GET /api/tasks/{id}를 조회한다.
+         */
+        TaskCreated: {
+            /** Task Id */
+            task_id: number;
+        };
+        /** TaskDetail */
+        TaskDetail: {
+            /** Id */
+            id: number;
+            /** Conversation Id */
+            conversation_id: number;
+            origin: components["schemas"]["TaskOrigin"];
+            status: components["schemas"]["TaskStatus"];
+            /** Final Answer */
+            final_answer: string | null;
+            /** Error */
+            error: string | null;
+            /** Request Count */
+            request_count: number;
+            /** Total Tokens */
+            total_tokens: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Steps */
+            steps: components["schemas"]["StepOut"][];
+            /** Approvals */
+            approvals: components["schemas"]["ApprovalOut"][];
+        };
+        /**
+         * TaskOrigin
+         * @enum {string}
+         */
+        TaskOrigin: "chat" | "schedule" | "watch";
+        /**
+         * TaskStatus
+         * @enum {string}
+         */
+        TaskStatus: "queued" | "running" | "waiting_approval" | "done" | "failed" | "cancelled" | "budget_exceeded";
+        /**
+         * TaskSummary
+         * @description 작업 기록 탭의 한 줄.
+         */
+        TaskSummary: {
+            /** Id */
+            id: number;
+            /** Conversation Id */
+            conversation_id: number;
+            origin: components["schemas"]["TaskOrigin"];
+            status: components["schemas"]["TaskStatus"];
+            /** Request Text */
+            request_text: string | null;
+            /** Final Answer */
+            final_answer: string | null;
+            /** Error */
+            error: string | null;
+            /** Step Count */
+            step_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** UserOut */
         UserOut: {
             /** Id */
@@ -304,6 +503,39 @@ export interface operations {
             };
         };
     };
+    create_conversation_api_conversations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_messages_api_conversations__conversation_id__messages_get: {
         parameters: {
             query?: never;
@@ -322,6 +554,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_message_api_conversations__conversation_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 분당 전송 한도(20회)를 넘었다 */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_tasks_api_tasks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_api_tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDetail"];
                 };
             };
             /** @description Validation Error */
