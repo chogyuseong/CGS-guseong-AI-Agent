@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   {# viewport-fit=cover: 아이폰 홈 바 영역까지 그린 뒤 safe-area-inset으로 여백을 준다 #}
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#eef1f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#12171d" media="(prefers-color-scheme: dark)">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="마이에이전트">
@@ -13,12 +13,15 @@
   <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
   <link rel="icon" href="{% static 'icons/icon-192.png' %}">
   <link rel="apple-touch-icon" href="{% static 'icons/icon-192.png' %}">
+  {# 제목용 명조 Hahmlet, 본문용 IBM Plex Sans KR. 글꼴이 늦게 와도 글자는 먼저 보인다(display=swap) #}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@500;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
 </head>
 {# HTMX 요청에도 CSRF 토큰이 붙도록 body에 헤더를 지정한다 #}
-<body class="bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 antialiased"
-      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+<body class="antialiased" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
   {% block body %}{% endblock %}
   <script>
     // 서비스 워커 등록: 홈 화면 앱(PWA)과 푸시 수신에 필요하다. 등록만으로는 알림 권한을 묻지 않는다.

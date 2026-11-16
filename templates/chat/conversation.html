@@ -3,18 +3,27 @@
 {% block header %}{{ conversation }}{% endblock %}
 {% block content %}
 {# 메시지 목록: 남은 높이를 모두 쓰고 그 안에서만 스크롤한다 #}
-<section id="message-list" class="min-h-0 flex-1 overflow-y-auto px-4 py-3" aria-label="메시지 목록">
+<section id="message-list" class="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-label="메시지 목록">
   {% for message in messages_list %}
     {% if message.role == 'assistant' and message.task %}
       {# 에이전트 답변 위에 그 작업이 거친 단계를 보여 준다(단계 공개) #}
       {% include "chat/_steps.html" with task=message.task %}
     {% endif %}
-    <div class="mb-3 flex {% if message.role == 'user' %}justify-end{% endif %}">
-      <p class="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2
-                {% if message.role == 'user' %}bg-blue-600 text-white{% else %}bg-neutral-100 dark:bg-neutral-800{% endif %}">{{ message.content }}</p>
-    </div>
+    {% if message.role == 'user' %}
+      <div class="mb-4 flex justify-end">
+        <p class="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-indigo px-4 py-2.5 text-on-indigo">{{ message.content }}</p>
+      </div>
+    {% else %}
+      {# 에이전트 답은 말풍선이 아니라 기록처럼: 왼쪽 선 하나로 구분한다 #}
+      <div class="mb-5 border-l-2 border-ink/25 pl-3.5">
+        <p class="whitespace-pre-wrap break-words">{{ message.content }}</p>
+      </div>
+    {% endif %}
   {% empty %}
-    <p class="mt-10 text-center text-neutral-500">무엇을 도와드릴까요?</p>
+    <div class="mt-16 px-2">
+      <p class="font-display text-2xl font-bold leading-snug">무엇을 맡길까요?</p>
+      <p class="mt-2 text-muted">할 일 추가, 날씨, 근처 장소 찾기, 캘린더 일정 등록을 할 수 있어요. 캘린더처럼 앱 밖에 남는 일은 먼저 승인을 받습니다.</p>
+    </div>
   {% endfor %}
   {# 승인을 기다리는 작업: 지금까지의 단계와 승인 카드 #}
   {% for approval in pending_approvals %}
@@ -29,15 +38,15 @@
 
 {# 입력창: 화면 아래에 붙어 있고, 키보드가 올라오면 dvh 덕분에 함께 올라온다 #}
 <form method="post" action="{% url 'chat:send_message' conversation.pk %}"
-      class="flex shrink-0 items-end gap-2 border-t border-neutral-200 p-2 dark:border-neutral-800"
+      class="flex shrink-0 items-end gap-2 border-t border-line bg-paper p-2.5"
       aria-label="메시지 입력" onsubmit="this.querySelector('button').disabled = true;">
   {% csrf_token %}
   <label for="message-input" class="sr-only">메시지</label>
   <textarea id="message-input" name="content" rows="1" maxlength="2000" required
             placeholder="무엇을 할까요?"
-            class="min-h-11 flex-1 resize-none rounded-xl border border-neutral-300 bg-transparent px-3 py-2.5 dark:border-neutral-700"></textarea>
+            class="min-h-12 flex-1 resize-none rounded-xl border border-line bg-sheet px-3.5 py-3 placeholder:text-muted focus:border-indigo focus:outline-none"></textarea>
   <button type="submit"
-          class="h-11 shrink-0 rounded-xl bg-blue-600 px-4 font-semibold text-white disabled:opacity-40">전송</button>
+          class="h-12 shrink-0 rounded-xl bg-indigo px-4 font-semibold text-on-indigo disabled:opacity-40">보내기</button>
 </form>
 <script>
   // 새로고침 후 가장 아래(최신 메시지)가 보이게 한다.

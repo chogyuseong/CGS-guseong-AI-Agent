@@ -9,21 +9,21 @@
      hx-swap="outerHTML"
      aria-live="polite">
   {% include "chat/_steps.html" with task=task %}
-  <div class="mb-3 flex items-center gap-3 rounded-xl bg-neutral-100 px-4 py-3 text-sm dark:bg-neutral-800">
-    <span class="inline-block h-3 w-3 shrink-0 animate-pulse rounded-full bg-blue-500" aria-hidden="true"></span>
-    <p class="flex-1">
+  <div class="mb-4 flex items-center gap-3 border-l-2 border-indigo/40 pl-3.5">
+    <span class="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-indigo motion-reduce:animate-none" aria-hidden="true"></span>
+    <p class="flex-1 text-sm text-muted">
       {% if task.status == 'queued' %}
-        차례를 기다리는 중…
+        차례를 기다리는 중
         {% if task.created_at|seconds_since > 10 %}
-          <span class="mt-1 block text-xs text-neutral-500">오래 기다리면 워커(run_worker)가 켜져 있는지 확인해 주세요.</span>
+          <span class="mt-1 block text-xs">오래 기다리면 워커(run_worker)가 켜져 있는지 확인해 주세요.</span>
         {% endif %}
       {% else %}
-        처리하는 중… ({{ task.step_count }}단계)
+        처리하는 중 · {{ task.step_count }}단계
       {% endif %}
     </p>
     <form method="post" action="{% url 'agent:cancel_task' task.id %}" onsubmit="return confirm('이 작업을 취소할까요?');">
       {% csrf_token %}
-      <button type="submit" class="min-h-11 rounded-lg px-3 text-neutral-600 underline dark:text-neutral-300">작업 취소</button>
+      <button type="submit" class="min-h-11 px-2 text-sm text-muted underline underline-offset-4">작업 취소</button>
     </form>
   </div>
 </div>

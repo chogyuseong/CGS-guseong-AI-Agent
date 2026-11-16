@@ -1,25 +1,26 @@
 {% extends "base.html" %}
 {% block title %}로그인 · 마이에이전트{% endblock %}
 {% block body %}
-<main class="flex min-h-dvh items-center justify-center px-4">
-  <form method="post" class="w-full max-w-sm space-y-4">
+<main class="flex min-h-dvh items-center justify-center bg-paper px-4">
+  <form method="post" class="w-full max-w-sm">
     {% csrf_token %}
-    <h1 class="text-center text-2xl font-bold">마이에이전트</h1>
+    <h1 class="font-display text-3xl font-bold">마이에이전트</h1>
+    <p class="mt-1 text-muted">맡긴 일은 대신 하고, 밖으로 나가는 일은 승인을 받습니다.</p>
     {% if form.errors %}
-      <p class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">아이디 또는 비밀번호가 맞지 않습니다.</p>
+      <p class="mt-5 rounded-lg bg-warn-bg p-3 text-sm text-warn-ink" role="alert">아이디 또는 비밀번호가 맞지 않습니다.</p>
     {% endif %}
-    <div class="space-y-1">
+    <div class="mt-6 space-y-1">
       <label for="id_username" class="block text-sm font-medium">아이디</label>
       <input id="id_username" name="username" type="text" autocomplete="username" required autofocus
-             class="h-12 w-full rounded-xl border border-neutral-300 bg-transparent px-3 dark:border-neutral-700">
+             class="h-12 w-full rounded-lg border border-line bg-sheet px-3.5 focus:border-indigo focus:outline-none">
     </div>
-    <div class="space-y-1">
+    <div class="mt-4 space-y-1">
       <label for="id_password" class="block text-sm font-medium">비밀번호</label>
       <input id="id_password" name="password" type="password" autocomplete="current-password" required
-             class="h-12 w-full rounded-xl border border-neutral-300 bg-transparent px-3 dark:border-neutral-700">
+             class="h-12 w-full rounded-lg border border-line bg-sheet px-3.5 focus:border-indigo focus:outline-none">
     </div>
     <input type="hidden" name="next" value="{{ next }}">
-    <button type="submit" class="h-12 w-full rounded-xl bg-blue-600 font-semibold text-white">로그인</button>
+    <button type="submit" class="mt-6 h-12 w-full rounded-lg bg-indigo font-semibold text-on-indigo">로그인</button>
   </form>
 </main>
 {% endblock %}

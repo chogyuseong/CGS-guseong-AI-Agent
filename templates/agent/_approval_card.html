@@ -1,51 +1,69 @@
 {% load chat_extras %}
 {% comment %}
-  승인 카드. 사용자는 preview 문장을 보고 결정한다.
-  감시 에이전트 결과는 배지로 '보탤' 뿐이고, 승인 버튼은 판정과 상관없이 항상 사람이 누른다.
+  승인 카드 = 결재 서류. 이 앱에서 가장 중요한 화면이라 유일하게 대담하게 만든다.
+  오른쪽 위 결재란(요청: 비서 / 승인: 나)은 "사람이 도장을 찍어야 밖으로 나간다"는 이 앱의 규칙을 그대로 보여 준다.
+  감시 에이전트 결과는 배지로 보탤 뿐이고, 승인은 판정과 상관없이 항상 사람이 누른다.
 {% endcomment %}
 {% with check=approval.step.guard_check %}
-<section class="mb-3 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-950/40"
+<section class="mb-5 overflow-hidden rounded-sm border-2 border-ink bg-sheet shadow-[4px_4px_0_0_var(--line)]"
          aria-label="승인이 필요한 작업">
-  <p class="text-sm font-semibold text-amber-800 dark:text-amber-300">승인이 필요합니다</p>
-  <p class="mt-1 text-base font-medium">{{ approval.summary }}</p>
-
-  {# 감시 결과 배지: 일치=초록, 불일치=빨강 경고, 불확실=회색 #}
-  {% if check.verdict == 'match' %}
-    <p class="mt-3 inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-sm text-green-800 dark:bg-green-900/50 dark:text-green-300">
-      <span aria-hidden="true">✓</span> 요청과 일치
-    </p>
-  {% elif check.verdict == 'mismatch' %}
-    <div class="mt-3 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-800 dark:bg-red-900/50 dark:text-red-300" role="alert">
-      <p class="font-semibold"><span aria-hidden="true">⚠</span> 요청과 다를 수 있습니다</p>
-      <p class="mt-0.5">{{ check.reason }}</p>
+  <div class="flex items-stretch border-b-2 border-ink">
+    <p class="flex flex-1 items-center px-4 font-display text-lg font-bold">결재 요청</p>
+    {# 결재란: 승인 칸이 비어 있다. 사람이 승인해야 채워진다 #}
+    <div class="flex text-center text-xs" aria-hidden="true">
+      <div class="w-14 border-l-2 border-ink">
+        <p class="border-b border-ink py-0.5 text-muted">요청</p>
+        <p class="grid h-11 place-items-center font-display font-bold">비서</p>
+      </div>
+      <div class="w-14 border-l-2 border-ink">
+        <p class="border-b border-ink py-0.5 text-muted">승인</p>
+        <p class="h-11"></p>
+      </div>
     </div>
-  {% else %}
-    <div class="mt-3 rounded-xl bg-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-      <p class="font-semibold">확인 필요</p>
-      {% if check.reason %}<p class="mt-0.5">{{ check.reason }}</p>{% endif %}
-    </div>
-  {% endif %}
+  </div>
 
-  <details class="mt-3 text-sm">
-    <summary class="flex min-h-11 cursor-pointer items-center text-neutral-600 dark:text-neutral-400">입력값 전체 보기</summary>
-    <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded bg-white p-2 text-xs dark:bg-neutral-900">{{ approval.step.tool_name }}
+  <div class="p-4">
+    <p class="font-display text-[1.1875rem] font-bold leading-snug">{{ approval.summary }}</p>
+
+    {# 감시 결과 배지: 일치=초록, 불일치=빨강 경고, 불확실=회색 #}
+    {% if check.verdict == 'match' %}
+      <p class="mt-3 inline-flex items-center gap-1.5 rounded-full bg-ok-bg px-3 py-1 text-sm text-ok-ink">
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>
+        요청과 일치
+      </p>
+    {% elif check.verdict == 'mismatch' %}
+      <div class="mt-3 rounded-lg bg-warn-bg px-3 py-2.5 text-sm text-warn-ink" role="alert">
+        <p class="font-semibold">요청과 다를 수 있습니다</p>
+        <p class="mt-0.5">{{ check.reason }}</p>
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-lg bg-unsure-bg px-3 py-2.5 text-sm text-unsure-ink">
+        <p class="font-semibold">확인 필요</p>
+        {% if check.reason %}<p class="mt-0.5">{{ check.reason }}</p>{% endif %}
+      </div>
+    {% endif %}
+
+    <details class="mt-3 text-sm">
+      <summary class="flex min-h-11 cursor-pointer items-center text-muted">입력값 전체 보기</summary>
+      <pre class="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-paper p-2.5 text-xs">{{ approval.step.tool_name }}
 {{ approval.step.input_json|pretty_json }}</pre>
-  </details>
+    </details>
 
-  <p class="mt-2 text-xs text-neutral-500">
-    <time datetime="{{ approval.expires_at|date:'c' }}">{{ approval.expires_at|timeuntil }}</time> 안에 결정하지 않으면 작업이 취소됩니다.
-  </p>
+    <p class="mt-1 text-xs text-muted">
+      <time datetime="{{ approval.expires_at|date:'c' }}">{{ approval.expires_at|timeuntil }}</time> 안에 결정하지 않으면 작업이 취소됩니다.
+    </p>
 
-  <div class="mt-3 space-y-2">
-    <form method="post" action="{% url 'agent:approve' approval.pk %}"
-          {% if check.verdict == 'mismatch' %}onsubmit="return confirm('요청과 다를 수 있습니다. 그래도 진행할까요?') && disableButtons(this);"{% else %}onsubmit="return disableButtons(this);"{% endif %}>
-      {% csrf_token %}
-      <button type="submit" class="h-12 w-full rounded-xl bg-blue-600 text-base font-semibold text-white disabled:opacity-40">승인</button>
-    </form>
-    <form method="post" action="{% url 'agent:reject' approval.pk %}" onsubmit="return disableButtons(this);">
-      {% csrf_token %}
-      <button type="submit" class="h-12 w-full rounded-xl border border-neutral-300 bg-white text-base font-semibold text-neutral-800 disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100">거절</button>
-    </form>
+    <div class="mt-4 space-y-2">
+      <form method="post" action="{% url 'agent:approve' approval.pk %}"
+            {% if check.verdict == 'mismatch' %}onsubmit="return confirm('요청과 다를 수 있습니다. 그래도 진행할까요?') && disableButtons(this);"{% else %}onsubmit="return disableButtons(this);"{% endif %}>
+        {% csrf_token %}
+        <button type="submit" class="h-12 w-full rounded-lg bg-indigo text-base font-semibold text-on-indigo disabled:opacity-40">승인하고 실행</button>
+      </form>
+      <form method="post" action="{% url 'agent:reject' approval.pk %}" onsubmit="return disableButtons(this);">
+        {% csrf_token %}
+        <button type="submit" class="h-12 w-full rounded-lg border border-line bg-sheet text-base font-semibold disabled:opacity-40">거절</button>
+      </form>
+    </div>
   </div>
 </section>
 {% endwith %}

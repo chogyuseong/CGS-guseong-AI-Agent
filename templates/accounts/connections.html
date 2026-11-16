@@ -2,43 +2,45 @@
 {% block title %}외부 서비스 연결 · 마이에이전트{% endblock %}
 {% block header %}외부 서비스 연결{% endblock %}
 {% block content %}
-<section class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-  <a href="{% url 'settings_page:settings' %}" class="inline-flex min-h-11 items-center text-sm text-neutral-500">← 설정</a>
+<section class="min-h-0 flex-1 overflow-y-auto py-4">
+  <a href="{% url 'settings_page:settings' %}" class="mx-4 mb-2 inline-flex min-h-11 items-center gap-1 text-sm text-muted">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+    설정
+  </a>
 
   {% for message in messages %}
-    <p class="rounded-xl px-4 py-3 text-sm
-      {% if message.tags == 'success' %}bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300
-      {% elif message.tags == 'error' %}bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300
-      {% else %}bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300{% endif %}" role="status">{{ message }}</p>
+    <p class="mx-4 mb-3 rounded-lg px-4 py-3 text-sm
+      {% if message.tags == 'success' %}bg-ok-bg text-ok-ink{% elif message.tags == 'error' %}bg-warn-bg text-warn-ink{% else %}bg-unsure-bg text-unsure-ink{% endif %}" role="status">{{ message }}</p>
   {% endfor %}
 
-  <div class="rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
-    <h2 class="text-base font-semibold">Google 캘린더</h2>
-    <p class="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+  <div class="border-y border-line bg-sheet px-4 py-5">
+    <h2 class="font-display text-lg font-bold">Google 캘린더</h2>
+    <p class="mt-1 text-sm text-muted">
       일정 조회와, 승인을 거친 일정 생성·수정·삭제에 씁니다. 연결 정보는 암호화해 저장합니다.
     </p>
 
     {% if not google_configured %}
-      <p class="mt-3 rounded-xl bg-amber-100 p-3 text-sm text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+      <p class="mt-4 rounded-lg bg-unsure-bg p-3 text-sm text-unsure-ink">
         서버에 Google 연결 설정이 없습니다. .env의 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI를 채워 주세요.
       </p>
     {% elif google_connection %}
-      <p class="mt-3 inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-sm text-green-800 dark:bg-green-900/50 dark:text-green-300">
-        <span aria-hidden="true">✓</span> 연결됨{% if has_calendar %} · 캘린더 권한{% endif %}
+      <p class="mt-4 inline-flex items-center gap-1.5 rounded-full bg-ok-bg px-3 py-1 text-sm text-ok-ink">
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>
+        연결됨{% if has_calendar %}, 캘린더 권한 있음{% endif %}
       </p>
-      <p class="mt-2 text-xs text-neutral-500">
-        마지막 연결: {{ google_connection.updated_at|date:"n월 j일 H:i" }}.
+      <p class="mt-2 text-xs text-muted">
+        마지막 연결 {{ google_connection.updated_at|date:"n월 j일 H:i" }}.
         테스트 상태의 앱은 구글 정책상 7일마다 연결이 끊깁니다. 일정 기능이 연결 만료를 알리면 다시 연결해 주세요.
       </p>
       <a href="{% url 'settings_page:google_start' %}"
-         class="mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-blue-600 font-semibold text-white">다시 연결</a>
+         class="mt-4 flex h-12 w-full items-center justify-center rounded-lg bg-indigo font-semibold text-on-indigo">다시 연결</a>
       <form method="post" action="{% url 'settings_page:google_disconnect' %}" onsubmit="return confirm('Google 연결을 해제할까요?');">
         {% csrf_token %}
-        <button type="submit" class="mt-2 h-12 w-full rounded-xl border border-neutral-300 font-semibold dark:border-neutral-700">연결 해제</button>
+        <button type="submit" class="mt-2 h-12 w-full rounded-lg border border-line font-semibold">연결 해제</button>
       </form>
     {% else %}
       <a href="{% url 'settings_page:google_start' %}"
-         class="mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-blue-600 font-semibold text-white">Google 캘린더 연결하기</a>
+         class="mt-4 flex h-12 w-full items-center justify-center rounded-lg bg-indigo font-semibold text-on-indigo">Google 캘린더 연결하기</a>
     {% endif %}
   </div>
 </section>

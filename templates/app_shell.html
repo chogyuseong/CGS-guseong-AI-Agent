@@ -4,12 +4,12 @@
   하단 탭은 홈 바에 가려지지 않게 safe-area-inset-bottom만큼 아래 여백을 둔다.
 {% endcomment %}
 {% block body %}
-<div class="flex h-dvh flex-col">
-  <header class="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-800">
-    <h1 class="text-lg font-semibold">{% block header %}마이에이전트{% endblock %}</h1>
+<div class="mx-auto flex h-dvh max-w-2xl flex-col bg-paper">
+  <header class="flex h-14 shrink-0 items-center justify-between border-b border-line px-4">
+    <h1 class="truncate font-display text-xl font-bold tracking-tight">{% block header %}마이에이전트{% endblock %}</h1>
     <form method="post" action="{% url 'accounts:logout' %}">
       {% csrf_token %}
-      <button type="submit" class="min-h-11 px-2 text-sm text-neutral-500">로그아웃</button>
+      <button type="submit" class="min-h-11 px-2 text-sm text-muted">로그아웃</button>
     </form>
   </header>
 

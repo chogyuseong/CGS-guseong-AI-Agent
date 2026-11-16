@@ -1,13 +1,40 @@
-{# 하단 탭 5개. 터치 대상은 최소 44px(h-14 = 56px). 현재 탭은 aria-current로 표시한다. #}
-<nav class="shrink-0 border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-neutral-800 dark:bg-neutral-950"
-     aria-label="주요 메뉴">
+{% comment %}
+  하단 탭 5개. 터치 대상은 높이 56px. 아이콘은 같은 굵기(1.75)의 선 아이콘으로 통일한다.
+  현재 탭은 위쪽 막대와 aria-current로 표시한다.
+{% endcomment %}
+<nav class="shrink-0 border-t border-line bg-sheet pb-[env(safe-area-inset-bottom)]" aria-label="주요 메뉴">
   <ul class="grid grid-cols-5">
-    {% with base="flex h-14 flex-col items-center justify-center gap-0.5 text-xs" on="text-blue-600 font-semibold dark:text-blue-400" off="text-neutral-500" %}
-    <li><a href="{% url 'chat:home' %}" class="{{ base }} {% if active_tab == 'chat' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'chat' %}aria-current="page"{% endif %}><span aria-hidden="true">💬</span>채팅</a></li>
-    <li><a href="{% url 'agent:task_list' %}" class="{{ base }} {% if active_tab == 'tasks' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'tasks' %}aria-current="page"{% endif %}><span aria-hidden="true">📋</span>작업 기록</a></li>
-    <li><a href="{% url 'automation:schedule_list' %}" class="{{ base }} {% if active_tab == 'automation' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'automation' %}aria-current="page"{% endif %}><span aria-hidden="true">⏰</span>자동화</a></li>
-    <li><a href="{% url 'memory:list' %}" class="{{ base }} {% if active_tab == 'memory' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'memory' %}aria-current="page"{% endif %}><span aria-hidden="true">🧠</span>기억</a></li>
-    <li><a href="{% url 'settings_page:settings' %}" class="{{ base }} {% if active_tab == 'settings' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'settings' %}aria-current="page"{% endif %}><span aria-hidden="true">⚙️</span>설정</a></li>
+    {% with base="relative flex h-14 flex-col items-center justify-center gap-0.5 text-xs" on="text-indigo font-semibold before:absolute before:inset-x-5 before:top-0 before:h-0.5 before:rounded-full before:bg-indigo" off="text-muted" %}
+    <li>
+      <a href="{% url 'chat:home' %}" class="{{ base }} {% if active_tab == 'chat' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'chat' %}aria-current="page"{% endif %}>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>
+        채팅
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'agent:task_list' %}" class="{{ base }} {% if active_tab == 'tasks' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'tasks' %}aria-current="page"{% endif %}>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15H6z"/><path d="M9 10h6M9 14h6M9 18h4"/></svg>
+        작업 기록
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'automation:schedule_list' %}" class="{{ base }} {% if active_tab == 'automation' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'automation' %}aria-current="page"{% endif %}>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>
+        자동화
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'memory:list' %}" class="{{ base }} {% if active_tab == 'memory' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'memory' %}aria-current="page"{% endif %}>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></svg>
+        기억
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'settings_page:settings' %}" class="{{ base }} {% if active_tab == 'settings' %}{{ on }}{% else %}{{ off }}{% endif %}" {% if active_tab == 'settings' %}aria-current="page"{% endif %}>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        설정
+      </a>
+    </li>
     {% endwith %}
   </ul>
 </nav>
