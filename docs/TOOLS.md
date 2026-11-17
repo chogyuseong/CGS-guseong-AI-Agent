@@ -131,3 +131,13 @@
 
 `apps/api/tests/fixtures/README.md`에 파일별로 "실제 응답"인지 "문서 형식으로 만든 것"인지 적었다.
 Open-Meteo·카카오·네이버의 정상 응답은 2026-11-17 실제 응답이고, 오류 응답과 Google 응답은 모두 문서 형식으로 만든 것이다.
+
+## draft_message (4단계 보강)
+
+- 등급: INTERNAL(앱 밖에 흔적 없음, 승인 없음). chat에서만(예약·감시 task에는 없다).
+- 하는 일: 모델이 쓴 메시지 초안을 받아 받는 사람(표시용 이름, 100자)과 본문(2,000자)을 나눠 돌려준다. 보내지 않는다.
+  결과: `{kind: "message_draft", recipient, body, sent: false, notice}`.
+- 외부 API·추가 모델 호출: 없다(따로 잡을 예산 없음).
+- 데이터: 사용자 글과 같은 취급(user_private). steps.output에 남는다.
+- 화면: 단계 아래 '메시지 초안' 카드(components/DraftCard.tsx). 받는 사람·본문·[본문 복사]·"보내지 않았습니다" 안내.
+  보냈다는 문구를 쓰지 않는다. 메시지 발송은 금지 기능이다(절대 원칙 2).

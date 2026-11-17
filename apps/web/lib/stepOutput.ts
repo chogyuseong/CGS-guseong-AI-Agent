@@ -48,3 +48,14 @@ export function safeHttpUrl(value: unknown): string | null {
     return null;
   }
 }
+
+// 4단계 보강: draft_message의 결과(받는 사람·본문). 보내지 않은 초안이다(sent=false). 모양이 다르면 null.
+export type MessageDraft = { recipient: string; body: string };
+
+export function readMessageDraft(toolName: string, output: unknown): MessageDraft | null {
+  if (toolName !== "draft_message" || !isRecord(output) || !isRecord(output.data)) return null;
+  const { kind, recipient, body, sent } = output.data;
+  if (kind !== "message_draft" || sent !== false) return null;
+  if (typeof recipient !== "string" || typeof body !== "string") return null;
+  return { recipient, body };
+}

@@ -56,6 +56,7 @@ const FIELD_LABELS: Record<string, string> = {
   unread: "안 읽음",
   snippet: "미리보기",
   body: "본문",
+  recipient: "받는 사람",
   body_truncated: "본문 잘림",
   body_note: "본문 안내",
   attachments: "첨부(이름만)",
@@ -72,6 +73,7 @@ const TOOL_NAMES: Record<string, string> = {
   get_weather: "날씨 보기",
   list_mail: "메일 찾기",
   read_mail: "메일 읽기",
+  draft_message: "메시지 초안 쓰기",
 };
 
 // Object.hasOwn: "toString" 같은 객체 기본 속성을 칸 이름으로 착각하지 않게 한다.

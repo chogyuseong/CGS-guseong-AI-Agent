@@ -41,6 +41,7 @@ INTERNAL_TOOL_NAMES = sorted(
         "delete_schedule",  # 6단계
         "create_watch",  # 6단계
         "delete_watch",  # 6단계
+        "draft_message",  # 4단계 보강: 초안만(발송 없음)
     ]
 )
 EXTERNAL_TOOL_NAMES = sorted(["create_event", "delete_event", "update_event"])
