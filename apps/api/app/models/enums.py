@@ -64,6 +64,26 @@ class ApprovalStatus(StrEnum):
     CANCELLED = "cancelled"  # 결정 전에 작업을 취소했다(1단계 보강)
 
 
+class OperationStatus(StrEnum):
+    """외부 작업 하나(operation)의 상태(2단계 보강, BUILD_SPEC 4.2). 전이 표는 docs/STATE_MACHINES.md(9단계).
+
+    succeeded는 영수증(execution_receipts)이 있어야 한다. unknown은 실패가 아니다(실행됐는지 모름).
+    """
+
+    PLANNED = "planned"
+    AWAITING_APPROVAL = "awaiting_approval"
+    APPROVED = "approved"
+    EXECUTING = "executing"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+    RECONCILING = "reconciling"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    STALE = "stale"
+    CANCELLED = "cancelled"
+
+
 class VerdictKind(StrEnum):
     MATCH = "match"
     MISMATCH = "mismatch"

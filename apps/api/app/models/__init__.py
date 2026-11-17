@@ -4,12 +4,14 @@ from app.models.automation import ScheduledJob, Watch
 from app.models.base import Base
 from app.models.budget import BudgetReservation, DailyBudget
 from app.models.chat import Conversation, Message
+from app.models.execution import ActionPlan, ExecutionReceipt, Operation
 from app.models.integration import Connection, PushSubscription
 from app.models.personal import Memory, Note, Todo
 from app.models.task import AgentRun, Approval, GuardCheck, Step, Task, UsageLog
 from app.models.user import User, UserSession
 
 __all__ = [
+    "ActionPlan",
     "AgentRun",
     "Approval",
     "Base",
@@ -17,10 +19,12 @@ __all__ = [
     "Connection",
     "Conversation",
     "DailyBudget",
+    "ExecutionReceipt",
     "GuardCheck",
     "Memory",
     "Message",
     "Note",
+    "Operation",
     "PushSubscription",
     "ScheduledJob",
     "Step",

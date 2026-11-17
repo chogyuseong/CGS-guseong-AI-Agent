@@ -30,6 +30,7 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import httpx
 from pydantic_ai import capture_run_messages
@@ -40,7 +41,7 @@ from pydantic_ai.usage import RunUsage
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent import approvals
+from app.agent import approvals, plans
 from app.agent.agent import MyAgent
 from app.agent.budget import (
     UNPRICED_MESSAGE,
@@ -61,6 +62,7 @@ from app.agent.history import (
     load_messages,
     pending_tool_call_ids,
 )
+from app.agent.plans import PlanDraft
 from app.agent.results import not_executed_output
 from app.agent.toolsets import label_for, preview_for, toolsets_for
 from app.config import Settings
@@ -74,6 +76,7 @@ DAILY_BUDGET_MESSAGE = "오늘 쓸 수 있는 비용 한도를 다 써서 작업
 TASK_BUDGET_MESSAGE = "이 작업에 정해 둔 요청 수나 토큰 한도를 넘어 중간에 멈췄습니다. 위 단계까지만 처리되었습니다."
 MODEL_BEHAVIOR_MESSAGE = "모델이 도구를 올바르게 부르지 못해 작업을 끝내지 못했습니다."
 UNEXPECTED_MESSAGE = "작업 중 오류가 발생해 끝내지 못했습니다."
+PLAN_REJECTED_MESSAGE = "이 외부 작업은 서버 정책상 실행 계획을 만들 수 없어 진행하지 않았습니다."
 # 승인됐지만 작업이 그 전에 끝나(하루 비용 상한, 오류) 실행하지 않은 EXTERNAL 호출의 step 결과.
 NOT_EXECUTED_MESSAGE = "작업이 이 단계 전에 멈춰 실행하지 않았습니다."
 # 명세: task_done 푸시는 20초 넘게 걸렸거나 origin이 schedule·watch일 때만.
@@ -290,18 +293,26 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
 # ---- 승인 요청 준비 (preview + 감시 에이전트) ----
 
 
+async def draft_for(services: RunServices, info: TaskInfo, tool_name: str, args: dict[str, Any]) -> PlanDraft:
+    """서버가 인자를 다시 검증·정규화하고 실행 계획 값을 확정한다(2단계 보강). 실패하면 PlanRejectedError."""
+    async with services.session_factory() as session:
+        return await plans.draft_plan(
+            session, user_id=info.user_id, toolsets=toolsets_for(info.origin), tool_name=tool_name, args=args
+        )
+
+
 async def prepare_requests(
     services: RunServices, info: TaskInfo, deferred: DeferredToolRequests
 ) -> tuple[list[approvals.ApprovalRequest], list[GuardReview]]:
-    """승인 대상 호출마다 preview 문장을 만들고 감시 에이전트에게 검사받는다.
+    """승인 대상 호출마다 실행 계획 초안을 만들고, 그 정규화 인자로 preview와 감시 검사를 한다.
 
-    감시 에이전트에는 원래 요청·도구 이름·도구 입력·preview만 넘긴다. 도구 결과와 메시지 기록은 넘기지 않는다.
+    감시 에이전트에는 원래 요청·도구 이름·정규화 인자·preview만 넘긴다. 도구 결과와 메시지 기록은 넘기지 않는다.
     """
     deps = deps_for(services, info)
     requests, reviews = [], []
     for call in deferred.approvals:
-        args = call.args_as_dict()
-        summary = await preview_for(deps, call.tool_name, args)
+        draft = await draft_for(services, info, call.tool_name, call.args_as_dict())
+        summary = await preview_for(deps, call.tool_name, draft.canonical_args)
         scope = replace(
             deps.budget_scope, key_prefix=f"guard:{info.id}:{call.tool_call_id}", purpose=UsagePurpose.GUARD
         )
@@ -310,16 +321,15 @@ async def prepare_requests(
             scope,
             request_text=info.request_text or "",
             tool_name=call.tool_name,
-            tool_input=args,
+            tool_input=draft.canonical_args,
             preview=summary,
         )
         reviews.append(review)
         requests.append(
             approvals.ApprovalRequest(
                 tool_call_id=call.tool_call_id,
-                tool_name=call.tool_name,
-                args=args,
-                label=label_for(call.tool_name, args),
+                plan=draft,
+                label=label_for(call.tool_name, draft.canonical_args),
                 summary=summary,
                 verdict=review.verdict,
                 reason=review.reason,
@@ -430,7 +440,12 @@ async def finish(
         # 자동 작업(예약·감시)은 READ 도구만 받으므로 여기에 올 수 없다. 와도 승인을 만들지 않고 실패로 끝낸다.
         outcome = Outcome(TaskStatus.FAILED, error=UNEXPECTED_MESSAGE, new_messages=outcome.new_messages)
     if outcome.deferred is not None:
-        requests, reviews = await prepare_requests(services, info, outcome.deferred)
+        try:
+            requests, reviews = await prepare_requests(services, info, outcome.deferred)
+        except plans.PlanRejectedError:
+            # 서버 정책상 실행 계획을 만들 수 없는 호출(규격 없는 도구 등). 승인을 만들지 않고 실패로 끝낸다.
+            logger.warning("task %s: 실행 계획을 만들 수 없어 실패로 끝냄", info.id, exc_info=True)
+            outcome = Outcome(TaskStatus.FAILED, error=PLAN_REJECTED_MESSAGE, new_messages=outcome.new_messages)
     async with services.session_factory() as session:
         task = await lock_task(session, info.id)
         if task is None or task.status not in IN_PROGRESS:
@@ -440,7 +455,9 @@ async def finish(
             requests = []
             outcome = Outcome(TaskStatus.CANCELLED, error=RUN_CANCELLED_MESSAGE, new_messages=outcome.new_messages)
         if requests:
-            await approvals.save_requests(session, task_id=info.id, origin=info.origin, requests=requests)
+            await approvals.save_requests(
+                session, task_id=info.id, user_id=info.user_id, origin=info.origin, requests=requests
+            )
         session.add_all(guard_usage_rows(info, reviews))
         await save_outcome(session, info, outcome, previous)
     return push_kind_for(info, outcome.status, finished_at=time.time())

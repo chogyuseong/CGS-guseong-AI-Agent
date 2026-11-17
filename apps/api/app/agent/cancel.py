@@ -15,10 +15,11 @@
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.approvals import set_operation_status
 from app.agent.deps import AgentDeps
 from app.agent.results import not_executed_output
 from app.models import Approval, Conversation, Message, Step, Task
-from app.models.enums import ApprovalStatus, MessageRole, StepStatus, TaskStatus
+from app.models.enums import ApprovalStatus, MessageRole, OperationStatus, StepStatus, TaskStatus
 
 CANCELLED_REPLY = "작업을 취소했습니다. 취소 전에 끝난 단계는 위 기록에 그대로 남아 있습니다."
 RUN_CANCELLED_MESSAGE = "취소 요청에 따라 멈췄습니다. 위 단계까지만 처리되었습니다."
@@ -76,6 +77,10 @@ async def request_cancel(session: AsyncSession, task_id: int, user_id: int) -> T
 async def close_for_cancel(session: AsyncSession, task: Task) -> None:
     """실행하지 않을 승인·단계를 닫고 task를 cancelled로 바꾼 뒤 답변을 남긴다(커밋은 부른 쪽)."""
     step_ids = select(Step.id).where(Step.task_id == task.id)
+    pending_plans = select(Approval.plan_id).where(
+        Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING, Approval.plan_id.is_not(None)
+    )
+    await set_operation_status(session, pending_plans, OperationStatus.CANCELLED)
     await session.execute(
         update(Approval)
         .where(Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING)

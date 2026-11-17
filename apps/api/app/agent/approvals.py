@@ -7,14 +7,18 @@
        아직 실행되지 않았을 때만 통과한다. 프레임워크 설정 하나가 바뀌거나 누가 함수를 직접 불러도 실행되지 않는다.
 
 흐름:
-    run 결과가 DeferredToolRequests ─▶ save_requests: steps(waiting_approval) + approvals(pending) + guard_checks
-    사용자가 카드에서 결정       ─▶ decide: task·승인 행을 SELECT ... FOR UPDATE로 잠그고 pending일 때만 바꾼다
+    run 결과가 DeferredToolRequests ─▶ runner가 plans.draft_plan으로 인자를 정규화·고정(2단계 보강)
+                                 ─▶ save_requests: steps(waiting_approval) + action_plans + operations
+                                    (awaiting_approval) + approvals(pending, 계획·회차별 하나) + guard_checks
+    사용자가 카드에서 결정       ─▶ decide: task·승인 행을 SELECT ... FOR UPDATE로 잠그고 pending일 때만 바꾼다.
+                                    승인이면 실행 유효 시간(5분)을 정하고 operation도 approved/rejected/expired로
     모두 결정되면                ─▶ runner.resume_task가 build_results로 DeferredToolResults를 만들어 run을 잇는다
     승인된 도구 실행             ─▶ assert_approved가 step을 waiting_approval → running으로 바꾸며 "한 번만" 통과시킨다
 
 이 모듈은 도구 파일(app/tools/*)이 assert_approved를 가져다 쓰므로 toolsets·tracking·runner를 import하지 않는다.
 """
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -25,10 +29,12 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.deps import AgentDeps
-from app.models import Approval, Conversation, GuardCheck, Message, Step, Task
+from app.agent.plans import DECISION_WINDOW, EXECUTE_WINDOW, POLICY_VERSION, PlanDraft
+from app.models import ActionPlan, AgentRun, Approval, Conversation, GuardCheck, Message, Operation, Step, Task
 from app.models.enums import (
     ApprovalStatus,
     MessageRole,
+    OperationStatus,
     RiskLevel,
     StepStatus,
     TaskOrigin,
@@ -75,30 +81,74 @@ class Decision:
 
 @dataclass(frozen=True)
 class ApprovalRequest:
-    """승인 요청 한 건. runner가 preview와 감시 결과를 미리 만들어 넘긴다."""
+    """승인 요청 한 건. runner가 실행 계획 초안(plan)·preview·감시 결과를 미리 만들어 넘긴다.
+
+    args는 서버가 정규화한 인자(plan.canonical_args)다. 모델의 원래 인자가 아니다.
+    """
 
     tool_call_id: str
-    tool_name: str
-    args: dict[str, Any]
+    plan: PlanDraft
     label: str
     summary: str
     verdict: VerdictKind
     reason: str
     guard_model: str
 
+    @property
+    def tool_name(self) -> str:
+        return self.plan.tool_name
+
+    @property
+    def args(self) -> dict[str, Any]:
+        return self.plan.canonical_args
+
 
 # ---- 1. 승인 요청 저장 ----
 
 
+async def current_round(session: AsyncSession, task_id: int) -> int:
+    """지금 run의 회차(agent_runs.round). 회차 기록이 없으면(직접 만든 테스트 task) 1."""
+    return await session.scalar(select(func.max(AgentRun.round)).where(AgentRun.task_id == task_id)) or 1
+
+
+def plan_row(step: Step, user_id: int, round_: int, request: ApprovalRequest, now: datetime) -> ActionPlan:
+    draft = request.plan
+    return ActionPlan(
+        operation_id=uuid.uuid4(),
+        user_id=user_id,
+        task_id=step.task_id,
+        step_id=step.id,
+        approval_round=round_,
+        tool_call_id=request.tool_call_id,
+        tool_name=draft.tool_name,
+        tool_version=draft.tool_version,
+        connection_id=draft.connection_id,
+        target_resource_id=draft.target_resource_id,
+        canonical_args=draft.canonical_args,
+        args_hash=draft.args_hash,
+        preview=request.summary,
+        decision_expires_at=now + DECISION_WINDOW,
+        policy_version=POLICY_VERSION,
+    )
+
+
 async def save_requests(
-    session: AsyncSession, *, task_id: int, origin: TaskOrigin, requests: list[ApprovalRequest]
+    session: AsyncSession,
+    *,
+    task_id: int,
+    user_id: int,
+    origin: TaskOrigin,
+    requests: list[ApprovalRequest],
+    now: datetime | None = None,
 ) -> None:
-    """DeferredToolRequests의 호출마다 step·approval·guard_check를 만든다. 커밋은 호출한 쪽(runner)이 한다.
+    """호출마다 step·실행 계획·operation·approval·guard_check를 만든다. 커밋은 호출한 쪽(runner)이 한다.
 
     예약·감시 작업은 승인을 만들 수 없다(명세: 자동 작업에는 READ 도구만, 승인 생성은 예외).
     """
     if origin != TaskOrigin.CHAT:
         raise ValueError(f"origin이 {origin}인 task는 승인을 만들 수 없다")
+    now = now or datetime.now(UTC)
+    round_ = await current_round(session, task_id)
     last_order = await session.scalar(select(func.max(Step.order)).where(Step.task_id == task_id)) or 0
     for offset, request in enumerate(requests, start=1):
         step = Step(
@@ -113,10 +163,37 @@ async def save_requests(
         )
         session.add(step)
         await session.flush()
-        session.add(Approval(step_id=step.id, tool_call_id=request.tool_call_id, summary=request.summary))
-        session.add(
-            GuardCheck(step_id=step.id, verdict=request.verdict, reason=request.reason, model=request.guard_model)
+        await save_plan(session, step, user_id, round_, request, now)
+
+
+async def save_plan(
+    session: AsyncSession, step: Step, user_id: int, round_: int, request: ApprovalRequest, now: datetime
+) -> None:
+    """step 하나에 붙는 실행 계획·operation(awaiting_approval)·승인·감시 결과."""
+    plan = plan_row(step, user_id, round_, request, now)
+    session.add(plan)
+    await session.flush()
+    session.add(Operation(plan_id=plan.id, user_id=user_id, status=OperationStatus.AWAITING_APPROVAL))
+    session.add(
+        Approval(
+            step_id=step.id,
+            plan_id=plan.id,
+            approval_round=round_,
+            tool_call_id=request.tool_call_id,
+            summary=request.summary,
+            expires_at=plan.decision_expires_at,
         )
+    )
+    session.add(GuardCheck(step_id=step.id, verdict=request.verdict, reason=request.reason, model=request.guard_model))
+
+
+async def set_operation_status(session: AsyncSession, plan_ids: Any, status: OperationStatus) -> None:
+    """결정 전 operation(awaiting_approval)만 바꾼다. plan_ids는 id 목록이나 select 문."""
+    await session.execute(
+        update(Operation)
+        .where(Operation.plan_id.in_(plan_ids), Operation.status == OperationStatus.AWAITING_APPROVAL)
+        .values(status=status)
+    )
 
 
 # ---- 2. 사용자의 결정 ----
@@ -193,6 +270,11 @@ async def verdict_of(session: AsyncSession, step_id: int) -> VerdictKind | None:
 async def apply_decision(session: AsyncSession, approval: Approval, *, approve: bool, now: datetime) -> None:
     approval.status = ApprovalStatus.APPROVED if approve else ApprovalStatus.REJECTED
     approval.decided_at = now
+    if approve:
+        approval.execute_before = now + EXECUTE_WINDOW
+    if approval.plan_id is not None:
+        status = OperationStatus.APPROVED if approve else OperationStatus.REJECTED
+        await set_operation_status(session, [approval.plan_id], status)
     if not approve:
         step = await session.get_one(Step, approval.step_id)
         step.status = StepStatus.REJECTED
@@ -205,6 +287,10 @@ async def expire_task(session: AsyncSession, task: Task) -> None:
         Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING
     )
     await session.execute(update(Step).where(Step.id.in_(expired_steps)).values(status=StepStatus.EXPIRED))
+    expired_plans = select(Approval.plan_id).where(
+        Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING, Approval.plan_id.is_not(None)
+    )
+    await set_operation_status(session, expired_plans, OperationStatus.EXPIRED)
     await session.execute(
         update(Approval)
         .where(Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING)

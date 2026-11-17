@@ -60,6 +60,7 @@ from app.agent.deps import AgentDeps
 from app.agent.guard import GuardAgent
 from app.agent.results import ToolResult
 from app.agent.toolsets import (
+    EXTERNAL_TOOL_SPECS,
     TOOL_LABELS,
     TOOL_PREVIEWS,
     TOOLSETS_BY_ORIGIN,
@@ -79,7 +80,13 @@ from app.security import hash_password
 from tests.db_guard import check_test_database
 from tests.fake_http import FakeHttp
 from tests.fake_push import FakePushSender
-from tests.fake_tools import COUNTER, FakeExternalCounter, fake_external, preview_fake_external
+from tests.fake_tools import (
+    COUNTER,
+    FAKE_EXTERNAL_SPEC,
+    FakeExternalCounter,
+    fake_external,
+    preview_fake_external,
+)
 from tests.model_scripts import TEST_AGENT_MODELS
 
 # 테스트에서는 실제 LLM 요청을 전역으로 막는다. 가짜 모델(FunctionModel, TestModel)만 쓴다.
@@ -281,6 +288,7 @@ def fake_external_counter(monkeypatch: pytest.MonkeyPatch) -> FakeExternalCounte
     external = build_external_toolset([fake_external])
     monkeypatch.setitem(TOOLSETS_BY_ORIGIN, TaskOrigin.CHAT, [read_tools, internal_tools, external])
     monkeypatch.setitem(TOOL_PREVIEWS, "fake_external", preview_fake_external)
+    monkeypatch.setitem(EXTERNAL_TOOL_SPECS, "fake_external", FAKE_EXTERNAL_SPEC)
     monkeypatch.setitem(TOOL_LABELS, "fake_external", lambda args: "가짜 외부 도구 실행하는 중")
     return COUNTER
 

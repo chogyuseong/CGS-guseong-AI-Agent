@@ -24,6 +24,7 @@ from app.agent import approvals
 from app.agent.agent import MyAgent
 from app.agent.deps import AgentDeps
 from app.agent.guard import GuardAgent
+from app.agent.plans import PlanDraft
 from app.agent.prompts import automation_instruction
 from app.agent.runner import RunServices, run_task
 from app.agent.toolsets import TOOLSETS_BY_ORIGIN, build_external_toolset, read_tools
@@ -594,10 +595,10 @@ async def test_checker_expires_overdue_approvals(
 
 @pytest.mark.parametrize("origin", [TaskOrigin.SCHEDULE, TaskOrigin.WATCH])
 async def test_automation_tasks_cannot_create_approvals_in_store(db_session: AsyncSession, origin: TaskOrigin) -> None:
+    draft = PlanDraft("create_event", "1", {}, "0" * 64, connection_id=None, target_resource_id=None)
     request = approvals.ApprovalRequest(
         tool_call_id="call-x",
-        tool_name="create_event",
-        args={},
+        plan=draft,
         label="x",
         summary="x",
         verdict=VerdictKind.MATCH,
@@ -605,7 +606,7 @@ async def test_automation_tasks_cannot_create_approvals_in_store(db_session: Asy
         guard_model="x",
     )
     with pytest.raises(ValueError):
-        await approvals.save_requests(db_session, task_id=1, origin=origin, requests=[request])
+        await approvals.save_requests(db_session, task_id=1, user_id=1, origin=origin, requests=[request])
 
 
 @pytest.mark.parametrize("origin", [TaskOrigin.SCHEDULE, TaskOrigin.WATCH])

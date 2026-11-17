@@ -12,6 +12,7 @@ from pydantic_ai import RunContext
 
 from app.agent.approvals import assert_approved
 from app.agent.deps import AgentDeps
+from app.agent.plans import ExternalToolSpec
 from app.agent.results import ToolResult
 
 
@@ -27,6 +28,8 @@ class FakeExternalCounter:
 
 
 COUNTER = FakeExternalCounter()
+# 실행 계획 규격(2단계 보강). 연결이 필요 없고 기존 대상을 가리키지 않는다.
+FAKE_EXTERNAL_SPEC = ExternalToolSpec(version="1")
 
 
 async def fake_external(

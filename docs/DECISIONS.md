@@ -533,3 +533,11 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 시스템 프롬프트의 "ok가 false면" 줄을 status 기준으로 바꾸고 "unknown이면 같은 행동을 다시 하지 말고 확인을 부탁한다"를 더했다.
 - 2026-11-17 AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력은 6단계 보강으로 미룬다. 출력 형식을 바꾸면 모든 가짜 모델 대본과 eval이 함께 바뀌고, needs_clarification(waiting_input)의 쓸모는 실제 모델로 되묻기 품질을 봐야 판단할 수 있다. suggestions 구조화가 6단계 일이라 그때 한 번에 바꾼다. 1단계의 "결과 상태와 모델 설명 분리"는 task 상태를 서버가 정하고(모델 문장과 별개), 실패·취소·한도 초과 답변을 서버 고정 문구로 남기는 지금 구조와 ToolResult.status로 갖춘다.
 - 2026-11-17 화면: 전송 직후 "보내는 중" 판단 함수(pendingBubbleText)는 lib/chat.ts에 있다. onMutate 컨텍스트 방식을 시도했으나 치환 실수로 적용되지 않았고, ref 방식이 더 단순해 그대로 쓴다.- 2026-11-17 (사용자 확인) AgentReply 구조화 출력을 6단계 보강으로 미루는 것을 사용자가 승인했다.
+### 2단계 보강
+- 2026-11-17 EXTERNAL 호출이 승인 대기가 되면 계획 1(action_plans) : operation 1 : 승인 1을 함께 만든다. 계획은 만든 뒤 바꾸지 않고, 실행 인자가 달라지면 새 계획·새 승인이다. operation_id(UUID)는 서버가 만들고 외부 서비스의 멱등성 키로도 쓴다.
+- 2026-11-17 정규화 인자는 도구 자신의 Pydantic 인자 검증기(`tool.function_schema.validator`)로 다시 검증해 기본값까지 채운 JSON이다. 해시는 {도구, 버전, 인자}를 키 정렬 JSON으로 만든 sha256. 승인 카드 문장·감시 에이전트 입력·step.input도 모델의 원래 인자가 아니라 이 값으로 만든다.
+- 2026-11-17 EXTERNAL 도구마다 서버 규격 `ExternalToolSpec(version, provider, target_arg)`를 도구 파일의 SPECS에 두고 `plans.EXTERNAL_TOOL_SPECS`에 모은다. 규격이 없는 EXTERNAL 도구는 계획을 만들지 않고 task를 실패로 끝낸다(fail closed).
+- 2026-11-17 승인 회차(approval_round)는 그 승인을 요청한 run의 `agent_runs.round`다. 고유성은 계획 (task_id, approval_round, tool_call_id), 승인 plan_id·step_id로 건다. 모델이 만든 tool_call_id의 전체 고유 제약(approvals.tool_call_id UNIQUE)은 뺐다(BUILD_SPEC 3.2).
+- 2026-11-17 user_id를 여러 테이블에 두므로 복합 외래 키로 소유자 일치를 DB가 강제한다: action_plans(task_id, user_id)→tasks(id, user_id), operations(plan_id, user_id)→action_plans(id, user_id), execution_receipts(operation_id, user_id)→operations(id, user_id).
+- 2026-11-17 결정 마감은 approvals.expires_at(만든 시각+30분)이 기준이고 계획의 decision_expires_at은 같은 값의 기록이다. 승인 뒤 실행 유효 시간(승인+5분)은 계획이 아니라 approvals.execute_before에 둔다. 계획은 결정 전에 만들어 바꾸지 않는 값이고, 실행 유효 시간은 결정에서 생기는 값이라서다.
+- 2026-11-17 connection_id는 외래 키로 걸지 않는다. 연결을 지우거나 다시 연결해도 계획에 적힌 값이 남아야 실행기가 "연결이 바뀌었다"를 알아볼 수 있다. Google 계정 식별값(provider_account_reference)은 지금 저장하는 곳이 없어 비워 둔다(4단계 OAuth 보강 때).

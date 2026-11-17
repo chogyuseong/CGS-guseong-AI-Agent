@@ -28,7 +28,8 @@ from app.models.enums import (
 class Task(TimestampedTable):
     __tablename__ = "tasks"
     # 1단계 보강: 같은 사용자가 같은 client_request_id로 다시 보내면 새 task를 만들지 않는다(BUILD_SPEC 9.1).
-    __table_args__ = (UniqueConstraint("user_id", "client_request_id"),)
+    # (id, user_id) 고유: action_plans가 (task_id, user_id) 복합 외래 키로 소유자 일치를 강제한다(2단계 보강).
+    __table_args__ = (UniqueConstraint("user_id", "client_request_id"), UniqueConstraint("id", "user_id"))
 
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -88,10 +89,20 @@ class Step(TimestampedTable):
 
 
 class Approval(TimestampedTable):
+    """실행 계획 하나에 대한 사용자 결정(2단계 보강: 계획·승인 회차별 하나).
+
+    expires_at은 결정 마감(만든 시각 + 30분)이고 계획의 decision_expires_at과 같은 값으로 만든다.
+    execute_before는 승인한 시각 + 5분이다. 그 뒤에는 실행하지 않고 다시 승인받는다(BUILD_SPEC 3.4).
+    plan_id가 없는 행은 2단계 보강 전에 만든 기록이다.
+    """
+
     __tablename__ = "approvals"
 
     step_id: Mapped[int] = mapped_column(ForeignKey("steps.id", ondelete="CASCADE"), unique=True)
-    tool_call_id: Mapped[str] = mapped_column(String(200), unique=True)
+    plan_id: Mapped[int | None] = mapped_column(ForeignKey("action_plans.id", ondelete="CASCADE"), unique=True)
+    approval_round: Mapped[int] = mapped_column(Integer, server_default="1")
+    # 모델이 만든 값이라 전체에서 유일하다고 보지 않는다(BUILD_SPEC 3.2). 고유성은 plan_id·step_id로 건다.
+    tool_call_id: Mapped[str] = mapped_column(String(200))
     status: Mapped[ApprovalStatus] = mapped_column(
         enum_type(ApprovalStatus, "approval_status"), server_default=ApprovalStatus.PENDING.value
     )
@@ -101,6 +112,7 @@ class Approval(TimestampedTable):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now() + interval '30 minutes'")
     )
+    execute_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class GuardCheck(TimestampedTable):

@@ -21,6 +21,7 @@ from pydantic_ai.tools import ToolDefinition, ToolFuncEither
 from pydantic_ai.toolsets import FunctionToolset
 
 from app.agent.deps import AgentDeps
+from app.agent.plans import EXTERNAL_TOOL_SPECS
 from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
 from app.models.enums import RiskLevel, TaskOrigin
 from app.tools import automation, gcal, gmail, memories, notes, places, weather, websearch
@@ -118,6 +119,8 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
 # (5단계 remember 검사가 도구 모듈에서 쓰므로 순환 import를 피해 그쪽으로 옮겼다. 여기서는 다시 내보내기만 한다.)
 # EXTERNAL 도구 이름 → preview 함수(승인 카드 문장). 일정 도구 셋은 app/tools/gcal.py의 PREVIEWS.
 TOOL_PREVIEWS: dict[str, PreviewFunc] = {**gcal.PREVIEWS}
+# EXTERNAL 도구의 실행 계획 규격(버전·연결·대상 인자). 여기에 없는 EXTERNAL 도구는 계획을 만들지 않는다(plans.py).
+EXTERNAL_TOOL_SPECS.update(gcal.SPECS)
 
 
 def toolsets_for(origin: TaskOrigin) -> list[FunctionToolset[AgentDeps]]:
