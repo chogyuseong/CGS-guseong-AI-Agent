@@ -50,6 +50,8 @@
 - API 검사: `pnpm api:check` (ruff check, ruff format --check, pyright)
 - 웹 테스트·검사: apps/web의 package.json 스크립트를 따른다
 - API를 바꾸면: `pnpm --dir apps/web gen:api`
+  (API 서버 없이: apps/api에서 `uv run python -c "import json,sys; from app.main import create_app; json.dump(create_app().openapi(), open(sys.argv[1],'w',encoding='utf-8'), ensure_ascii=False)" 파일.json`
+  뒤 apps/web에서 `pnpm exec openapi-typescript 파일.json --output lib/api/schema.d.ts`)
 - eval(apps/api에서): `uv run python -m evals.run_evals`는 예상 비용만 보여 준다(모델 호출 없음).
   실제 실행은 `uv run python -m evals.run_evals --run --email 이메일 --confirm-cost`이고 비용이 든다 — 사용자 확인 후에만.
   dataset.yaml이 "초안 — 사용자 확인 전"이면 거부한다. 버리는 DB `myagent_eval`을 만들고 지운다. 자세한 것은 docs/EVALS.md.

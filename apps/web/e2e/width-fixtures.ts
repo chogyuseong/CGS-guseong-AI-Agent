@@ -78,6 +78,11 @@ function approval(id: number, stepId: number, verdict: "match" | "mismatch") {
         ? { verdict, reason: "요청한 일정과 같습니다." }
         : { verdict, reason: `요청은 일정을 만드는 것인데 지우려고 합니다. ${LONG_SENTENCE}` },
     needs_mismatch_confirmation: verdict === "mismatch",
+    target: "Google 캘린더(기본 캘린더)",
+    account: "연결된 Google 계정",
+    execute_before: null,
+    operation_status: "awaiting_approval",
+    receipt_confirmed: false,
   };
 }
 

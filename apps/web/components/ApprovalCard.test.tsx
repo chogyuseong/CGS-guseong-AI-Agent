@@ -16,6 +16,11 @@ function makeApproval(overrides: Partial<Approval> = {}): Approval {
     decided_at: null,
     guard: { verdict: "match", reason: "요청한 일정과 같습니다." },
     needs_mismatch_confirmation: false,
+    target: "Google 캘린더(기본 캘린더)",
+    account: "연결된 Google 계정",
+    execute_before: null,
+    operation_status: "awaiting_approval",
+    receipt_confirmed: false,
     ...overrides,
   };
 }
@@ -28,8 +33,9 @@ describe("ApprovalCard", () => {
     const card = screen.getByRole("article", { name: "승인 요청" });
 
     expect(card).toHaveTextContent("'저녁 약속' 일정을 기본 캘린더에 만듭니다.");
-    expect(card).toHaveTextContent("요청과 일치");
+    expect(card).toHaveTextContent("AI 검토: 일치로 추정");
     expect(card).toHaveTextContent(/2[45]분 남음/);
+    expect(card).toHaveTextContent("승인하면 5분 안에 실행합니다");
     expect(within(card).getByRole("button", { name: "승인" })).toBeEnabled();
     expect(within(card).getByRole("button", { name: "거절" })).toBeEnabled();
     // 도구 입력값은 접어 둔다(펼치면 보인다).
@@ -84,7 +90,7 @@ describe("ApprovalCard", () => {
         onDecide={vi.fn()}
       />,
     );
-    expect(screen.getByText("확인 필요")).toBeInTheDocument();
+    expect(screen.getByText("AI 검토: 확인 필요")).toBeInTheDocument();
 
     rerender(
       <ApprovalCard
@@ -95,8 +101,51 @@ describe("ApprovalCard", () => {
         onDecide={vi.fn()}
       />,
     );
-    expect(screen.getByText("요청과 다를 수 있음")).toBeInTheDocument();
+    expect(screen.getByText("AI 검토: 요청과 다를 수 있음")).toBeInTheDocument();
     expect(screen.getByText("요청에 없는 날짜입니다.")).toBeInTheDocument();
+  });
+
+  it("대상과 계정을 감시 배지보다 앞에, 할 일 문장과 함께 보여 준다", () => {
+    render(<ApprovalCard approval={makeApproval()} onDecide={vi.fn()} />);
+    const card = screen.getByRole("article", { name: "승인 요청" });
+    const text = card.textContent ?? "";
+
+    expect(card).toHaveTextContent("대상Google 캘린더(기본 캘린더)");
+    expect(card).toHaveTextContent("계정연결된 Google 계정");
+    expect(text.indexOf("대상")).toBeLessThan(text.indexOf("AI 검토"));
+  });
+
+  it("계정이 필요 없는 도구면 계정 줄을 보여 주지 않는다", () => {
+    render(<ApprovalCard approval={makeApproval({ account: null })} onDecide={vi.fn()} />);
+
+    expect(screen.queryByText("계정")).not.toBeInTheDocument();
+  });
+
+  it("영수증이 확인된 승인만 '실행 완료'로 보여 준다", () => {
+    const { rerender } = render(
+      <ApprovalCard
+        approval={makeApproval({
+          status: "approved",
+          operation_status: "succeeded",
+          receipt_confirmed: true,
+        })}
+        onDecide={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("실행 완료 · 외부 서비스에서 확인함")).toBeInTheDocument();
+
+    rerender(
+      <ApprovalCard
+        approval={makeApproval({
+          status: "approved",
+          operation_status: "succeeded",
+          receipt_confirmed: false,
+        })}
+        onDecide={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/실행 완료/)).not.toBeInTheDocument();
+    expect(screen.getByText(/결과 확인 필요/)).toBeInTheDocument();
   });
 
   it("mismatch면 승인 전에 한 번 더 묻고, 확인하면 confirmMismatch=true로 보낸다", () => {

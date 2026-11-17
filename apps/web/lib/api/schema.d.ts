@@ -531,6 +531,15 @@ export interface components {
             guard: components["schemas"]["GuardOut"] | null;
             /** Needs Mismatch Confirmation */
             needs_mismatch_confirmation: boolean;
+            /** Target */
+            target: string;
+            /** Account */
+            account: string | null;
+            /** Execute Before */
+            execute_before: string | null;
+            operation_status: components["schemas"]["OperationStatus"] | null;
+            /** Receipt Confirmed */
+            receipt_confirmed: boolean;
         };
         /**
          * ApprovalStatus
@@ -744,6 +753,14 @@ export interface components {
          * @enum {string}
          */
         MessageRole: "user" | "assistant";
+        /**
+         * OperationStatus
+         * @description 외부 작업 하나(operation)의 상태(2단계 보강, BUILD_SPEC 4.2). 전이 표는 docs/STATE_MACHINES.md(9단계).
+         *
+         *     succeeded는 영수증(execution_receipts)이 있어야 한다. unknown은 실패가 아니다(실행됐는지 모름).
+         * @enum {string}
+         */
+        OperationStatus: "planned" | "awaiting_approval" | "approved" | "executing" | "succeeded" | "failed" | "unknown" | "reconciling" | "rejected" | "expired" | "stale" | "cancelled";
         /**
          * PushConfigOut
          * @description GET /api/push/public-key 응답.

@@ -8,16 +8,17 @@
 - 오류 본문은 {"detail": {"code", "message"}}이고 OpenAPI에 ApprovalErrorOut 모델로 드러난다.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent import approvals
+from app.agent import approvals, plans
 from app.agent.workflows import start_resume_if_waiting
 from app.db import DbSession
-from app.models import Approval, GuardCheck, Step, Task
+from app.models import ActionPlan, Approval, ExecutionReceipt, GuardCheck, Operation, Step, Task
 from app.models.enums import VerdictKind
 from app.schemas.tasks import ApprovalDecisionOut, ApprovalErrorOut, ApprovalOut, ApproveRequest, GuardOut
 from app.security import CurrentUser
@@ -61,7 +62,34 @@ ERROR_MESSAGES = {
 }
 
 
-def approval_view(approval: Approval, step: Step, guard: GuardCheck | None) -> ApprovalOut:
+@dataclass(frozen=True)
+class CardRow:
+    """카드 한 장에 필요한 행들. 계획·operation·영수증은 2단계 보강 전 승인에는 없다(None)."""
+
+    approval: Approval
+    step: Step
+    guard: GuardCheck | None
+    plan: ActionPlan | None
+    operation: Operation | None
+    receipt_id: int | None
+
+
+def account_text(plan: ActionPlan | None) -> str | None:
+    """연결이 필요한 도구면 계획 때 연결 상태. 계정 주소는 아직 저장하지 않는다(4단계 OAuth 보강)."""
+    spec = plans.EXTERNAL_TOOL_SPECS.get(plan.tool_name) if plan else None
+    if plan is None or spec is None or spec.provider is None:
+        return None
+    service = plans.PROVIDER_LABELS.get(spec.provider, spec.provider)
+    return f"연결된 {service} 계정" if plan.connection_id is not None else f"{service} 계정이 연결되어 있지 않음"
+
+
+def target_text(plan: ActionPlan | None) -> str:
+    spec = plans.EXTERNAL_TOOL_SPECS.get(plan.tool_name) if plan else None
+    return spec.target_label if spec else plans.ExternalToolSpec(version="0").target_label
+
+
+def approval_view(row: CardRow) -> ApprovalOut:
+    approval, step, guard = row.approval, row.step, row.guard
     return ApprovalOut(
         id=approval.id,
         step_id=step.id,
@@ -73,31 +101,37 @@ def approval_view(approval: Approval, step: Step, guard: GuardCheck | None) -> A
         decided_at=approval.decided_at,
         guard=GuardOut(verdict=guard.verdict, reason=guard.reason) if guard else None,
         needs_mismatch_confirmation=guard is not None and guard.verdict == VerdictKind.MISMATCH,
+        target=target_text(row.plan),
+        account=account_text(row.plan),
+        execute_before=approval.execute_before,
+        operation_status=row.operation.status if row.operation else None,
+        receipt_confirmed=row.receipt_id is not None,
     )
 
 
-def approval_query() -> Select[Approval, Step, GuardCheck]:
-    """승인 + step + 감시 결과(없으면 None, outer join)."""
+def approval_query() -> Select[Approval, Step, GuardCheck, ActionPlan, Operation, int]:
+    """승인 + step + 감시 결과 + 계획·operation·영수증 id(없으면 None, outer join)."""
     return (
-        select(Approval, Step, GuardCheck)
+        select(Approval, Step, GuardCheck, ActionPlan, Operation, ExecutionReceipt.id)
         .join(Step, Step.id == Approval.step_id)
         .outerjoin(GuardCheck, GuardCheck.step_id == Step.id)
+        .outerjoin(ActionPlan, ActionPlan.id == Approval.plan_id)
+        .outerjoin(Operation, Operation.plan_id == ActionPlan.id)
+        .outerjoin(ExecutionReceipt, ExecutionReceipt.operation_id == Operation.id)
     )
 
 
 async def approvals_of_task(session: AsyncSession, task_id: int) -> list[ApprovalOut]:
     """작업의 승인 카드 목록(step 순서). 호출하는 쪽이 작업 소유자를 이미 확인했다."""
     rows = await session.execute(approval_query().where(Step.task_id == task_id).order_by(Step.order))
-    return [approval_view(approval, step, guard) for approval, step, guard in rows]
+    return [approval_view(CardRow(*row)) for row in rows]
 
 
 async def decision_view(session: AsyncSession, decision: approvals.Decision) -> ApprovalDecisionOut:
     session.expire_all()  # 재개 워크플로가 다른 세션에서 바꾼 값을 다시 읽는다
-    approval, step, guard = (await session.execute(approval_query().where(Approval.id == decision.approval_id))).one()
+    row = (await session.execute(approval_query().where(Approval.id == decision.approval_id))).one()
     task = await session.get_one(Task, decision.task_id)
-    return ApprovalDecisionOut(
-        approval=approval_view(approval, step, guard), changed=decision.changed, task_status=task.status
-    )
+    return ApprovalDecisionOut(approval=approval_view(CardRow(*row)), changed=decision.changed, task_status=task.status)
 
 
 async def decide_and_resume(

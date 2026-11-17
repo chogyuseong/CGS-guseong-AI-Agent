@@ -4,6 +4,7 @@ import {
   applyDecision,
   approvalErrorCode,
   approvalErrorMessage,
+  executionText,
   formatRemaining,
   NETWORK_ERROR_CODE,
 } from "./approvals";
@@ -49,6 +50,11 @@ describe("결정 결과를 task 캐시에 바로 반영", () => {
     decided_at: null,
     guard: null,
     needs_mismatch_confirmation: false,
+    target: "Google 캘린더(기본 캘린더)",
+    account: null,
+    execute_before: null,
+    operation_status: "awaiting_approval",
+    receipt_confirmed: false,
   };
   const other: Approval = { ...pending, id: 6 };
   const task: Task = {
@@ -88,5 +94,46 @@ describe("만료까지 남은 시간", () => {
   it("1분이 안 남았거나 지났으면 그렇게 알려 준다", () => {
     expect(formatRemaining(expiresAt, at("2026-11-17T03:29:30Z"))).toBe("1분 미만 남음");
     expect(formatRemaining(expiresAt, at("2026-11-17T03:31:00Z"))).toBe("만료 시간이 지났습니다");
+  });
+});
+
+describe("실행 결과 문구(영수증 기준)", () => {
+  const base = {
+    status: "approved",
+    operation_status: "approved",
+    receipt_confirmed: false,
+    execute_before: null,
+  } as const;
+
+  it("영수증이 있을 때만 실행 완료라고 한다", () => {
+    expect(executionText({ ...base, operation_status: "succeeded", receipt_confirmed: true })).toBe(
+      "실행 완료 · 외부 서비스에서 확인함",
+    );
+    expect(
+      executionText({ ...base, operation_status: "succeeded", receipt_confirmed: false }),
+    ).toMatch(/^결과 확인 필요/);
+  });
+
+  it("상태마다 한국어로 알려 준다", () => {
+    expect(executionText({ ...base, operation_status: "executing" })).toBe("실행 중");
+    expect(executionText({ ...base, operation_status: "unknown" })).toMatch(/^결과 확인 필요/);
+    expect(executionText({ ...base, operation_status: "reconciling" })).toMatch(/^결과 확인 필요/);
+    expect(executionText({ ...base, operation_status: "failed" })).toBe("실행하지 못했습니다");
+    expect(executionText({ ...base, operation_status: "expired" })).toBe(
+      "승인 후 실행 가능 시간이 지나 실행하지 않았습니다",
+    );
+    expect(executionText({ ...base, operation_status: "stale" })).toBe(
+      "도구가 바뀌어 실행하지 않았습니다. 다시 요청해 주세요",
+    );
+  });
+
+  it("승인했지만 아직 실행 전이면 실행 마감 시각을 알려 주고, 결정 전·거절·옛 승인은 null", () => {
+    const approved = { ...base, execute_before: "2026-11-17T03:06:00Z" };
+    expect(executionText(approved)).toMatch(/까지 실행합니다$/);
+    expect(
+      executionText({ ...base, status: "pending", operation_status: "awaiting_approval" }),
+    ).toBeNull();
+    expect(executionText({ ...base, status: "rejected", operation_status: "rejected" })).toBeNull();
+    expect(executionText({ ...base, operation_status: null })).toBeNull();
   });
 });

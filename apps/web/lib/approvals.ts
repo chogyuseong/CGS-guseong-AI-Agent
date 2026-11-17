@@ -79,6 +79,34 @@ export function formatRemaining(expiresAt: string, now: number): string {
   return `${Math.floor(remainingMs / 60_000)}분 남음`;
 }
 
+// 2단계 보강: 승인 뒤 외부 실행 결과 한 줄. "실행 완료"는 영수증(receipt_confirmed)이 있을 때만이다(절대 원칙 10).
+// 결정 전·거절·작업 취소, 계획이 없는 옛 승인은 null(카드 머리의 상태로 충분하다).
+type ExecutionFields = Pick<
+  Approval,
+  "status" | "operation_status" | "receipt_confirmed" | "execute_before"
+>;
+const UNCONFIRMED = "결과 확인 필요 · 실행됐는지 확인하지 못했습니다";
+const EXECUTION_TEXTS: Partial<Record<NonNullable<Approval["operation_status"]>, string>> = {
+  executing: "실행 중",
+  unknown: UNCONFIRMED,
+  reconciling: UNCONFIRMED,
+  failed: "실행하지 못했습니다",
+  expired: "승인 후 실행 가능 시간이 지나 실행하지 않았습니다",
+  stale: "도구가 바뀌어 실행하지 않았습니다. 다시 요청해 주세요",
+};
+
+export function executionText(approval: ExecutionFields): string | null {
+  const operation = approval.operation_status;
+  if (approval.status !== "approved" || operation === null) return null;
+  if (operation === "succeeded") {
+    return approval.receipt_confirmed ? "실행 완료 · 외부 서비스에서 확인함" : UNCONFIRMED;
+  }
+  if (operation === "approved" && approval.execute_before) {
+    return `${formatExpiryTime(approval.execute_before)}까지 실행합니다`;
+  }
+  return EXECUTION_TEXTS[operation] ?? null;
+}
+
 export function formatExpiryTime(expiresAt: string): string {
   return new Date(expiresAt).toLocaleTimeString("ko-KR", {
     timeZone: "Asia/Seoul",

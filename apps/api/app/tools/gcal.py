@@ -403,10 +403,15 @@ LABELS = {
     "delete_event": lambda args: "캘린더 일정 삭제하는 중",
 }
 # 실행 계획 규격(2단계 보강, app/agent/plans.py). 보내는 요청 모양이 바뀌면 version을 올린다.
+CALENDAR_TARGET = "Google 캘린더(기본 캘린더)"
 SPECS = {
-    "create_event": ExternalToolSpec(version="1", provider=google_auth.PROVIDER),
-    "update_event": ExternalToolSpec(version="1", provider=google_auth.PROVIDER, target_arg="event_id"),
-    "delete_event": ExternalToolSpec(version="1", provider=google_auth.PROVIDER, target_arg="event_id"),
+    "create_event": ExternalToolSpec("1", provider=google_auth.PROVIDER, target_label=CALENDAR_TARGET),
+    "update_event": ExternalToolSpec(
+        "1", provider=google_auth.PROVIDER, target_arg="event_id", target_label=CALENDAR_TARGET
+    ),
+    "delete_event": ExternalToolSpec(
+        "1", provider=google_auth.PROVIDER, target_arg="event_id", target_label=CALENDAR_TARGET
+    ),
 }
 PREVIEWS = {
     "create_event": preview_create_event,

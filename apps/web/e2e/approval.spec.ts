@@ -27,6 +27,11 @@ function approval(status: "pending" | "approved", guard: Guard) {
     decided_at: status === "pending" ? null : new Date().toISOString(),
     guard,
     needs_mismatch_confirmation: guard.verdict === "mismatch",
+    target: "Google 캘린더(기본 캘린더)",
+    account: "연결된 Google 계정",
+    execute_before: status === "pending" ? null : new Date(Date.now() + 5 * 60_000).toISOString(),
+    operation_status: status === "pending" ? "awaiting_approval" : "succeeded",
+    receipt_confirmed: status !== "pending",
   };
 }
 
@@ -141,7 +146,8 @@ test("테스트 15: 360px에서 승인 카드가 보이고, 승인하면 버튼�
   const card = await sendRequest(page);
 
   await expect(card).toContainText(SUMMARY);
-  await expect(card).toContainText("요청과 일치");
+  await expect(card).toContainText("AI 검토: 일치로 추정");
+  await expect(card).toContainText("Google 캘린더(기본 캘린더)");
   await expect(card).toContainText(/분 남음/);
   const approve = card.getByRole("button", { name: "승인", exact: true });
   const reject = card.getByRole("button", { name: "거절", exact: true });
@@ -169,7 +175,7 @@ test("테스트 15(mismatch): 승인 전에 한 번 더 묻고, 확인하면 con
   const api = await fakeApprovalApi(page, { verdict: "mismatch", reason });
   const card = await sendRequest(page);
 
-  await expect(card).toContainText("요청과 다를 수 있음");
+  await expect(card).toContainText("AI 검토: 요청과 다를 수 있음");
   await expect(card).toContainText(reason);
 
   await card.getByRole("button", { name: "승인", exact: true }).click();

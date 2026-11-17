@@ -51,6 +51,11 @@ function approval(phase: Phase) {
     decided_at: pending ? null : new Date().toISOString(),
     guard: { verdict: "match", reason: "요청과 같습니다." },
     needs_mismatch_confirmation: false,
+    target: "Google 캘린더(기본 캘린더)",
+    account: "연결된 Google 계정",
+    execute_before: pending ? null : new Date(Date.now() + 5 * 60_000).toISOString(),
+    operation_status: pending ? "awaiting_approval" : "approved",
+    receipt_confirmed: false,
   };
 }
 

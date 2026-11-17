@@ -46,11 +46,17 @@ class ExternalToolSpec:
     version: 도구 동작(보내는 요청)의 버전. 계획에 적히고 실행 때 같아야 한다.
     provider: 실행에 필요한 연결(connections.provider). 없으면 None.
     target_arg: 기존 대상을 가리키는 인자 이름(예: update_event의 event_id). 새로 만드는 도구는 None.
+    target_label: 승인 카드에 보일 "어디에 하는 일인지"(예: Google 캘린더(기본 캘린더)).
     """
 
     version: str
     provider: str | None = None
     target_arg: str | None = None
+    target_label: str = "외부 서비스"
+
+
+# 승인 카드의 계정 줄에 쓰는 서비스 이름(connections.provider → 화면 이름).
+PROVIDER_LABELS = {"google": "Google"}
 
 
 EXTERNAL_TOOL_SPECS: dict[str, ExternalToolSpec] = {}

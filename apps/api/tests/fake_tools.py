@@ -42,7 +42,7 @@ class FakeServiceHolder:
 COUNTER = FakeExternalCounter()
 HOLDER = FakeServiceHolder()
 # 실행 계획 규격(2단계 보강). 연결이 필요 없고 기존 대상을 가리키지 않는다.
-FAKE_EXTERNAL_SPEC = ExternalToolSpec(version="1")
+FAKE_EXTERNAL_SPEC = ExternalToolSpec(version="1", target_label="가짜 외부 서비스")
 PROVIDER = "fake"
 
 

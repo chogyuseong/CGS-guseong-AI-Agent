@@ -5,7 +5,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import ApprovalStatus, RiskLevel, StepStatus, TaskOrigin, TaskStatus, VerdictKind
+from app.models.enums import (
+    ApprovalStatus,
+    OperationStatus,
+    RiskLevel,
+    StepStatus,
+    TaskOrigin,
+    TaskStatus,
+    VerdictKind,
+)
 
 
 class StepOut(BaseModel):
@@ -50,6 +58,16 @@ class ApprovalOut(BaseModel):
     # true면 승인 전에 "요청과 다를 수 있습니다. 그래도 진행할까요?"를 한 번 더 묻고,
     # 승인 요청 본문에 confirm_mismatch=true를 넣어야 한다(없으면 409 mismatch_confirmation_required).
     needs_mismatch_confirmation: bool
+    # 2단계 보강: 어디에 하는 일인지(예: "Google 캘린더(기본 캘린더)"). 계획이 없는 옛 승인은 "외부 서비스".
+    target: str
+    # 연결이 필요한 도구면 계획을 만들 때의 연결 상태 문장, 아니면 null.
+    account: str | None
+    # 승인 뒤 이 시각까지 실행한다(승인 전·거절이면 null). 지나면 실행하지 않고 다시 승인받는다.
+    execute_before: datetime | None
+    # 외부 작업 상태(BUILD_SPEC 4.2). 계획이 없는 옛 승인은 null.
+    operation_status: OperationStatus | None
+    # 외부 서비스 처리 영수증이 있으면 true. 화면의 "실행 완료"는 이 값이 true일 때만 보인다.
+    receipt_confirmed: bool
 
 
 class ApproveRequest(BaseModel):

@@ -9,6 +9,7 @@ import {
   ApprovalActionError,
   type ApprovalStatus,
   type Decision,
+  executionText,
   formatExpiryTime,
   formatRemaining,
   MISMATCH_CODE,
@@ -40,11 +41,14 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground shadow-sm"
     >
       <CardHeader status={status} />
+      {/* 2단계 보강: 날짜·대상·계정·변경 전후를 감시 배지보다 먼저, 더 크게 보여 준다(BUILD_SPEC 3.6). */}
+      <TargetLines target={approval.target} account={approval.account} />
       {/* summary에는 「」로 감싼 외부 문자열(일정 제목)이 섞여 올 수 있다. 텍스트로만 그리고 긴 글자는 어디서든 줄을 바꾼다. */}
-      <p className="text-base wrap-anywhere">{approval.summary}</p>
+      <p className="text-base font-medium wrap-anywhere">{approval.summary}</p>
       <GuardVerdictView guard={approval.guard} />
       <ToolInputDetails toolName={approval.tool_name} input={approval.tool_input} />
       {status === "pending" && <ExpiryLine expiresAt={approval.expires_at} />}
+      <ExecutionLine approval={approval} />
       {status === "pending" && <DecisionArea approval={approval} flow={flow} />}
       {flow.error && (
         <p role="alert" className="text-sm text-destructive">
@@ -187,7 +191,8 @@ function CardHeader({ status }: { status: ApprovalStatus }) {
   );
 }
 
-// 감시 에이전트 판정 배지: match=초록 '요청과 일치', mismatch=빨강 경고와 이유, unsure=회색 '확인 필요'.
+// 감시 에이전트 판정 배지(BUILD_SPEC 3.6 문구): match=초록 'AI 검토: 일치로 추정', mismatch=빨강 'AI 검토: 요청과 다를 수 있음'과
+// 이유, unsure=회색 'AI 검토: 확인 필요'. AI의 추정이므로 날짜·대상 줄보다 작게 둔다.
 function GuardVerdictView({ guard }: { guard: Approval["guard"] }) {
   if (guard === null) {
     return <Badge variant="secondary">감시 결과 없음</Badge>;
@@ -208,7 +213,7 @@ function GuardBadge({ verdict }: { verdict: NonNullable<Approval["guard"]>["verd
     return (
       <Badge className="bg-green-600/10 text-green-700 dark:text-green-400">
         <ShieldCheck aria-hidden="true" />
-        요청과 일치
+        AI 검토: 일치로 추정
       </Badge>
     );
   }
@@ -216,14 +221,14 @@ function GuardBadge({ verdict }: { verdict: NonNullable<Approval["guard"]>["verd
     return (
       <Badge variant="destructive">
         <ShieldX aria-hidden="true" />
-        요청과 다를 수 있음
+        AI 검토: 요청과 다를 수 있음
       </Badge>
     );
   }
   return (
     <Badge variant="secondary">
       <ShieldQuestionMark aria-hidden="true" />
-      확인 필요
+      AI 검토: 확인 필요
     </Badge>
   );
 }
@@ -260,7 +265,7 @@ function InputRow({ name, text }: { name: string; text: string }) {
   );
 }
 
-// 만료 시각과 남은 시간. 30초마다 다시 계산한다.
+// 만료 시각과 남은 시간. 30초마다 다시 계산한다. 승인 뒤 실행 유효 시간(5분)도 함께 알린다.
 function ExpiryLine({ expiresAt }: { expiresAt: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -268,8 +273,34 @@ function ExpiryLine({ expiresAt }: { expiresAt: string }) {
     return () => clearInterval(timer);
   }, []);
   return (
-    <p className="text-xs text-muted-foreground">
-      {formatExpiryTime(expiresAt)}까지 결정해 주세요 · {formatRemaining(expiresAt, now)}
-    </p>
+    <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      <p>
+        {formatExpiryTime(expiresAt)}까지 결정해 주세요 · {formatRemaining(expiresAt, now)}
+      </p>
+      <p>승인하면 5분 안에 실행합니다. 그 뒤에는 다시 승인받습니다.</p>
+    </div>
   );
+}
+
+// 어디에 하는 일인지와 어느 계정으로 하는지. 계정이 필요 없는 도구면 계정 줄이 없다.
+function TargetLines({ target, account }: { target: string; account: string | null }) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-sm">
+      <dt className="text-muted-foreground">대상</dt>
+      <dd className="font-medium wrap-anywhere">{target}</dd>
+      {account !== null && (
+        <>
+          <dt className="text-muted-foreground">계정</dt>
+          <dd className="font-medium wrap-anywhere">{account}</dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
+// 승인 뒤 외부 실행 결과(영수증 기준). 보여 줄 것이 없으면 그리지 않는다.
+function ExecutionLine({ approval }: { approval: Approval }) {
+  const text = executionText(approval);
+  if (text === null) return null;
+  return <p className="text-sm font-medium">{text}</p>;
 }

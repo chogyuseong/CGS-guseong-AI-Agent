@@ -26,6 +26,11 @@ function approvalWith(status: Approval["status"]): Approval {
     decided_at: null,
     guard: null,
     needs_mismatch_confirmation: false,
+    target: "외부 서비스",
+    account: null,
+    execute_before: null,
+    operation_status: null,
+    receipt_confirmed: false,
   };
 }
 

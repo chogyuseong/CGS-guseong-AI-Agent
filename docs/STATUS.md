@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 2단계 보강 진행 중(2026-11-17). (1) 실행 계획 저장, (2) 실행기 검사·영수증, (3) 가짜 외부 서비스 끝. 다음은 (4) 승인 카드 화면.
+현재 단계: BUILD_SPEC 기준 2단계 보강 완료(2026-11-17). 다음은 3단계 보강(장애 주입·복구·푸시).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -10,22 +10,28 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   docs/BUILD_SPEC.md·STATUS.md·VERSIONS.md
 - 1단계 보강(2026-11-17): client_request_id, SMART 전환 제거·호출 제한 시간, 호출별 예산 예약·정산,
   task 상태 12개·취소 API·agent_runs, ToolResult 구조(succeeded/failed/unknown)
+- 2단계 보강(2026-11-17): 실행 계획(action_plans)·operations·execution_receipts, 인자 정규화·해시 고정,
+  실행기 DB 검사 전부(executor.begin_execution), 저장된 인자로만 실행(override_args), 영수증 기준 완료,
+  재시작과 무관한 가짜 외부 서비스(tests/fake_service.py), 승인 카드(대상·계정·실행 유효 시간·AI 검토 문구·실행 결과)
 
-실제 검증한 항목(2026-11-17, 두 번째 PC, 1단계 보강 끝):
-- API pytest 400개, ruff·pyright 0건, alembic check 차이 없음, 새 마이그레이션 업·다운·업 확인
-- 웹 Biome 0건, tsc, Vitest 263개, Playwright 37개(실제 API 서버 + Chrome)
-- 0단계 완료 증거와 해당 테스트:
-  - health: tests/test_health.py
-  - 인증·세션: tests/test_auth.py(로그인, 로그아웃 후 복사한 쿠키 거부, 세션 교체, 해시만 저장, 만료, 실패 제한)
-  - Origin 검사: tests/test_auth.py::test_post_with_other_origin_returns_403(다른 출처, Origin 없음)
-  - 사용자 간 접근 차단: test_conversations, test_chat_api, test_approvals, test_automation_api, test_memories의 other_users 테스트
-  - 360px 로그인 후 탭: e2e/login.spec.ts, e2e/widths.spec.ts
-  - 생성된 타입으로 auth/me: apps/web/lib/auth.ts(openapi-fetch) + e2e 로그인
-  - DBOS 복구: tests/test_workflows.py(가짜 모델). 실제 프로세스 강제 종료는 docs/DURABILITY-CHECK.md 절차(이번엔 다시 하지 않음)
-  - 버전: docs/VERSIONS.md / 비밀 파일: `.env`는 .gitignore 대상(git check-ignore 확인)
+실제 검증한 항목(2026-11-17, 두 번째 PC, 2단계 보강 끝):
+- API pytest 436개, ruff·pyright 0건, 새 마이그레이션(292bb7e138ff) 업·다운·업과 alembic check 차이 없음
+- 웹 Biome 0건, tsc, Vitest 269개, Playwright 37개(실제 API 서버 + Chrome, 360px)
+- 2단계 완료 증거(BUILD_SPEC 13절)와 해당 테스트:
+  - 승인 전 외부 호출 0회: test_fake_service::test_no_external_call_before_approval, test_approvals 테스트 2
+  - 중복 승인 후 외부 효과 1건: test_fake_service::test_double_approve_makes_one_effect_keyed_by_operation,
+    test_concurrent_approve_makes_one_effect
+  - 승인 인자 변경 거부: test_executor::test_direct_call_with_changed_args_is_refused,
+    test_resume_uses_stored_args_even_if_history_was_altered(기록 변조에도 승인된 인자로 실행)
+  - 다른 사용자 승인 사용 거부: test_executor::test_other_users_context_cannot_use_plan, test_approvals::test_other_users_approval_is_not_found
+  - 만료 승인 거부: test_approvals::test_expired_approval_cannot_be_approved, test_executor::test_execute_window_expired_does_not_run
+  - 재개 등록 전 서버 종료 후 복구: test_fake_service::test_resume_recovered_after_crash_before_resume_registration
+  - 360px 승인 카드: e2e/approval.spec.ts(테스트 15), e2e/widths.spec.ts
+- 0·1단계 완료 증거의 테스트는 그대로 통과(위 전체 실행에 포함)
 
 미실행 항목과 이유:
-- 실제 프로세스 강제 종료 복구: 0단계 보강에서 워크플로 코드를 바꾸지 않아 다시 하지 않음
+- 실제 프로세스 강제 종료 복구: 워크플로 단계 구성(durable_step 이름·순서)을 바꾸지 않아 다시 하지 않음.
+  외부 처리 직후 프로세스 종료 같은 장애 주입은 3단계 보강 범위
 - HTTPS 개발 접속(폰): 터널 방법만 문서(docs/PUSH-CHECK.md). 실기기 확인은 사용자
 
 사용자 확인이 필요한 항목:
@@ -34,7 +40,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 2단계 보강(아래 차이 목록의 2단계). 1단계에서 남긴 것: AgentReply(6단계로)
+다음 시작 지점: 3단계 보강(아래 차이 목록의 3단계). 남긴 것: AgentReply(6단계로), 대상 버전 ETag·안정적인 event ID(4단계)
 관련 커밋: (이 파일을 커밋한 커밋)
 
 ---
@@ -62,7 +68,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] operations, execution_receipts. 완료 표시는 영수증 기준 — tests/test_executor.py (화면 표시는 (4))
 - [x] 실행기의 DB 검사 목록(3.3) 전부 — app/agent/executor.py (대상 버전은 4단계 ETag)
 - [x] 재시작과 무관하게 기록이 남는 가짜 외부 서비스(멱등성 키·결과 조회) — tests/fake_service.py(SQLite 파일), tests/test_fake_service.py
-- [ ] 승인 카드: 계정·캘린더, 변경 전후, 유효 시간, 감시 배지 문구(일치로 추정/요청과 다를 수 있음/확인 필요)
+- [x] 승인 카드: 계정·캘린더, 변경 전후, 유효 시간, 감시 배지 문구(일치로 추정/요청과 다를 수 있음/확인 필요) — tests/test_approval_card_api.py,
+  components/ApprovalCard.test.tsx. 계정은 "연결된 Google 계정"까지(주소는 4단계 OAuth 보강 때 저장)
 
 ### 3단계 — 장애 주입·복구·푸시
 - [ ] 장애 지점 5곳 주입 테스트와 결과 표

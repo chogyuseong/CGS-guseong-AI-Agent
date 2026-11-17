@@ -57,6 +57,11 @@ const approved: Approval = {
   decided_at: "2026-11-17T03:01:00Z",
   guard: null,
   needs_mismatch_confirmation: false,
+  target: "Google 캘린더(기본 캘린더)",
+  account: null,
+  execute_before: "2026-11-17T03:06:00Z",
+  operation_status: "approved",
+  receipt_confirmed: false,
 };
 
 // 차례로 돌려줄 task 목록. 마지막 것은 계속 돌려준다.
