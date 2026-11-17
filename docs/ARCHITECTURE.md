@@ -60,6 +60,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | POST | `/api/auth/logout` | 204 |
 | GET | `/api/auth/me` | 200 `{"id", "email"}` / 401 |
 | GET | `/api/conversations` | 내 대화 목록(최근 활동순) |
+| DELETE | `/api/conversations/{id}` | 204 대화와 메시지·작업·단계·승인·계획·영수증·DBOS 기록 삭제(5단계 보강). 기억은 남김(출처 null). 진행 중 작업이 있으면 409, 남의 대화 404 |
 | POST | `/api/conversations` | 201 대화 생성. 본문 `{"title"?}`, 비우면 "새 대화". 8단계: 제목 "예약 작업"(앞뒤 공백 무시)은 422(자동 실행 결과용 대화방 이름) |
 | GET | `/api/conversations/{id}/messages` | 내 대화의 메시지(오래된 순). 남의 대화·없는 대화는 404. 한 건 = `id, role, content, task_id, created_at` + 8단계 추가 `origin`(`chat`: 사용자 메시지와 채팅 답변 / `schedule`: 예약 작업 결과 / `watch`: 조건 감시 알림), `sources`(감시 알림의 출처 링크 목록, 그 밖은 `[]`) |
 | GET | `/api/usage?days=14` | 8단계(9단계 2번 비용 화면). `days` 1~90(기본 14). 200 `{timezone: "Asia/Seoul", days: [{date, input_tokens, output_tokens, total_tokens, cost_usd, calls}] (오래된 날부터, 사용 없는 날도 0, 길이 = days), by_purpose: [{purpose(agent·guard·watch·eval 항상 4개), …합계}], by_model: [{model, …합계}] (비용 큰 순), total: {…합계}, today: {date, cost_usd, limit_usd, remaining_usd(0 아래 없음), exceeded}}`. 금액은 달러 숫자(소수 6자리). 날짜는 하루 비용 상한 검사와 같은 서울 0시 경계 |
@@ -208,7 +209,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `list_watches()` | READ | 내 감시와 간격·만료일 |
 | `delete_watch(watch_id)` | INTERNAL | 감시 삭제 |
 
-기억 API(화면용, `app/routers/memories.py`): `GET /api/memories`(목록 + 출처 메시지), `DELETE /api/memories/{id}`(204/404),
+기억 API(화면용, `app/routers/memories.py`): `GET /api/memories`(목록 + 출처 메시지·근거 인용 source_quote. 출처 대화를 지웠으면 source는 null), `DELETE /api/memories/{id}`(204/404),
 `DELETE /api/memories`(전체, `{deleted}`). 기억을 만드는 API는 없다(remember로만 생긴다).
 
 | `list_mail(query?, label?, max_results=5)` | READ, 외부 콘텐츠 (7단계, chat 전용) | Gmail 메일 목록(최대 10통). id·보낸 사람·제목·받은 시각·안 읽음·미리보기. 검색어 200자, 라벨은 INBOX·UNREAD·STARRED·IMPORTANT·SENT만 |

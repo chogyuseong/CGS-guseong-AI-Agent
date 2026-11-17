@@ -1,8 +1,9 @@
 import { ChevronRight, Coins, Link2, type LucideIcon } from "lucide-react";
 import Link from "next/link";
+import { DataRetentionNotice } from "@/components/DataRetentionNotice";
 import { PushSettings } from "@/components/PushSettings";
 
-// 설정 탭. 알림(웹 푸시) 영역과 외부 서비스 연결(4단계: Google)·비용(9단계) 화면으로 가는 링크가 있다.
+// 설정 탭. 알림(웹 푸시) 영역과 외부 서비스 연결(4단계: Google)·비용(9단계) 화면으로 가는 링크, 데이터 보관 안내(5단계 보강)가 있다.
 export default function SettingsPage() {
   return (
     <section className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
@@ -20,6 +21,7 @@ export default function SettingsPage() {
         title="비용"
         description="일별 토큰과 비용, 용도별 합계, 오늘 남은 한도"
       />
+      <DataRetentionNotice />
     </section>
   );
 }

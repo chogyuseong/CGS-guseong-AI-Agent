@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 5단계 보강 진행 중(2026-11-17). (1) 기억 원문 인용 검증, (2) 대화 삭제, (3) 보관 기간 정리 끝. 다음은 (4) docs/DATA_POLICY.md·데이터 보관 안내.
+현재 단계: BUILD_SPEC 기준 5단계 보강 완료(2026-11-17). 다음은 6단계 보강(예약과 감시).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -45,8 +45,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 5단계 보강(아래 차이 목록의 5단계). 남긴 것: AgentReply(6단계로), 대상 버전 ETag·안정적인 event ID와
-일정 도구 재조회(4단계), DBOS 워크플로 입력·단계 결과·message_history에 남는 사용자 글(5·7단계)
+다음 시작 지점: 6단계 보강(아래 차이 목록의 6단계). 남긴 것: AgentReply(6단계로), 메일 실행 기록 암호화(7단계).
+DBOS 워크플로 입력·단계 결과·message_history의 사용자 글은 5단계 보강에서 7일 정리·대화 삭제로 지운다(docs/DATA_POLICY.md)
 관련 커밋: (이 파일을 커밋한 커밋)
 
 ---
@@ -101,7 +101,9 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] 활성 기억 최대 200개, 한 줄 300자 — 이미 있었음(tests/test_memories.py)
 - [x] 대화 삭제(DELETE /conversations/{id})와 관련 기록 정리 — tests/test_conversation_delete.py, e2e/conversation-delete.spec.ts
 - [x] 실행 기록 보관 기간(EXECUTION_RETENTION_DAYS 7, RECEIPT_RETENTION_DAYS 90)과 정리 — app/automation/retention.py, tests/test_retention.py
-- [ ] docs/DATA_POLICY.md(저장소별 보관·삭제 범위, 백업 지연)
+- [x] docs/DATA_POLICY.md(저장소별 보관·삭제 범위, 백업 지연, 키 관리), 설정 화면 '데이터 보관' 안내
+- 완료 증거: tests/test_memory_quotes.py(저장·새 대화 반영·삭제 뒤 제외·외부/인용/추론 거부), docs/DATA_POLICY.md
+- 남긴 것: 메일 실행 기록 암호화(PAYLOAD_ENCRYPTION_KEY, 7단계), 계정 삭제 화면·API(요구사항에 없음, 제안), 배포 백업 30일 실제 설정(배포 단계)
 
 ### 6단계 — 예약과 감시
 - [ ] 계정 생성만으로 브리핑 예약을 만들지 않음. 사용자가 켠 뒤 실행(지금은 07:30 자동 생성)

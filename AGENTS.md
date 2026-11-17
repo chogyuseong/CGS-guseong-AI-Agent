@@ -4,6 +4,7 @@
 ## 먼저 읽을 문서
 - docs/BUILD_SPEC.md — 명세(2026-11-17 개정본). 예전 SPEC.md와 다르면 이쪽을 따른다
 - docs/STATUS.md — 지금 단계, BUILD_SPEC과 코드의 차이(단계별 보강 목록)
+- docs/DATA_POLICY.md — 저장소별 보관·삭제 범위(무엇을 새로 저장하면 이 표에 넣는다)
 - docs/ARCHITECTURE.md, docs/DECISIONS.md("예정된 결정"과 "BUILD_SPEC 전환" 절 포함), docs/VERSIONS.md
 같은 서비스의 Django판을 참고할 때는 docs/DJANGO-REFERENCE.md를 먼저 본다(읽기 전용, 코드 복사 금지).
 
@@ -176,6 +177,8 @@
 
 ## 자동화 코드 지도 (apps/api/app/automation, 6단계)
 - `check.py` 1분 검사(브리핑 기본 예약, 만료 승인 정리, 만료 감시 끄기, 할 일 찾기) / 예약 실행 / 감시 실행 본문
+- `retention.py`(5단계 보강) 보관 기간 정리: 끝난 작업 7일 뒤 모델 기록·단계 입출력·계획 인자·DBOS 기록, 영수증 90일. 1분 검사가 매시 17분에 부른다.
+  끝나지 않은 작업(`IN_PROGRESS_STATUSES`, 대화 삭제 409에도 씀)은 건드리지 않는다. 범위는 docs/DATA_POLICY.md
 - `store.py` 예약·감시 만들기·켜기·끄기·지우기와 서버 제한(활성 10개, 중복, 간격, 만료), '예약 작업' 대화방, 아침 브리핑
 - `watchable.py` 감시에 쓸 수 있는 도구(read_tools, 메일 제외) 검사와 실행 / `watch.py` 감시 판정 에이전트 / `rules.py` 제한 값·서울 시각
 - 도구는 `app/tools/automation.py`, 화면 API는 `app/routers/automations.py`. 자동 작업에는 READ 도구만 간다(절대 원칙 4).
