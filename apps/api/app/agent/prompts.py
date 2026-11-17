@@ -21,12 +21,13 @@ Pydantic AI의 instructions로 넘긴다. system_prompt와 달리 instructions�
 요청마다 새로 붙으므로, 이전 task의 기록을 이어받아도 지시문이 중복되거나 낡지 않는다.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 from pydantic_ai import RunContext
 from pydantic_ai.framing import register_tag, wrap
 
+from app import clock
 from app.agent.deps import AgentDeps
 from app.models.enums import TaskOrigin
 from app.tools.memories import select_memories
@@ -83,8 +84,9 @@ def date_instruction(today: date) -> str:
 
 
 def current_date_instruction() -> str:
-    """오늘 날짜(Asia/Seoul)로 만든 동적 지시문. 날짜만 넣는다(시각까지 넣으면 요청마다 지시문이 바뀐다)."""
-    return date_instruction(datetime.now(SEOUL).date())
+    """오늘 날짜(Asia/Seoul)로 만든 동적 지시문. 날짜만 넣는다(시각까지 넣으면 요청마다 지시문이 바뀐다).
+    오늘은 app.clock에서 읽는다(eval이 날짜를 고정한다)."""
+    return date_instruction(clock.today_seoul())
 
 
 # ---- 자동 실행 안내 (6단계) ----

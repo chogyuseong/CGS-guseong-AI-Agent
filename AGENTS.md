@@ -56,7 +56,8 @@
 - eval(apps/api에서): `uv run python -m evals.run_evals`는 예상 비용만 보여 준다(모델 호출 없음).
   실제 실행은 `uv run python -m evals.run_evals --run --email 이메일 --confirm-cost`이고 비용이 든다 — 사용자 확인 후에만.
   dataset.yaml이 "초안 — 사용자 확인 전"이면 거부한다. 버리는 DB `myagent_eval`을 만들고 지운다. 자세한 것은 docs/EVALS.md.
-- 관찰: `.env`의 `LOGFIRE_TOKEN`이 비면 Logfire로 아무것도 보내지 않는다. 트레이스 모양·확인 절차는 docs/OBSERVABILITY.md.
+- 관찰: `.env`의 `TELEMETRY_ENABLED=true`와 `LOGFIRE_TOKEN`이 함께 있을 때만 Logfire로 보낸다(OTEL_EXPORTER_OTLP_* 환경변수로도
+  우회되지 않음). 트레이스 모양·확인 절차는 docs/OBSERVABILITY.md.
 - DB를 바꾸면 (apps/api에서):
   - `uv run python -m alembic revision --autogenerate -m "설명"`
   - 생성된 파일을 읽고 확인한 뒤 `uv run python -m alembic upgrade head`
@@ -175,8 +176,10 @@
   API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어"
 - 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)
 - Google 연결: `app/google_auth.py`(OAuth·토큰 암호화 저장·갱신, 7단계 보강: 다시 연결 필요 표시), `app/routers/connections.py`(start·callback·상태·해제·메일 동의)
-- 8단계: `app/observability.py` Logfire 설정·가리기(내용 미포함, 쿼리·예외 메시지 지움) / `app/usage_report.py` 비용 화면 합계
-  (`GET /api/usage`) / `evals/` eval 데이터·평가기·실행기(승인하지 않음, 가짜 외부 API, 버리는 DB)
+- 8단계: `app/observability.py` Logfire 설정·가리기(TELEMETRY_ENABLED, OTLP 환경변수 숨김, 내용 미포함, 쿼리·예외 메시지 지움) /
+  `app/usage_report.py` 비용 화면 합계(`GET /api/usage`) / `evals/` eval(BUILD_SPEC 16절 30개, 승인하지 않음, 가짜 외부 API,
+  버리는 DB): `cases.py` 허용 경로·인자 검사, `evaluators.py` 안전 경계 5·모델 판단 8, `record.py` 실행 기록, `summary.py` 분리 보고
+- `app/clock.py` 지금 시각 한 곳(날짜 지시문·날씨 범위·자동화 생성·조회 시각). `clock.now_utc()`로 부른다(eval이 바꿔 낀다)
 - 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.
 - 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
   (7단계 보강: steps.output에는 메일 내용 없이 통 수만). remember 검사는 5단계 보강부터 사용자 메시지 원문 인용(quote) 검증이다(`app/tools/memories.py`의 `quote_problem`),

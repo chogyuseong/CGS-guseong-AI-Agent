@@ -25,7 +25,7 @@
 | 예약·감시 | `scheduled_jobs`, `watches` | 내가 지울 때까지 | 자동화 화면에서 지움 | 만료된 감시는 꺼짐 |
 | 푸시 구독 | `push_subscriptions` | 알림을 끌 때까지 | 알림 끄기로 지움 | 만료된 구독은 보낼 때 지움 |
 | 앱 로그 | 서버 콘솔 | 서버 운영 방식에 따름 | — | 예외 메시지는 기록 전에 지움(`install_log_redaction`) |
-| 트레이스 | Logfire | `LOGFIRE_TOKEN`이 비면 보내지 않음 | — | 보내도 내용 없이 모양만(docs/OBSERVABILITY.md) |
+| 트레이스 | Logfire | `TELEMETRY_ENABLED=true`와 `LOGFIRE_TOKEN`이 함께 있을 때만 보냄(OTLP 환경변수로 우회 안 됨) | — | 보내도 내용 없이 모양만(docs/OBSERVABILITY.md) |
 | 테스트 데이터 | `tests/fixtures` | 저장소 | — | 공개 검색 결과의 실제 응답과 문서 형식으로 만든 응답. 키·토큰·개인정보 없음(tests/fixtures/README.md) |
 
 ### 남는 것과 한계(숨기지 않는다)

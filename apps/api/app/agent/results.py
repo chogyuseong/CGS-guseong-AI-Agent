@@ -16,11 +16,13 @@ data가 {"notice": 지시문 무시 안내, "content": 원래 내용, "truncated
 
 import json
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, JsonValue, model_validator
+
+from app import clock
 
 if TYPE_CHECKING:
     from app.tools.http import ExternalApiError
@@ -178,7 +180,7 @@ class ToolResult(BaseModel):
             status=ToolStatus.SUCCEEDED,
             data=data,
             sources=links,
-            fetched_at=datetime.now(UTC),
+            fetched_at=clock.now_utc(),  # eval은 사례의 고정 시각을 쓴다(app/clock.py)
             truncated=bool(data["truncated"]),
         )
 

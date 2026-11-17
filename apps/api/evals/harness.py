@@ -7,32 +7,40 @@
   (evals/fake_externals.py). 실제 카카오·네이버·Open-Meteo·Google로 나가는 요청이 없다.
 - 승인: EXTERNAL 도구는 승인 대기(waiting_approval)에서 멈춘다. 이 실행기는 승인하지 않는다(승인 API도,
   승인 결정 함수도 부르지 않는다). 승인 요청이 만들어졌는지만 본다.
-- 푸시: VAPID 설정을 비워 보내지 않는다. Logfire: 토큰을 비워 보내지 않는다.
+- 푸시: VAPID 설정을 비워 보내지 않는다. 관찰: TELEMETRY_ENABLED=false, 토큰도 비워 보내지 않는다.
 - DBOS: 쓰지 않는다. runner.run_task를 워크플로 밖에서 부르면 단계가 그냥 실행된다(app/agent/durable.py).
+
+고정된 세상(8단계 보강): 사례마다 app.clock을 사례의 now로 바꿔 끼운다(frozen_clock). 사례는 하나씩 차례로 돈다
+(max_concurrency=1). 계정은 모두 Google 연결(캘린더 + 메일 읽기 권한)과 메일 데이터 처리 동의가 된 상태다.
 """
 
 import secrets
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
+from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 from sqlalchemy import func, make_url, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app import clock
 from app.agent.agent import MyAgent, build_agent
-from app.agent.budget import seoul_day_start
 from app.agent.guard import GuardAgent, build_guard_agent
+from app.agent.history import load_messages
 from app.agent.runner import RunServices, run_task
 from app.config import Settings
-from app.google_auth import CALENDAR_SCOPE, GoogleTokens, save_tokens
+from app.google_auth import CALENDAR_SCOPE, GMAIL_SCOPE, GoogleTokens, save_tokens
 from app.models import Approval, Conversation, Memory, Message, Step, Task, Todo, UsageLog, User
 from app.models.enums import MessageRole, TaskOrigin, UsagePurpose
 from app.push import PushNotifier
 from app.security import hash_password, token_cipher
-from evals.cases import EvalInputs, EvalOutput, ModelUsage
+from evals.cases import EvalInputs, EvalOutput, ModelUsage, ToolCall
 from evals.fake_externals import EvalHttp
 
 FAKE = "eval-fake-not-a-real-key"
@@ -71,9 +79,18 @@ def eval_settings(base: Settings, database_url: str) -> Settings:
             "vapid_public_key": "",
             "vapid_private_key": SecretStr(""),
             "vapid_subject": "",
+            "telemetry_enabled": False,
             "logfire_token": SecretStr(""),
         }
     )
+
+
+@contextmanager
+def frozen_clock(moment: datetime) -> Iterator[None]:
+    """사례의 now로 app.clock을 고정한다(날짜 지시문, 날씨 예보 범위, 자동화 시각, 조회 시각)."""
+    fixed = moment.astimezone(UTC)
+    with patch.object(clock, "now_utc", lambda: fixed):
+        yield
 
 
 def build_environment(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -> EvalEnvironment:
@@ -83,13 +100,20 @@ def build_environment(settings: Settings, session_factory: async_sessionmaker[As
 # ---- 사례 준비: 사용자, Google 연결(가짜 토큰), 미리 있던 할 일·기억, 대화와 task ----
 
 
-async def create_case_user(session: AsyncSession, settings: Settings) -> User:
-    user = User(email=f"eval-{secrets.token_hex(6)}@eval.invalid", password_hash=hash_password(secrets.token_hex(16)))
+async def create_case_user(session: AsyncSession, settings: Settings, now: datetime) -> User:
+    """새 사용자: Google 연결(캘린더 + 메일 읽기, 가짜 토큰)과 메일 데이터 처리 동의가 된 상태."""
+    user = User(
+        email=f"eval-{secrets.token_hex(6)}@eval.invalid",
+        password_hash=hash_password(secrets.token_hex(16)),
+        mail_consent_at=now,
+    )
     session.add(user)
     await session.flush()
     cipher = token_cipher(settings)
     assert cipher is not None
-    tokens = GoogleTokens("eval-fake-access", None, datetime.now(UTC) + timedelta(days=1), [CALENDAR_SCOPE])
+    # 토큰 만료는 실제 시각 기준이다(토큰 갱신 검사는 app.clock을 쓰지 않는다).
+    expires = datetime.now(UTC) + timedelta(days=1)
+    tokens = GoogleTokens("eval-fake-access", None, expires, [CALENDAR_SCOPE, GMAIL_SCOPE])
     await save_tokens(session, user.id, tokens, cipher)
     return user
 
@@ -111,7 +135,7 @@ async def seed_case(session: AsyncSession, user: User, inputs: EvalInputs) -> No
 async def prepare_case(env: EvalEnvironment, inputs: EvalInputs) -> int:
     """사례 하나의 채팅 task를 만들고 id를 돌려준다(API의 메시지 전송과 같은 모양)."""
     async with env.session_factory() as session:
-        user = await create_case_user(session, env.settings)
+        user = await create_case_user(session, env.settings, inputs.now)
         await seed_case(session, user, inputs)
         conversation = Conversation(user_id=user.id, title="eval")
         session.add(conversation)
@@ -154,35 +178,62 @@ async def usage_of(session: AsyncSession, task_id: int) -> list[ModelUsage]:
     ]
 
 
+def attempted_tools(history: list[Any] | None) -> list[str]:
+    """모델 기록에서 모델이 부르려 한 도구 이름 전부(보이지 않던 도구·실행 전에 막힌 호출 포함)."""
+    messages = load_messages(history or [])
+    return [
+        part.tool_name
+        for message in messages
+        if isinstance(message, ModelResponse)
+        for part in message.parts
+        if isinstance(part, ToolCallPart)
+    ]
+
+
+async def tool_calls(session: AsyncSession, task_id: int) -> list[ToolCall]:
+    """steps 행마다 하나. 승인 요청이 만들어졌는지도 함께(상태는 pending 그대로다. 이 실행기는 결정하지 않는다)."""
+    steps = list(await session.scalars(select(Step).where(Step.task_id == task_id).order_by(Step.order)))
+    requested = set(
+        await session.scalars(
+            select(Approval.step_id).join(Step, Approval.step_id == Step.id).where(Step.task_id == task_id)
+        )
+    )
+    return [
+        ToolCall(
+            name=step.tool_name,
+            args=dict(step.input or {}),
+            status=step.status.value,
+            ok=step.ok,
+            approval_requested=step.id in requested,
+        )
+        for step in steps
+    ]
+
+
 async def collect_output(env: EvalEnvironment, task_id: int, http: EvalHttp) -> EvalOutput:
     async with env.session_factory() as session:
         task = await session.get_one(Task, task_id, populate_existing=True)
-        steps = list(await session.scalars(select(Step).where(Step.task_id == task_id).order_by(Step.order)))
-        # 승인 요청이 만들어진 호출(상태는 pending 그대로다. 이 실행기는 결정하지 않는다).
-        requested = await session.scalars(
-            select(Step.tool_name)
-            .join(Approval, Approval.step_id == Step.id)
-            .where(Step.task_id == task_id)
-            .order_by(Step.order)
-        )
         return EvalOutput(
             task_status=task.status.value,
-            tools_called=[step.tool_name for step in steps],
-            approvals_requested=list(requested),
+            calls=await tool_calls(session, task_id),
+            attempted_tools=attempted_tools(task.message_history),
             final_answer=task.final_answer,
             external_writes=list(http.writes),
+            outbound_requests=list(http.requests),
+            served_urls=list(http.served_urls),
             usage=await usage_of(session, task_id),
         )
 
 
 async def run_case(env: EvalEnvironment, inputs: EvalInputs) -> EvalOutput:
-    """사례 하나: 준비 → runner.run_task(실제 앱 흐름, 승인 대기에서 멈춤) → 결과."""
-    http = EvalHttp(today=seoul_day_start().date(), events=inputs.calendar_events, web_results=inputs.web_results)
-    task_id = await prepare_case(env, inputs)
-    async with http.client() as client:
-        notifier = PushNotifier(env.session_factory, env.settings)  # VAPID가 비어 있어 아무것도 보내지 않는다
-        services = RunServices(env.agent, env.guard, env.session_factory, env.settings, notifier, client)
-        await run_task(services, task_id, prompt=inputs.message)
+    """사례 하나: 시각 고정 → 준비 → runner.run_task(실제 앱 흐름, 승인 대기에서 멈춤) → 결과."""
+    http = EvalHttp(world=inputs)
+    with frozen_clock(inputs.now):
+        task_id = await prepare_case(env, inputs)
+        async with http.client() as client:
+            notifier = PushNotifier(env.session_factory, env.settings)  # VAPID가 비어 있어 아무것도 보내지 않는다
+            services = RunServices(env.agent, env.guard, env.session_factory, env.settings, notifier, client)
+            await run_task(services, task_id, prompt=inputs.message)
     return await collect_output(env, task_id, http)
 
 

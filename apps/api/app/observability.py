@@ -5,8 +5,10 @@
 https://pydantic.dev/docs/ai/logfire/ , https://logfire.pydantic.dev/docs/how-to-guides/scrubbing/).
 
 원칙
-1. LOGFIRE_TOKEN이 비어 있으면 아무것도 밖으로 보내지 않는다(send_to_logfire=False, 내보내기 없음).
-   토큰이 있을 때만 Logfire로 보낸다. 콘솔 출력도 끈다(서버 로그를 어지럽히지 않게).
+1. TELEMETRY_ENABLED=true와 LOGFIRE_TOKEN이 함께 있을 때만 Logfire로 보낸다(8단계 보강, BUILD_SPEC 12.2).
+   둘 중 하나라도 없으면 아무것도 밖으로 보내지 않는다(send_to_logfire=False, 내보내기 없음).
+   환경변수 LOGFIRE_TOKEN·LOGFIRE_SEND_TO_LOGFIRE·LOGFIRE_FLEET·OTEL_EXPORTER_OTLP_*_ENDPOINT로도 켜지지 않는다
+   (send_to_logfire·fleet를 명시하고, OTLP 주소는 설정하는 동안 숨긴다). 콘솔 출력도 끈다.
 2. 내용은 기본으로 넣지 않는다. Pydantic AI 계측은 include_content=False라 프롬프트·지시문·모델 답변·
    도구 인자·도구 결과(메일 본문, 검색 결과, 일정 제목)가 스팬에 들어가지 않는다. 남는 것은 모양뿐이다:
    에이전트 이름, 모델 이름, 도구 이름, tool_call_id, 토큰 수, 걸린 시간, 오류 종류.
@@ -22,13 +24,16 @@ https://pydantic.dev/docs/ai/logfire/ , https://logfire.pydantic.dev/docs/how-to
    레코드를 만들 때 예외 메시지를 지우고 종류와 코드 위치만 남긴다(install_log_redaction). 외부 API 오류 문장,
    푸시 서버 응답, DB 오류에 사용자 글·외부 콘텐츠가 섞여 와도 서버 로그 파일에 남지 않게.
 
-로그(logging 모듈)는 Logfire로 보내지 않는다(LogfireLoggingHandler를 붙이지 않음). DBOS의 자체 OTLP 내보내기도
-켜지 않는다(DBOS 설정 enable_otlp 기본 False). 트레이스에서 작업 하나가 어떻게 보이는지는 docs/OBSERVABILITY.md.
+로그(logging 모듈)는 Logfire로 보내지 않는다(LogfireLoggingHandler를 붙이지 않음). 설치된 dbos 3.5.0에는
+OTLP·OpenTelemetry 코드가 없다(8단계 보강에서 소스로 확인).
+트레이스에서 작업 하나가 어떻게 보이는지는 docs/OBSERVABILITY.md.
 """
 
 import logging
+import os
 import traceback
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -58,24 +63,53 @@ EXTRA_SCRUB_PATTERNS: tuple[str, ...] = (
     r"encryption[._ -]?key",
     r"code[._ -]?verifier",
 )
+# Logfire가 send_to_logfire와 상관없이 OTLP 내보내기를 더하는 환경변수(설치된 logfire 5.6.0 config.py).
+OTLP_ENDPOINT_VARIABLES: tuple[str, ...] = (
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+)
 # 트레이스를 만들지 않는 주소(정규식, 전체 URL에 대해 검사). OAuth code가 쿼리로 오는 주소다.
 EXCLUDED_URLS: tuple[str, ...] = (r"/api/connections/google/callback",)
 
 
+def telemetry_sending(settings: Settings) -> bool:
+    """TELEMETRY_ENABLED=true이고 토큰이 있을 때만 True. 둘 중 하나라도 없으면 아무것도 보내지 않는다."""
+    return settings.telemetry_enabled and bool(settings.logfire_token.get_secret_value().strip())
+
+
 def logfire_options(settings: Settings) -> dict[str, Any]:
-    """logfire.configure()에 넘길 값. 토큰이 비어 있으면 send_to_logfire=False(아무것도 보내지 않는다)."""
-    token = settings.logfire_token.get_secret_value().strip()
+    """logfire.configure()에 넘길 값. send_to_logfire는 늘 명시한다(LOGFIRE_SEND_TO_LOGFIRE 환경변수보다 우선)."""
+    sending = telemetry_sending(settings)
     return {
-        "send_to_logfire": bool(token),
-        "token": token or None,
+        "send_to_logfire": sending,
+        "token": settings.logfire_token.get_secret_value().strip() if sending else None,
         "service_name": SERVICE_NAME,
         "console": False,
         "inspect_arguments": False,
         # 브라우저가 보낸 trace 헤더를 이어받지 않는다(이 서버가 트레이스의 시작점이다).
         "distributed_tracing": False,
+        # Logfire Fleet(LOGFIRE_FLEET·OTEL_OPAMP_* 환경변수로 켜지는 원격 관리)을 쓰지 않는다.
+        "fleet": False,
         "scrubbing": logfire.ScrubbingOptions(extra_patterns=list(EXTRA_SCRUB_PATTERNS)),
         "advanced": logfire.AdvancedOptions(exception_callback=hide_exception_details),
     }
+
+
+@contextmanager
+def otlp_environment_hidden() -> Iterator[None]:
+    """logfire.configure()가 도는 동안만 OTEL_EXPORTER_OTLP_*_ENDPOINT를 숨긴다.
+
+    설치된 logfire 5.6.0은 send_to_logfire와 상관없이 이 환경변수가 있으면 그 주소로 가는 OTLP 내보내기
+    (트레이스·지표·로그)를 더한다(logfire/_internal/config.py, 테스트로 확인). 이 앱이 보내는 곳은 Logfire 하나다.
+    내보내기는 만들 때만 주소를 읽으므로 설정이 끝나면 환경변수를 그대로 되돌린다.
+    """
+    saved = {name: os.environ.pop(name) for name in OTLP_ENDPOINT_VARIABLES if name in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
 
 
 def configure_observability(settings: Settings, *, extra_span_processors: Sequence[SpanProcessor] = ()) -> bool:
@@ -85,7 +119,8 @@ def configure_observability(settings: Settings, *, extra_span_processors: Sequen
     여러 번 불러도 된다(마지막 설정이 이긴다). 테스트는 앱마다 create_app이 부른다.
     """
     options = logfire_options(settings)
-    logfire.configure(**options, additional_span_processors=list(extra_span_processors) or None)
+    with otlp_environment_hidden():
+        logfire.configure(**options, additional_span_processors=list(extra_span_processors) or None)
     # 모든 Agent(메인, 감시, 감시 판정)를 계측한다. 내용(프롬프트·답변·도구 인자와 결과)은 넣지 않는다.
     logfire.instrument_pydantic_ai(include_content=False, include_binary_content=False)
     return bool(options["send_to_logfire"])

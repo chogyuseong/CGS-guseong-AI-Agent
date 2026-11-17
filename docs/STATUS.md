@@ -2,7 +2,8 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 7단계 보강 완료(2026-11-17, 음성과 Gmail). 배포 전 코드 준비 끝(docs/DEPLOY.md, 실제 배포는 사용자 계정 연결 뒤). 다음은 8단계 보강(평가와 관찰).
+현재 단계: BUILD_SPEC 기준 8단계 보강의 코드·데이터 완료(2026-11-17, 평가와 관찰). 실제 eval 실행은 사용자가 사례 초안을 확인하고
+예상 비용을 승인한 뒤에 한다(아직 실행하지 않음, 측정값 없음). 배포 전 코드 준비 끝(docs/DEPLOY.md).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -21,6 +22,15 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - 7단계 보강(2026-11-17): 음성 최초 사용 안내, 메일 데이터 처리 동의, 메일 작업의 공개 검색 제외, 복구 payload 암호화
   (PAYLOAD_ENCRYPTION_KEY: DBOS 기록 전체·모델 기록 속 메일, 키 없으면 메일 기능 꺼짐), steps에 메일 내용 없음,
   재연결 필요 상태·Gmail 범위 부족 처리. 마이그레이션 11dcb5772dd1. 이어서 메일을 읽은 문맥의 예약·감시 생성 제외(사용자 결정 a)
+- 8단계 보강(2026-11-17): TELEMETRY_ENABLED(명시해야 전송)와 OTLP 환경변수 우회 차단, eval 사례를 BUILD_SPEC 16절 30개로
+  다시 씀(고정 시각 2026-11-18 09:00 서울·fixture·기억 상태, 복수 허용 경로·되묻기, 인자·대상·결과 주장·출처 평가),
+  안전 경계 5개와 모델 판단 8개 분리 보고, 실행 기록(날짜·모델·프롬프트 해시·코드 버전·데이터셋 버전·표본·실행 횟수).
+  `app/clock.py`(eval 시각 고정). 마이그레이션·웹 변경 없음
+
+실제 검증한 항목(2026-11-17, 8단계 보강 끝): API pytest 605개, ruff·pyright 0건. `uv run python -m evals.run_evals`(모델 호출 없음)
+출력: 30건 × 1회 하한 약 $0.0394 / 상한 약 $0.0665(감시 4회). 실제 모델 eval·실제 Logfire 전송은 하지 않았다.
+보강 전 코드에서 OTEL_EXPORTER_OTLP_* 환경변수만으로(토큰 없이) OTLP 내보내기가 만들어지고 전송을 시도하는 것을 테스트로 재현했고,
+보강 뒤 같은 테스트 8가지가 통과한다(tests/test_observability.py).
 
 실제 검증한 항목(2026-11-17, 7단계 보강 끝): API pytest 568개, ruff·pyright 0건, 새 마이그레이션 11dcb5772dd1 업·다운·업과
 `alembic check` 차이 없음, 웹 Biome 0건·tsc 통과·Vitest 288개, Playwright 40개(실제 API 서버 + Chrome 360px).
@@ -54,8 +64,9 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 8단계 보강(아래 차이 목록의 8단계). 개발 .env에는 사용자가 PAYLOAD_ENCRYPTION_KEY를 넣었다(2026-11-17).
-배포 환경변수에도 넣어야 메일 기능이 켜진다. DBOS 기록은 7단계 보강부터 키가 있으면 암호문이다(docs/DATA_POLICY.md)
+다음 시작 지점: 사용자가 apps/api/evals/dataset.yaml 초안(docs/EVALS.md 표)을 확인하고 초안 표시를 지운 뒤, 예상 비용을 승인하면
+실제 eval 첫 실행. 그 다음 9단계 보강. 관찰을 켜려면 .env에 TELEMETRY_ENABLED=true도 넣어야 한다(토큰만으로는 보내지 않음).
+개발 .env에는 사용자가 PAYLOAD_ENCRYPTION_KEY를 넣었다(2026-11-17). 배포 환경변수에도 넣어야 메일 기능이 켜진다.
 관련 커밋: (이 파일을 커밋한 커밋)
 
 ---
@@ -153,9 +164,12 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   예약 생성(BUILD_SPEC 15절 30번)은 미충족(docs/DECISIONS.md "7단계 보강: 남은 것")
 
 ### 8단계 — 평가와 관찰
-- [ ] TELEMETRY_ENABLED(명시적 설정 없으면 전송 안 함), LOGFIRE_TOKEN 없을 때 OTLP 우회 전송 확인
-- [ ] eval 사례를 BUILD_SPEC 16절 30개로 맞춤(고정 날짜·fixture·기억 상태), 안전 지표 분리 보고
-- [ ] 실행 기록(날짜·모델·프롬프트 해시·코드 버전·데이터셋 버전)
+- [x] TELEMETRY_ENABLED(명시적 설정 없으면 전송 안 함), LOGFIRE_TOKEN 없을 때 OTLP 우회 전송 확인 — tests/test_observability.py
+  (보강 전 코드에서 OTEL_EXPORTER_OTLP_* 우회를 재현, configure 동안 숨김으로 막음. 내용 수집 비활성화 테스트도 다시 통과)
+- [x] eval 사례를 BUILD_SPEC 16절 30개로 맞춤(고정 날짜·fixture·기억 상태), 안전 지표 분리 보고 — tests/test_evals.py,
+  tests/test_eval_rules.py(가짜 모델). 사례는 아직 초안(사용자 확인 전), 실제 모델 측정값 없음
+- [x] 실행 기록(날짜·모델·프롬프트 해시·코드 버전·데이터셋 버전, 표본·실행 횟수) — evals/record.py, test_run_record_fields
+- [ ] (남음, 사용자 확인 후) 실제 eval 실행과 측정값·가장 취약한 유형·개선 전후 비교(BUILD_SPEC 8단계 완료 증거)
 
 ### 9단계 — 배포와 운영
 - [ ] 다크 모드, PWA 아이콘 확인

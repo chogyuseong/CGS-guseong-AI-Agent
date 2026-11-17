@@ -58,7 +58,8 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     # Pydantic AI 2.68은 첫 실행 때 Logfire 안내 배너를 터미널에 찍는다. 서버 로그를 어지럽히므로 끈다.
     # (PYDANTIC_AI_NO_BANNER 환경변수와 같은 효과. 설치된 버전의 pydantic_ai.BANNER_ENABLED 문서 참고)
     pydantic_ai.BANNER_ENABLED = False
-    # 8단계: Logfire. 토큰이 없으면 아무것도 보내지 않고, 내용(프롬프트·도구 결과)은 넣지 않는다(app/observability.py).
+    # 8단계: Logfire. TELEMETRY_ENABLED=true와 토큰이 함께 있을 때만 보내고, 내용(프롬프트·도구 결과)은 넣지 않는다
+    # (app/observability.py).
     # 에이전트를 만들기 전에 설정해야 Agent 계측이 처음부터 적용된다.
     configure_observability(settings)
     install_log_redaction()  # 3단계 보강: 앱 로그에 예외 메시지(사용자 글·외부 문장)를 남기지 않는다

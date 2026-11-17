@@ -94,7 +94,8 @@ class Settings(BaseSettings):
     vapid_private_key: SecretStr = SecretStr("")
     vapid_subject: str = ""
 
-    # 관찰 (8단계). 비어 있으면 아무것도 보내지 않는다.
+    # 관찰 (8단계). TELEMETRY_ENABLED=true와 토큰이 함께 있을 때만 보낸다(8단계 보강, app/observability.py).
+    telemetry_enabled: bool = False
     logfire_token: SecretStr = SecretStr("")
 
     @field_validator("database_url")

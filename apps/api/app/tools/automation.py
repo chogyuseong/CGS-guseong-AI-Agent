@@ -10,12 +10,13 @@ list_schedules·list_watches = READ (toolsets.py에서 정한다. 명세 도구 
 """
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
 from pydantic_ai import RunContext
 
+from app import clock
 from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
 from app.automation import rules, store
@@ -77,7 +78,8 @@ NumberValue = Annotated[float | None, Field(description="숫자 조건의 기준
 
 
 def now_utc() -> datetime:
-    return datetime.now(UTC)
+    """지금(app.clock). eval은 사례의 고정 시각을 쓴다."""
+    return clock.now_utc()
 
 
 def schedule_view(job: ScheduledJob) -> dict[str, Any]:

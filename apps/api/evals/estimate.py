@@ -36,7 +36,8 @@ MEASURED_HIGH = UsageBaseline(17_000, 1_000, 900, 80, "실측 범위 상한(18,0
 
 @dataclass(frozen=True)
 class CostEstimate:
-    cases: int
+    cases: int  # 표본(사례) 수
+    runs: int  # 사례 × 실행 횟수
     guard_calls: int
     agent_usd: float
     guard_usd: float
@@ -46,15 +47,18 @@ class CostEstimate:
 
 
 def estimate_cost(
-    dataset: EvalDataset, baseline: UsageBaseline, *, model: str, guard_model: str | None = None
+    dataset: EvalDataset, baseline: UsageBaseline, *, model: str, guard_model: str | None = None, repeat: int = 1
 ) -> CostEstimate:
     cases = len(dataset.cases)
-    guard_calls = sum(1 for c in dataset.cases if c.metadata is not None and c.metadata.approval_required)
+    runs = cases * repeat
+    # 승인이 필요한 정답 경로가 있는 사례마다 감시 에이전트 한 번(되묻기를 고르면 부르지 않으므로 상한 쪽 가정).
+    guard_calls = repeat * sum(1 for c in dataset.cases if c.metadata is not None and c.metadata.expects_approval)
     per_case = calculate_cost(model, baseline.input_tokens_per_case, baseline.output_tokens_per_case)
     per_guard = calculate_cost(guard_model or model, baseline.guard_input_tokens, baseline.guard_output_tokens)
-    agent_usd, guard_usd = float(per_case * cases), float(per_guard * guard_calls)
+    agent_usd, guard_usd = float(per_case * runs), float(per_guard * guard_calls)
     return CostEstimate(
         cases=cases,
+        runs=runs,
         guard_calls=guard_calls,
         agent_usd=agent_usd,
         guard_usd=guard_usd,

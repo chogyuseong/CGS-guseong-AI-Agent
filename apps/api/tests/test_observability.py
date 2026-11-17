@@ -4,18 +4,22 @@
 메일 본문, 사용자 메시지, 모델 답변, 도구 인자, 키·토큰 모양 문자열, URL 쿼리(OAuth code)가 없는지 본다.
 
 1. LOGFIRE_TOKEN이 비어 있으면 아무것도 밖으로 보내지 않는다(전송 시도 자체가 없음을 HTTP 전송 함수로 확인).
-2. 토큰이 있을 때만 send_to_logfire=True가 된다(설정 값만 확인, 실제 전송 없음).
+2. TELEMETRY_ENABLED=true와 토큰이 함께 있을 때만 send_to_logfire=True가 된다(설정 값만 확인, 실제 전송 없음).
+   토큰만 있으면(환경변수 LOGFIRE_TOKEN·LOGFIRE_SEND_TO_LOGFIRE 포함) 보내지 않고, OTEL_EXPORTER_OTLP_* 주소로
+   우회하는 내보내기도 만들지 않는다(8단계 보강).
 3. 메일을 읽는 작업 하나의 트레이스에 메일 본문·프롬프트·답변·도구 인자가 없다(include_content=False).
 4. 요청 주소의 쿼리(OAuth code, state 등)는 트레이스에 남지 않는다. 구글 콜백 요청은 트레이스 자체를 만들지 않는다.
 5. 예외 메시지(안에 무엇이 들었는지 모르는 글)는 트레이스에 남지 않고 예외 종류만 남는다.
 """
 
 import json
+import os
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import logfire
+import logfire._internal.config as logfire_config
 import pytest
 import requests
 from fastapi import FastAPI
@@ -29,6 +33,7 @@ from app.config import Settings
 from app.models import User
 from app.observability import configure_observability, logfire_options
 from app.security import SESSION_COOKIE_NAME
+from tests.conftest import SettingsWithoutEnvFile
 from tests.fake_http import FakeHttp, fixture_json
 from tests.model_scripts import call, scripted, text
 from tests.test_agent_run import send
@@ -79,8 +84,9 @@ def test_empty_token_never_sends(monkeypatch: pytest.MonkeyPatch, test_settings:
     assert sent == []
 
 
-def test_token_turns_sending_on(test_settings: Settings) -> None:
+def test_token_and_flag_turn_sending_on(test_settings: Settings) -> None:
     test_settings.logfire_token = SecretStr("pylf_v1_us_fake-token-for-test")
+    test_settings.telemetry_enabled = True
 
     options = logfire_options(test_settings)
 
@@ -88,8 +94,95 @@ def test_token_turns_sending_on(test_settings: Settings) -> None:
     assert options["token"] == "pylf_v1_us_fake-token-for-test"
     assert options["console"] is False
     assert options["inspect_arguments"] is False
+    assert options["fleet"] is False  # LOGFIRE_FLEET 환경변수로 원격 관리가 켜지지 않게
     test_settings.logfire_token = SecretStr("")
+    assert logfire_options(test_settings)["send_to_logfire"] is False  # 켜도 토큰이 없으면 보내지 않는다
     assert logfire_options(test_settings)["token"] is None
+
+
+# ---- 8단계 보강: TELEMETRY_ENABLED와 환경변수 우회 경로 ----
+
+
+def test_telemetry_flag_is_off_by_default_and_read_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    def settings() -> Settings:
+        return SettingsWithoutEnvFile(
+            database_url="postgresql+psycopg://u:p@127.0.0.1:5432/x",
+            session_secret=SecretStr("s"),
+            app_origin="http://127.0.0.1:3000",
+        )
+
+    monkeypatch.delenv("TELEMETRY_ENABLED", raising=False)
+    assert settings().telemetry_enabled is False
+
+    monkeypatch.setenv("TELEMETRY_ENABLED", "true")
+    assert settings().telemetry_enabled is True
+
+
+def test_token_without_telemetry_flag_is_not_sending(test_settings: Settings) -> None:
+    test_settings.logfire_token = SecretStr("pylf_v1_us_fake-token-for-test")  # TELEMETRY_ENABLED는 설정하지 않음
+
+    options = logfire_options(test_settings)
+
+    assert options["send_to_logfire"] is False
+    assert options["token"] is None
+
+
+def record_otlp_exporters(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Logfire가 OTEL_EXPORTER_OTLP_* 환경변수를 보고 만드는 OTLP 내보내기를 기록한다(logfire 5.6.0 config.py)."""
+    built: list[str] = []
+    for name in ("OTLPSpanExporter", "OTLPMetricExporter", "OTLPLogExporter"):
+        original = getattr(logfire_config, name)
+
+        def recording(*args: Any, _name: str = name, _original: Any = original, **kwargs: Any) -> Any:
+            built.append(_name)
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(logfire_config, name, recording)
+    return built
+
+
+def record_http_sends(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """OTLP HTTP 내보내기가 쓰는 requests 전송을 막고 기록한다(실제 전송 없음)."""
+    sent: list[str] = []
+
+    def record_send(self: requests.Session, request: Any, **kwargs: Any) -> Any:
+        sent.append(str(request.url))
+        raise requests.ConnectionError("테스트: 전송하지 않는다")
+
+    monkeypatch.setattr(requests.Session, "send", record_send)
+    return sent
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    ],
+)
+@pytest.mark.parametrize("token", ["", "pylf_v1_us_fake-token-for-test"])
+def test_otlp_environment_cannot_bypass_the_flag(
+    monkeypatch: pytest.MonkeyPatch, test_settings: Settings, variable: str, token: str
+) -> None:
+    # 배포 환경에 남아 있을 수 있는 값들: 토큰 환경변수, Logfire 전송 환경변수, OTLP 주소.
+    monkeypatch.setenv("LOGFIRE_TOKEN", "pylf_v1_us_fake-token-from-environment")
+    monkeypatch.setenv("LOGFIRE_SEND_TO_LOGFIRE", "true")
+    monkeypatch.setenv(variable, "http://127.0.0.1:9/otlp-bypass-test")
+    built, sent = record_otlp_exporters(monkeypatch), record_http_sends(monkeypatch)
+    test_settings.logfire_token = SecretStr(token)  # TELEMETRY_ENABLED는 설정하지 않음
+
+    sending = configure_observability(test_settings)
+    with logfire.span("우회 확인용 span"):
+        logfire.info("우회 확인용 로그")
+    logfire.force_flush()
+
+    assert sending is False
+    assert built == []  # 환경변수 주소로 가는 OTLP 내보내기를 만들지 않았다
+    assert sent == []
+    assert os.environ[variable] == "http://127.0.0.1:9/otlp-bypass-test"  # 환경변수 자체는 바꾸지 않는다
+    configure_observability(test_settings)
 
 
 async def test_mail_task_trace_has_no_content(

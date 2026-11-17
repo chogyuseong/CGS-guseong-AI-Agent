@@ -10,14 +10,14 @@ Open-Meteo 공식 문서(2026-11-17 확인, docs/TOOLS.md): https://open-meteo.c
 - 비상업 무료(한도는 docs/TOOLS.md). 출처로 Open-Meteo를 항상 붙인다.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Annotated, Any
 
 from pydantic import Field
 from pydantic_ai import RunContext
 
+from app import clock
 from app.agent.deps import AgentDeps
-from app.agent.prompts import SEOUL
 from app.agent.results import ToolResult
 from app.tools import http, places
 from app.tools.http import ExternalApiError
@@ -46,8 +46,8 @@ ForecastDate = Annotated[str, Field(pattern=DATE_PATTERN, description="YYYY-MM-D
 
 
 def today_seoul() -> date:
-    """서울 기준 오늘. 테스트가 바꿔 끼운다."""
-    return datetime.now(SEOUL).date()
+    """서울 기준 오늘(app.clock). 테스트가 바꿔 끼운다."""
+    return clock.today_seoul()
 
 
 def describe_weather(code: object) -> str:

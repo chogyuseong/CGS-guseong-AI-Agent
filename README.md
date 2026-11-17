@@ -247,7 +247,7 @@ Copy-Item .env.example .env
 | 장소·날씨·검색 | `KAKAO_REST_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` (Open-Meteo는 키 없음) |
 | Google 캘린더·메일 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY` |
 | 웹 푸시 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` ([docs/PUSH-CHECK.md](docs/PUSH-CHECK.md)) |
-| 관찰(선택) | `LOGFIRE_TOKEN` (비우면 아무것도 보내지 않음) |
+| 관찰(선택) | `TELEMETRY_ENABLED`, `LOGFIRE_TOKEN` (`TELEMETRY_ENABLED=true`와 토큰이 함께 있을 때만 보냄) |
 
 ```powershell
 pnpm db:up
