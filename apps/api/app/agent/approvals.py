@@ -185,11 +185,16 @@ async def save_plan(
     session.add(GuardCheck(step_id=step.id, verdict=request.verdict, reason=request.reason, model=request.guard_model))
 
 
-async def set_operation_status(session: AsyncSession, plan_ids: Any, status: OperationStatus) -> None:
-    """결정 전 operation(awaiting_approval)만 바꾼다. plan_ids는 id 목록이나 select 문."""
+async def set_operation_status(
+    session: AsyncSession,
+    plan_ids: Any,
+    status: OperationStatus,
+    from_statuses: tuple[OperationStatus, ...] = (OperationStatus.AWAITING_APPROVAL,),
+) -> None:
+    """from_statuses(기본: 결정 전)인 operation만 바꾼다. plan_ids는 id 목록이나 select 문."""
     await session.execute(
         update(Operation)
-        .where(Operation.plan_id.in_(plan_ids), Operation.status == OperationStatus.AWAITING_APPROVAL)
+        .where(Operation.plan_id.in_(plan_ids), Operation.status.in_(from_statuses))
         .values(status=status)
     )
 

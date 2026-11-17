@@ -553,3 +553,4 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 재조회 결과 404(처리 기록 없음)를 "실행되지 않음"으로 확정하는 것은 멱등성 키로 결과를 조회할 수 있는 서비스에서만 맞다. 그런 조회가 없는 도구는 reconcile을 두지 않아 unknown으로 남는다(Google 일정은 4단계에서 안정적인 event ID로 조회를 붙인다).
 - 2026-11-17 결과를 확인하지 못한 operation(unknown·reconciling·executing)이 남은 채 모델이 답을 마치면 task는 done이 아니라 needs_review다. 답변은 그대로 남기고, 푸시는 새 종류 `task_needs_review`("처리 결과 확인이 필요합니다", BUILD_SPEC 8.4 문구)로 보낸다.
 - 2026-11-17 장애 지점은 "그 지점에서 남는 DB·외부 상태"를 만들어 재개 워크플로를 실제로 돌려 재현한다(docs/FAULTS.md). 실제 프로세스 강제 종료는 워크플로 복구 절차(docs/DURABILITY-CHECK.md)로 이미 확인했고 이번에는 다시 하지 않았다.
+- 2026-11-17 취소와 실행 시작의 경합: 실행기(begin_execution)가 task 행을 FOR SHARE로 잠근 채 상태를 확인하고 executing으로 바꾼다. 취소는 FOR UPDATE라 둘이 한 줄로 선다. 이미 나간 외부 요청은 취소가 와도 끝까지 결과를 기록하고(영수증), task는 cancelled로 끝나며 답변에 "취소 전에 끝난 외부 작업 N건은 되돌리지 않았습니다"를 붙인다. 승인했지만 실행 전인 operation(approved)은 취소 때 cancelled로 닫아 서버를 다시 켜도 실행하지 않는다.

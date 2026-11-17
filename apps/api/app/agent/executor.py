@@ -167,6 +167,8 @@ async def begin_execution(ctx: RunContext[AgentDeps], args: dict[str, Any]) -> E
         raise PermissionError(NOT_APPROVED_MESSAGE)
     now = datetime.now(UTC)
     async with ctx.deps.db() as session:
+        # task 행을 FOR SHARE로 잠근다: 취소(FOR UPDATE)와 실행 시작이 한 줄로 서서, 취소가 확인 뒤에 끼어들지 못한다.
+        await session.execute(select(Task.id).where(Task.id == ctx.deps.task_id).with_for_update(read=True))
         row = await locked_plan(session, ctx)
         if row is None:
             raise PermissionError(NOT_APPROVED_MESSAGE)

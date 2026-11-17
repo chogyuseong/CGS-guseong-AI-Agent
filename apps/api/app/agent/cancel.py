@@ -3,11 +3,13 @@
 취소는 이미 끝난 행동을 되돌리지 않는다. 취소 요청 뒤에 새로 시작하는 일(모델 호출, 도구 실행)만 막는다.
 
     queued, waiting_approval  → 바로 cancelled. 결정 전 승인은 cancelled, 실행하지 않은 단계는 실패로 닫고
-                                답변을 남긴다.
+                                답변을 남긴다. 승인했지만 실행 전인 외부 작업(operation approved)도 cancelled.
                                 늦게 시작한 워크플로는 claim에서 queued가 아니라 아무것도 하지 않는다.
     running                   → cancel_requested. 실행 쪽(tracking.StepTracking)이 다음 모델 호출·새 도구 실행 직전에
                                 확인하고 TaskCancelledError로 멈춘다 → runner가 cancelled로 저장한다.
                                 마지막 답을 이미 받았으면 그대로 done(이미 한 일을 숨기지 않는다).
+                                이미 나간 외부 요청은 끝까지 결과를 기록한다(영수증). 실행기(executor)가 task 행을
+                                FOR SHARE로 잠근 채 시작하므로 취소와 실행 시작은 한 줄로 선다(3단계 보강).
     cancel_requested, cancelled → 그대로(같은 요청을 다시 보내도 같은 결과)
     그 밖의 끝난 상태          → CancelNotAllowedError(409)
 """
@@ -18,13 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.approvals import set_operation_status
 from app.agent.deps import AgentDeps
 from app.agent.results import not_executed_output
-from app.models import Approval, Conversation, Message, Step, Task
+from app.models import ActionPlan, Approval, Conversation, ExecutionReceipt, Message, Operation, Step, Task
 from app.models.enums import ApprovalStatus, MessageRole, OperationStatus, StepStatus, TaskStatus
 
 CANCELLED_REPLY = "작업을 취소했습니다. 취소 전에 끝난 단계는 위 기록에 그대로 남아 있습니다."
 RUN_CANCELLED_MESSAGE = "취소 요청에 따라 멈췄습니다. 위 단계까지만 처리되었습니다."
 NOT_EXECUTED_ON_CANCEL = "작업을 취소해 실행하지 않았습니다."
 CANCEL_IMMEDIATELY = (TaskStatus.QUEUED, TaskStatus.WAITING_APPROVAL)
+NOT_STARTED = (OperationStatus.AWAITING_APPROVAL, OperationStatus.APPROVED)
 ALREADY_CANCELLING = (TaskStatus.CANCEL_REQUESTED, TaskStatus.CANCELLED)
 
 
@@ -34,6 +37,19 @@ class TaskCancelledError(Exception):
 
 class CancelNotAllowedError(Exception):
     """이미 끝난 작업이라 취소할 것이 없다."""
+
+
+async def completed_external_note(session: AsyncSession, task_id: int) -> str:
+    """취소 답변 끝에 붙일 문장: 취소 전에 끝난 외부 작업(영수증 있음)은 되돌리지 않았고 숨기지도 않는다(3단계 보강)."""
+    count = await session.scalar(
+        select(func.count(ExecutionReceipt.id))
+        .join(Operation, Operation.id == ExecutionReceipt.operation_id)
+        .join(ActionPlan, ActionPlan.id == Operation.plan_id)
+        .where(ActionPlan.task_id == task_id, Operation.status == OperationStatus.SUCCEEDED)
+    )
+    if not count:
+        return ""
+    return f" 취소 전에 끝난 외부 작업 {count}건은 되돌리지 않았습니다. 승인 카드에서 결과를 확인해 주세요."
 
 
 async def is_cancel_requested(deps: AgentDeps) -> bool:
@@ -77,10 +93,9 @@ async def request_cancel(session: AsyncSession, task_id: int, user_id: int) -> T
 async def close_for_cancel(session: AsyncSession, task: Task) -> None:
     """실행하지 않을 승인·단계를 닫고 task를 cancelled로 바꾼 뒤 답변을 남긴다(커밋은 부른 쪽)."""
     step_ids = select(Step.id).where(Step.task_id == task.id)
-    pending_plans = select(Approval.plan_id).where(
-        Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING, Approval.plan_id.is_not(None)
-    )
-    await set_operation_status(session, pending_plans, OperationStatus.CANCELLED)
+    # 결정 전이거나, 승인했지만 아직 실행을 시작하지 않은 외부 작업은 실행하지 않는다(3단계 보강).
+    task_plans = select(ActionPlan.id).where(ActionPlan.task_id == task.id)
+    await set_operation_status(session, task_plans, OperationStatus.CANCELLED, NOT_STARTED)
     await session.execute(
         update(Approval)
         .where(Approval.step_id.in_(step_ids), Approval.status == ApprovalStatus.PENDING)
@@ -91,12 +106,11 @@ async def close_for_cancel(session: AsyncSession, task: Task) -> None:
         .where(Step.task_id == task.id, Step.status == StepStatus.WAITING_APPROVAL)
         .values(status=StepStatus.FAILED, ok=False, output=not_executed_output(NOT_EXECUTED_ON_CANCEL))
     )
+    reply = CANCELLED_REPLY + await completed_external_note(session, task.id)
     task.status = TaskStatus.CANCELLED
-    task.error = CANCELLED_REPLY
+    task.error = reply
     session.add(
-        Message(
-            conversation_id=task.conversation_id, role=MessageRole.ASSISTANT, content=CANCELLED_REPLY, task_id=task.id
-        )
+        Message(conversation_id=task.conversation_id, role=MessageRole.ASSISTANT, content=reply, task_id=task.id)
     )
     conversation = await session.get_one(Conversation, task.conversation_id)
     conversation.updated_at = func.now()

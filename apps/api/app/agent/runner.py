@@ -51,7 +51,7 @@ from app.agent.budget import (
     calculate_cost,
     daily_cost_exceeded,
 )
-from app.agent.cancel import RUN_CANCELLED_MESSAGE, TaskCancelledError
+from app.agent.cancel import RUN_CANCELLED_MESSAGE, TaskCancelledError, completed_external_note
 from app.agent.deps import AgentDeps
 from app.agent.durable import current_workflow_id, durable_step
 from app.agent.guard import GuardAgent, GuardReview, check_action
@@ -419,6 +419,8 @@ async def save_outcome(
         # 승인 대기 중에는 답변을 남기지 않는다. 화면은 승인 카드를 보여 준다.
         await close_unexecuted_steps(session, info.id)
         reply = outcome.final_answer if outcome.status in ANSWERED_STATUSES else outcome.error
+        if outcome.status == TaskStatus.CANCELLED:
+            reply = (reply or "") + await completed_external_note(session, info.id)
         session.add(
             Message(
                 conversation_id=info.conversation_id, role=MessageRole.ASSISTANT, content=reply or "", task_id=info.id
