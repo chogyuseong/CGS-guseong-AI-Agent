@@ -23,6 +23,7 @@ preview(승인 카드와 감시 에이전트가 보는 문장): update/delete는
 """
 
 import re
+import uuid
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any
 from urllib.parse import quote
@@ -33,7 +34,7 @@ from pydantic_ai import RunContext
 from app import google_auth
 from app.agent.deps import AgentDeps
 from app.agent.executor import Execution, begin_execution, finish_execution
-from app.agent.plans import ExternalToolSpec
+from app.agent.plans import ExternalToolSpec, PlanRef, ReconcileOutcome
 from app.agent.prompts import SEOUL
 from app.agent.results import ToolResult, ToolStatus
 from app.tools import http
@@ -48,6 +49,10 @@ MAX_EVENTS = 50
 WEEKDAYS = "월화수목금토일"
 LOCAL_MINUTE = "%Y-%m-%dT%H:%M"
 EXTERNAL_TEXT_LIMIT = 40
+EVENT_ID_PREFIX = "ma"
+DUPLICATE_STATUS = 409
+SERVICE_KEY = "google"
+ID_CONFLICT_MESSAGE = "같은 번호의 다른 일정이 이미 있어 새로 만들지 않았습니다. 캘린더를 확인해 주세요."
 NOT_FOUND_MESSAGE = "해당 일정을 찾지 못했습니다. 이미 삭제되었을 수 있습니다."
 FORBIDDEN_MESSAGE = (
     "Google 캘린더에서 이 작업을 할 권한이 없습니다. Calendar API 사용 설정과 연결할 때 허용한 권한을 확인해 주세요."
@@ -252,14 +257,60 @@ async def create_event(
     started = await begin_execution(ctx, args)
     if isinstance(started, ToolResult):
         return started
-    body: dict[str, Any] = {"summary": title, "start": event_time(start), "end": event_time(end)}
+    event_id = stable_event_id(started.operation_id)
+    body: dict[str, Any] = {"id": event_id, "summary": title, "start": event_time(start), "end": event_time(end)}
     body.update({k: v for k, v in (("location", location), ("description", description)) if v})
     try:
         check_range(start, end)
         event = await calendar_request(ctx.deps, "POST", json=body)
     except ExternalApiError as error:
+        if error.status == DUPLICATE_STATUS:
+            return await finished(ctx.deps, started, await existing_result(ctx.deps, event_id, args), event_id)
         return await finished(ctx.deps, started, ToolResult.from_api_error(error))
-    return await finished(ctx.deps, started, saved_result(event), event_id_of(event))
+    return await finished(ctx.deps, started, saved_result(event), event_id_of(event) or event_id)
+
+
+def stable_event_id(operation_id: uuid.UUID) -> str:
+    """operation마다 고정된 event id. 16진수(0-9a-f)는 base32hex(0-9a-v)에 들어가고 34자라 규칙(5~1024자)에 맞다."""
+    return f"{EVENT_ID_PREFIX}{operation_id.hex}"
+
+
+def event_matches(event: Any, args: dict[str, Any]) -> bool:
+    """이 일정이 계획한 내용(제목·시작·끝·장소)과 같은가. 같은 id라도 내용이 다르면 우리 결과로 보지 않는다."""
+    if not isinstance(event, dict):
+        return False
+    start, end = (event.get("start") or {}).get("dateTime"), (event.get("end") or {}).get("dateTime")
+    if not (start and end) or event.get("summary") != args.get("title"):
+        return False
+    planned_start = parse_local(str(args.get("start"))).replace(tzinfo=SEOUL)
+    planned_end = parse_local(str(args.get("end"))).replace(tzinfo=SEOUL)
+    same_place = not args.get("location") or event.get("location") == args.get("location")
+    return seoul_time(start) == planned_start and seoul_time(end) == planned_end and same_place
+
+
+async def existing_result(deps: AgentDeps, event_id: str, args: dict[str, Any]) -> ToolResult:
+    """409(같은 id가 이미 있음): 그 일정을 읽어 계획과 같을 때만 성공으로 연결한다(BUILD_SPEC 4.3)."""
+    try:
+        event = await calendar_request(deps, "GET", event_id)
+    except ExternalApiError as error:
+        return ToolResult.from_api_error(error)
+    if event_matches(event, args) and event.get("status") != "cancelled":
+        return saved_result(event)
+    return ToolResult.failure(ID_CONFLICT_MESSAGE, error_code="id_conflict")
+
+
+async def reconcile_create(deps: AgentDeps, ref: PlanRef) -> ReconcileOutcome:
+    """복구·응답 유실 뒤 결과 확인: 고정 id로 일정을 조회한다. 없으면 만들지 않은 것, 내용이 같으면 만든 것."""
+    event_id = stable_event_id(ref.operation_id)
+    try:
+        event = await calendar_request(deps, "GET", event_id)
+    except ExternalApiError as error:
+        if error.status in (404, 410):
+            return ReconcileOutcome("not_done")
+        raise
+    if event_matches(event, ref.canonical_args):
+        return ReconcileOutcome("done", resource_id=event_id, data=saved_result(event).data, provider=SERVICE_KEY)
+    return ReconcileOutcome("unknown")
 
 
 def event_id_of(event: Any) -> str | None:
@@ -405,7 +456,10 @@ LABELS = {
 # 실행 계획 규격(2단계 보강, app/agent/plans.py). 보내는 요청 모양이 바뀌면 version을 올린다.
 CALENDAR_TARGET = "Google 캘린더(기본 캘린더)"
 SPECS = {
-    "create_event": ExternalToolSpec("1", provider=google_auth.PROVIDER, target_label=CALENDAR_TARGET),
+    # 4단계 보강: 고정 event id를 보내므로 요청 모양이 바뀌었다(1 → 2). 재조회 함수가 있다.
+    "create_event": ExternalToolSpec(
+        "2", provider=google_auth.PROVIDER, target_label=CALENDAR_TARGET, reconcile=reconcile_create
+    ),
     "update_event": ExternalToolSpec(
         "1", provider=google_auth.PROVIDER, target_arg="event_id", target_label=CALENDAR_TARGET
     ),

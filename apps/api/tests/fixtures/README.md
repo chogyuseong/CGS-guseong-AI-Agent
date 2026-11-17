@@ -28,6 +28,7 @@
 | `google_token_*.json` | OAuth 2.0 웹 서버 앱 문서의 토큰 교환·갱신 응답, `invalid_grant` 오류 |
 | `google_events_*.json`, `google_event_*.json` | Calendar API Events 리소스 형식. 세 번째 일정은 주입 문장을 넣은 시험용 |
 | `google_error_*.json` | Calendar API 오류 처리 문서의 형식(authError, rateLimitExceeded, userRateLimitExceeded, notFound) |
+| `google_error_409_duplicate.json`, `google_error_412.json` | (4단계 보강) 같은 오류 모양에 insert 중복 ID(duplicate)와 If-Match 불일치(412 Precondition Failed)를 넣음. 문서(버전 리소스 안내)에 상태 코드는 있으나 본문 예시는 없어 만든 것 |
 | `google_token_exchange_mail.json` | (7단계) 토큰 교환 응답에 캘린더 + `gmail.readonly` 범위가 함께 온 경우(점진적 권한 부여의 합친 권한) |
 | `gmail_messages_list.json`, `gmail_messages_empty.json` | (7단계) Gmail `users.messages.list` 응답 형식(messages[{id, threadId}], resultSizeEstimate). 빈 결과는 messages 칸이 없다 |
 | `gmail_message_meta_*.json` | (7단계) `users.messages.get` format=metadata 형식(Message 리소스: labelIds, snippet, internalDate, payload.headers) |

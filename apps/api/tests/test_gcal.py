@@ -248,6 +248,7 @@ async def test_create_event_after_approval(tool_deps: AgentDeps, fake_http: Fake
     assert result.sources == ["https://www.google.com/calendar/event?eid=ZXZ0MGRpbm5lcjAxMDA"]
     [request] = fake_http.sent("POST", EVENTS)
     body = json.loads(request.content)
+    assert body.pop("id").startswith("ma")  # 4단계 보강: operation마다 고정된 event id(tests/test_gcal_create.py)
     assert body == {
         "summary": "저녁 약속",
         "start": {"dateTime": "2026-11-20T19:00:00", "timeZone": "Asia/Seoul"},

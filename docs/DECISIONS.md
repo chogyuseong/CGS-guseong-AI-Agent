@@ -563,3 +563,6 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 푸시 URL은 앱 내부 경로만 허용한다("/"로 시작, "//"·"://"·역슬래시 없음, 200자 이하). 아니면 보내지도 기록하지도 않는다. 브리핑 문구를 BUILD_SPEC 8.4대로 "브리핑이 준비되었습니다"로 맞췄다.
 - 2026-11-17 앱 로그(app.* 로거)의 예외는 레코드를 만들 때 메시지를 지우고 "예외 종류 + 코드 위치"만 남긴다(observability.install_log_redaction, create_app에서 설치). Logfire에 이미 걸던 규칙(hide_exception_details)을 로컬 로그에도 맞춘 것이다. 계기: 재조회 실패 로그(exc_info)가 외부 서비스 오류 문장을 그대로 남겨, 그 안의 사용자 글이 로그에 찍혔다(tests/test_sensitive_records.py로 발견). 라이브러리 로거(dbos, httpx 등)는 건드리지 않는다.
 - 2026-11-17 3단계 민감 정보 검사 범위는 로그와 이번에 새로 만든 기록(outbox_events, notifications, operations.error_code)이다. messages·tasks.message_history·steps·execution_receipts.summary는 화면·모델에 필요한 내용이고, DBOS 시스템 테이블에는 워크플로 입력(사용자 메시지)과 단계 결과(모델 메시지 기록)가 pickle로 남는다. 이 저장소들의 보관·삭제는 5단계(DATA_POLICY), 메일 원문은 7단계에서 다룬다.
+### 4단계 보강
+- 2026-11-17 일정 생성은 operation마다 고정된 event id `ma` + operation_id 16진수(34자)를 보낸다. 공식 문서(events/insert, 2026-11-17 확인): id는 base32hex(a-v, 0-9) 5~1024자, 캘린더 안에서 유일, 같은 id가 있으면 insert가 성공하지 않는다. 16진수는 base32hex의 부분집합이다. create_event 규격 버전을 1 → 2로 올렸다(요청 모양이 바뀜, 그 전 계획은 plan_outdated로 다시 승인).
+- 2026-11-17 409(같은 id가 이미 있음)이면 그 id의 일정을 읽어 제목·시작·끝(서울 시각)·장소가 계획과 같고 취소되지 않았을 때만 성공으로 연결한다. 다르면 failed(id_conflict). 쓰기가 시간 초과면 같은 id로 조회해(reconcile_create) 있으면 성공, 404·410이면 실행 안 됨, 조회 실패면 unknown.
