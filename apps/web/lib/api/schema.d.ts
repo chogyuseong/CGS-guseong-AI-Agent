@@ -417,6 +417,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedules/briefing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Enable Briefing
+         * @description 6단계 보강: 아침 브리핑 켜기(없으면 만들고, 있으면 시각을 바꾸고 켠다). 끄기·지우기는 PATCH·DELETE.
+         */
+        put: operations["enable_briefing_api_schedules_briefing_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedules/{schedule_id}": {
         parameters: {
             query?: never;
@@ -592,6 +612,17 @@ export interface components {
          */
         AutomationErrorOut: {
             detail: components["schemas"]["AutomationErrorDetail"];
+        };
+        /**
+         * BriefingUpdate
+         * @description PUT /api/schedules/briefing 본문: 매일 실행할 시각(서울, 24시간 'HH:MM').
+         */
+        BriefingUpdate: {
+            /**
+             * Time Of Day
+             * @example 07:30
+             */
+            time_of_day: string;
         };
         /**
          * CancelOut
@@ -1988,6 +2019,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleListOut"];
+                };
+            };
+        };
+    };
+    enable_briefing_api_schedules_briefing_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BriefingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description 켤 수 없다(limit_reached, duplicate, expired) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

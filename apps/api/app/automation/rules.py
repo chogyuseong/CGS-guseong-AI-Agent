@@ -33,6 +33,8 @@ AUTOMATION_CONVERSATION_TITLE = "예약 작업"
 
 # 아침 브리핑 기본 예약(명세). 프롬프트는 명세 문장 그대로다.
 BRIEFING_TITLE = "아침 브리핑"
+BRIEFING_KIND = "briefing"
+# 6단계 보강: 화면이 처음 제안하는 시각(BUILD_SPEC 8.1). 사용자가 켜기 전에는 예약이 없다.
 BRIEFING_TIME = time(7, 30)
 BRIEFING_PROMPT = "오늘 일정, 날씨, 미완료 할 일을 요약해라. 행동이 필요한 항목은 [제안] 줄로만 적어라."
 EVERY_DAY = (0, 1, 2, 3, 4, 5, 6)

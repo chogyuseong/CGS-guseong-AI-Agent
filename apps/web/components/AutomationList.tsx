@@ -10,6 +10,7 @@ import {
 } from "@/lib/automations";
 import { type Feedback, FeedbackLine, LoadError, type Report } from "./AutomationControls";
 import { ScheduleItem, WatchItem } from "./AutomationItems";
+import { BriefingSetup } from "./BriefingSetup";
 
 // 자동화 탭(6단계): 예약 작업과 조건 감시의 목록, 켜기·끄기, 삭제(화면 안 확인 한 번), 마지막 실행 결과.
 // 만들기·내용 고치기는 없다(명세 화면 항목에 없고 API도 없다). 예약과 감시는 채팅에서 말로 만든다.
@@ -26,6 +27,7 @@ export function AutomationList() {
 }
 
 const GUIDE_LINES = [
+  "아침 브리핑은 직접 켜야 실행됩니다. 계정을 만들었다고 저절로 돌지 않습니다.",
   "자동 작업은 조회만 합니다. 일정 등록처럼 무언가를 바꾸는 일은 결과에 [제안]으로 알려 드리고, 그 버튼을 눌러야 채팅으로 보내져 평소처럼 승인을 거칩니다.",
   "예약 작업 결과와 조건 감시 알림은 '예약 작업' 대화방에 남습니다.",
   "예약과 감시는 채팅에서 말로 만듭니다. 이 화면에서는 켜기·끄기와 삭제만 할 수 있습니다.",
@@ -108,6 +110,12 @@ const SCHEDULE_EMPTY = [
   "하루 한 번보다 자주 실행할 수는 없습니다.",
 ];
 
+// 브리핑이 바뀌면(켜기·시각 변경) 입력칸을 서버 값으로 다시 맞춘다.
+function briefingKey(schedules: Schedule[]): string {
+  const briefing = schedules.find((item) => item.is_briefing);
+  return briefing ? `${briefing.id}-${briefing.time_of_day}-${briefing.is_active}` : "none";
+}
+
 function ScheduleSection({ report }: { report: Report }) {
   const query = useSchedules();
   const data = query.data;
@@ -119,6 +127,13 @@ function ScheduleSection({ report }: { report: Report }) {
       query={query}
       summary={data && <CountLine noun="예약 작업" count={count} max={data.max_active} />}
     >
+      {data && (
+        <BriefingSetup
+          key={briefingKey(data.schedules)}
+          briefing={data.schedules.find((item) => item.is_briefing)}
+          maxActive={data.max_active}
+        />
+      )}
       {data && data.schedules.length === 0 && (
         <EmptyGuide title="아직 예약 작업이 없습니다." lines={SCHEDULE_EMPTY} />
       )}

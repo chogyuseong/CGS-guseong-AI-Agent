@@ -148,7 +148,7 @@ test("360px 자동화 화면: 예약·감시 목록과 마지막 결과, 개수,
   await expect(region).toContainText("켜진 예약 작업 1개 / 최대 10개");
   await expect(region).toContainText("켜진 조건 감시 1개 / 최대 10개");
   const briefing = item(region, "아침 브리핑");
-  await expect(briefing).toContainText("기본 브리핑");
+  await expect(briefing).toContainText("아침 브리핑");
   await expect(briefing).toContainText("매일 07:30");
   await expect(briefing).toContainText("다음 실행 11월 18일(수) 07:30");
   const result = briefing.getByRole("link", { name: "결과 보기" });

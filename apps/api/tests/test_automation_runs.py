@@ -336,7 +336,7 @@ async def test_briefing_sends_briefing_push(
 ) -> None:
     await subscribe(db_session, logged_in_user)
     now = datetime.now(UTC)
-    assert await store.seed_default_schedules(db_session, logged_in_user.id, now)
+    await store.enable_briefing(db_session, logged_in_user.id, time_text="07:30", now=now)
     await db_session.commit()
     job = await db_session.scalar(select(ScheduledJob).where(ScheduledJob.user_id == logged_in_user.id))
     assert job is not None
@@ -349,43 +349,30 @@ async def test_briefing_sends_briefing_push(
     assert [p["body"] for p in push_sender.payloads()] == ["브리핑이 준비되었습니다"]
 
 
-# ---- 아침 브리핑 기본 예약 ----
+# ---- 아침 브리핑: 사용자가 켠 뒤에만(6단계 보강, BUILD_SPEC 8.1) ----
 
 
-async def test_checker_creates_briefing_for_existing_accounts_once(
+async def test_checker_does_not_create_briefing_by_itself(
     automation_services: AutomationServices, agent: MyAgent, db_session: AsyncSession, logged_in_user: User
 ) -> None:
-    now = datetime.now(UTC)
     with agent.override(model=scripted(text("x")).model()):
-        report = await run_check(automation_services, now)
-
-    jobs = list(await db_session.scalars(select(ScheduledJob).where(ScheduledJob.user_id == logged_in_user.id)))
-    assert report.briefings_created >= 1
-    assert [(j.title, j.time_of_day, j.weekdays, j.prompt_text, j.is_active) for j in jobs] == [
-        (rules.BRIEFING_TITLE, time(7, 30), EVERY_DAY, rules.BRIEFING_PROMPT, True)
-    ]
-    local = jobs[0].next_run_at.astimezone(rules.SEOUL)
-    assert (local.hour, local.minute) == (7, 30)
-
-    await db_session.delete(jobs[0])  # 사용자가 지웠다
-    await db_session.commit()
-    with agent.override(model=scripted(text("x")).model()):
-        await run_check(automation_services, now + timedelta(minutes=1))
+        await run_check(automation_services, datetime.now(UTC))
 
     count = await db_session.scalar(
         select(func.count()).select_from(ScheduledJob).where(ScheduledJob.user_id == logged_in_user.id)
     )
-    assert count == 0  # 지운 브리핑은 다시 생기지 않는다
+    assert count == 0
 
 
-async def test_new_account_gets_briefing(db_session: AsyncSession) -> None:
+async def test_new_account_has_no_briefing(db_session: AsyncSession) -> None:
     user = await create_user_if_missing(db_session, "new@example.com", "password-new")
     assert user is not None
 
-    jobs = list(await db_session.scalars(select(ScheduledJob).where(ScheduledJob.user_id == user.id)))
+    count = await db_session.scalar(
+        select(func.count()).select_from(ScheduledJob).where(ScheduledJob.user_id == user.id)
+    )
 
-    assert [j.prompt_text for j in jobs] == [rules.BRIEFING_PROMPT]
-    assert user.briefing_seeded_at is not None
+    assert count == 0
 
 
 # ---- 조건 감시 ----

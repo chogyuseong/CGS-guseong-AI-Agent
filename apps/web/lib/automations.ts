@@ -216,3 +216,17 @@ export function useDeleteAutomation(kind: AutomationKind) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: listKey(kind) }),
   });
 }
+
+// 6단계 보강: 아침 브리핑 켜기·시각 바꾸기(PUT /api/schedules/briefing). 끄기·지우기는 다른 예약과 같다.
+export function useEnableBriefing(maxActive: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (timeOfDay: string) => {
+      const result = await api
+        .PUT("/api/schedules/briefing", { body: { time_of_day: timeOfDay } })
+        .catch(networkError);
+      throwIfFailed(result, "schedule", maxActive);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: automationKeys.schedules }),
+  });
+}

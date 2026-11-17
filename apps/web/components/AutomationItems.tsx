@@ -34,7 +34,7 @@ export function ScheduleItem({ schedule, maxActive, report }: ScheduleItemProps)
       active={schedule.is_active}
       maxActive={maxActive}
       report={report}
-      badges={schedule.is_briefing && <Badge variant="secondary">기본 브리핑</Badge>}
+      badges={schedule.is_briefing && <Badge variant="secondary">아침 브리핑</Badge>}
     >
       <div className="flex min-w-0 flex-col gap-1 text-sm">
         <p className="font-medium">{schedule.repeat_text}</p>

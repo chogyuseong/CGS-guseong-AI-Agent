@@ -44,7 +44,7 @@ from app.push import PushNotifier
 logger = logging.getLogger(__name__)
 
 # DBOS 애플리케이션 버전. 복구는 같은 버전의 워크플로만 한다. 단계 구성을 바꾸면 올린다.
-WORKFLOW_VERSION = "myagent-4"  # 3단계 보강: 1분 검사에 find_outbox 단계 추가
+WORKFLOW_VERSION = "myagent-5"  # 6단계 보강: 1분 검사에서 seed_briefings 제거(5단계 보강의 prune_records 포함)
 DBOS_APP_NAME = "myagent"
 # DBOS 시스템 테이블은 앱과 같은 DB의 별도 스키마에 둔다(앱 테이블, Alembic과 섞이지 않는다).
 DBOS_SYSTEM_SCHEMA = "dbos"

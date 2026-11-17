@@ -4,7 +4,6 @@
     automation_check 워크플로 (DBOS 예약 실행, 매분)
       ID는 DBOS가 "sched-automation-check-{시각}"으로 정해 같은 분이 두 번 돌지 않는다
       run_check(now)
-        [seed_briefings]     아침 브리핑을 아직 만들어 주지 않은 계정에 만든다(이미 있는 계정 포함, 한 번만)
         [expire_approvals]   만료 시각이 지난 pending 승인 → expired, task cancelled (approvals.expire_task)
         [expire_watches]     만료일이 지난 켜진 감시 → 끔
         [find_due]           next_run_at ≤ now인 켜진 예약·감시
@@ -78,7 +77,6 @@ class AutomationServices:
 class CheckReport:
     """한 번의 검사에서 한 일(로그·테스트용)."""
 
-    briefings_created: int
     approvals_expired: int
     watches_expired: int
     schedules_started: int
@@ -97,7 +95,6 @@ class DueWork:
 async def run_check(services: AutomationServices, now: datetime) -> CheckReport:
     """검사 한 번. 예약·감시 실행은 워크플로를 시작만 하고(테스트의 시작기는 끝날 때까지 기다린다) 결과를 모른다."""
     factory = services.run.session_factory
-    briefings = await durable_step("seed_briefings", seed_briefings, factory, now)
     expired = await durable_step("expire_approvals", expire_overdue_approvals, factory, now)
     watches_expired = await durable_step("expire_watches", expire_watches, factory, now)
     # 3단계 보강: 시작하지 못한 outbox 요청(시도 시각이 된 것)을 다시 시작한다. 예약과 같이 목록은 단계로 기록하고
@@ -113,19 +110,10 @@ async def run_check(services: AutomationServices, now: datetime) -> CheckReport:
     if now.minute == retention.RETENTION_MINUTE:
         pruned = await retention.prune_expired_records(factory, services.run.settings, now)
         logger.info("보관 기간 정리: %s", pruned)
-    report = CheckReport(briefings, expired, watches_expired, len(due.schedules), len(due.watches))
-    if any((briefings, expired, watches_expired, due.schedules, due.watches)):
+    report = CheckReport(expired, watches_expired, len(due.schedules), len(due.watches))
+    if any((expired, watches_expired, due.schedules, due.watches)):
         logger.info("자동화 검사: %s", report)
     return report
-
-
-async def seed_briefings(factory: async_sessionmaker[AsyncSession], now: datetime) -> int:
-    created = 0
-    async with factory() as session:
-        for user_id in await store.users_without_briefing(session):
-            created += await store.seed_default_schedules(session, user_id, now)
-        await session.commit()
-    return created
 
 
 async def overdue_task_ids(session: AsyncSession, now: datetime) -> list[int]:
@@ -204,7 +192,7 @@ async def lock_job(session: AsyncSession, job_id: int) -> ScheduledJob | None:
 
 
 def done_kind_for(job: ScheduledJob) -> PushKind:
-    return PushKind.BRIEFING if job.prompt_text == rules.BRIEFING_PROMPT else PushKind.TASK_DONE
+    return PushKind.BRIEFING if job.kind == rules.BRIEFING_KIND else PushKind.TASK_DONE
 
 
 async def create_schedule_task(session: AsyncSession, job: ScheduledJob, run_at: datetime) -> Task:

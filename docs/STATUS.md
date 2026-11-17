@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 5단계 보강 완료(2026-11-17). 다음은 6단계 보강(예약과 감시).
+현재 단계: BUILD_SPEC 기준 6단계 보강 진행 중(2026-11-17). (1) 브리핑 사용자 동의 끝, 다음은 (2) 발생 기록과 중복 방지.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -106,7 +106,7 @@ DBOS 워크플로 입력·단계 결과·message_history의 사용자 글은 5�
 - 남긴 것: 메일 실행 기록 암호화(PAYLOAD_ENCRYPTION_KEY, 7단계), 계정 삭제 화면·API(요구사항에 없음, 제안), 배포 백업 30일 실제 설정(배포 단계)
 
 ### 6단계 — 예약과 감시
-- [ ] 계정 생성만으로 브리핑 예약을 만들지 않음. 사용자가 켠 뒤 실행(지금은 07:30 자동 생성)
+- [x] 계정 생성만으로 브리핑 예약을 만들지 않음. 사용자가 켠 뒤 실행 — PUT /api/schedules/briefing, tests/test_briefing_consent.py
 - [ ] automation_occurrences로 (job/watch, scheduled_for) 중복 방지, 누락은 유예 시간 안 1건만
 - [ ] 예약 하루 1회 이하, weekdays·time_of_day·timezone
 - [ ] 감시: 숫자 조건 서버 비교(LLM 없음), 판정 오류는 unknown, 재알림 최소 12시간, 단발성 날짜 고정

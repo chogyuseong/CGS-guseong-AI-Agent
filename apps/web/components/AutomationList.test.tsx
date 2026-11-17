@@ -155,7 +155,7 @@ describe("자동화 목록", () => {
     const item = await findItem("아침 브리핑");
 
     expect(item).toHaveTextContent("매일 07:30");
-    expect(item).toHaveTextContent("기본 브리핑");
+    expect(item).toHaveTextContent("아침 브리핑");
     expect(item).toHaveTextContent("다음 실행 11월 18일(수) 07:30");
     expect(item).toHaveTextContent("완료");
     expect(item).toHaveTextContent("오늘 일정은 2개입니다.");

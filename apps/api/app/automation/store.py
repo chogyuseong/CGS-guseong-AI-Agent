@@ -15,7 +15,7 @@
 from datetime import datetime, time
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automation import rules
@@ -255,36 +255,40 @@ async def automation_conversation(session: AsyncSession, user_id: int) -> Conver
     return conversation
 
 
-async def seed_default_schedules(session: AsyncSession, user_id: int, now: datetime) -> bool:
-    """아직 만들어 준 적 없는 계정에 아침 브리핑(매일 07:30)을 만든다. 만들었으면 True.
-
-    users.briefing_seeded_at이 null일 때만 한 번(UPDATE ... WHERE null RETURNING으로 동시에 불려도 한 번).
-    사용자가 브리핑을 끄거나 지워도 표시가 남아 다시 만들지 않는다. 활성 상한(10개)이 차 있으면 꺼진 채로 만든다.
-    """
-    claimed = await session.scalar(
-        update(User)
-        .where(User.id == user_id, User.briefing_seeded_at.is_(None))
-        .values(briefing_seeded_at=now)
-        .returning(User.id)
+async def find_briefing(session: AsyncSession, user_id: int) -> ScheduledJob | None:
+    return await session.scalar(
+        select(ScheduledJob)
+        .where(ScheduledJob.user_id == user_id, ScheduledJob.kind == rules.BRIEFING_KIND)
+        .order_by(ScheduledJob.id)
+        .limit(1)
     )
-    if claimed is None:
-        return False
-    days = list(rules.EVERY_DAY)
-    room = await active_schedule_count(session, user_id) < rules.MAX_ACTIVE_SCHEDULES
-    session.add(
-        ScheduledJob(
+
+
+async def enable_briefing(session: AsyncSession, user_id: int, *, time_text: str, now: datetime) -> ScheduledJob:
+    """6단계 보강: 사용자가 켠 아침 브리핑(매일, 서울). 있으면 시각을 바꾸고 켜고, 없으면 만든다(사용자당 하나).
+
+    계정 생성·1분 검사는 브리핑을 만들지 않는다(BUILD_SPEC 8.1: 계정 생성만으로 유료 실행을 시작하지 않는다).
+    """
+    time_of_day = rules.parse_time_of_day(time_text)
+    if time_of_day is None:
+        raise AutomationError("invalid", "시각은 24시간 'HH:MM' 형식이어야 합니다. 예: 07:30")
+    await lock_user(session, user_id)
+    job = await find_briefing(session, user_id)
+    if job is None or not job.is_active:
+        await ensure_schedule_room(session, user_id)
+    days: list[int] = list(rules.EVERY_DAY)
+    if job is None:
+        job = ScheduledJob(
             user_id=user_id,
+            kind=rules.BRIEFING_KIND,
             title=rules.BRIEFING_TITLE,
             prompt_text=rules.BRIEFING_PROMPT,
-            time_of_day=rules.BRIEFING_TIME,
             weekdays=days,
-            next_run_at=rules.next_schedule_run(rules.BRIEFING_TIME, days, now),
-            is_active=room,
         )
-    )
+        session.add(job)
+    job.time_of_day = time_of_day
+    job.weekdays = days
+    job.is_active = True
+    job.next_run_at = rules.next_schedule_run(time_of_day, days, now)
     await session.flush()
-    return True
-
-
-async def users_without_briefing(session: AsyncSession) -> list[int]:
-    return list(await session.scalars(select(User.id).where(User.briefing_seeded_at.is_(None)).order_by(User.id)))
+    return job

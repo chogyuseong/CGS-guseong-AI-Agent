@@ -80,6 +80,7 @@ async def test_list_schedules_with_last_result(
         title=rules.BRIEFING_TITLE,
         prompt_text=rules.BRIEFING_PROMPT,
         time_of_day=time(7, 30),
+        kind=rules.BRIEFING_KIND,
     )
     other = await make_user("other@example.com", "password-other")
     await add_job(db_session, other)

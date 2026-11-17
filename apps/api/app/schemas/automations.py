@@ -87,6 +87,12 @@ class WatchListOut(BaseModel):
     max_active: int
 
 
+class BriefingUpdate(BaseModel):
+    """PUT /api/schedules/briefing 본문: 매일 실행할 시각(서울, 24시간 'HH:MM')."""
+
+    time_of_day: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$", examples=["07:30"])
+
+
 class ActiveUpdate(BaseModel):
     """PATCH 본문: 켜기(true)·끄기(false)."""
 

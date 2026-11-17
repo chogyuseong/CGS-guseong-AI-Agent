@@ -28,6 +28,7 @@ from app.models import ScheduledJob, Task, Watch
 from app.schemas.automations import (
     ActiveUpdate,
     AutomationErrorOut,
+    BriefingUpdate,
     LastTaskOut,
     ScheduleListOut,
     ScheduleOut,
@@ -76,7 +77,7 @@ def schedule_out(job: ScheduledJob, last_task: Task | None) -> ScheduleOut:
         is_active=job.is_active,
         next_run_at=job.next_run_at,
         last_run_at=job.last_run_at,
-        is_briefing=job.prompt_text == rules.BRIEFING_PROMPT,
+        is_briefing=job.kind == rules.BRIEFING_KIND,
         last_task=last_task_out(last_task),
     )
 
@@ -125,6 +126,18 @@ async def list_schedules(user: CurrentUser, session: DbSession) -> ScheduleListO
     tasks = await last_tasks(session, user.id, jobs)
     items = [schedule_out(job, tasks.get(job.last_task_id or 0)) for job in jobs]
     return ScheduleListOut(schedules=items, max_active=rules.MAX_ACTIVE_SCHEDULES)
+
+
+@router.put("/schedules/briefing", responses={409: ERRORS[409]})
+async def enable_briefing(body: BriefingUpdate, user: CurrentUser, session: DbSession) -> ScheduleOut:
+    """6단계 보강: 아침 브리핑 켜기(없으면 만들고, 있으면 시각을 바꾸고 켠다). 끄기·지우기는 PATCH·DELETE."""
+    try:
+        job = await store.enable_briefing(session, user.id, time_text=body.time_of_day, now=datetime.now(UTC))
+    except AutomationError as error:
+        raise http_error(error) from None
+    await session.commit()
+    tasks = await last_tasks(session, user.id, [job])
+    return schedule_out(job, tasks.get(job.last_task_id or 0))
 
 
 @router.patch("/schedules/{schedule_id}", responses=ERRORS)

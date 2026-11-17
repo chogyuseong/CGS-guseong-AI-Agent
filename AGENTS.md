@@ -176,10 +176,10 @@
 - `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch)와 1분 검사 예약 등록
 
 ## 자동화 코드 지도 (apps/api/app/automation, 6단계)
-- `check.py` 1분 검사(브리핑 기본 예약, 만료 승인 정리, 만료 감시 끄기, 할 일 찾기) / 예약 실행 / 감시 실행 본문
+- `check.py` 1분 검사(만료 승인 정리, 만료 감시 끄기, 할 일 찾기) / 예약 실행 / 감시 실행 본문
 - `retention.py`(5단계 보강) 보관 기간 정리: 끝난 작업 7일 뒤 모델 기록·단계 입출력·계획 인자·DBOS 기록, 영수증 90일. 1분 검사가 매시 17분에 부른다.
   끝나지 않은 작업(`IN_PROGRESS_STATUSES`, 대화 삭제 409에도 씀)은 건드리지 않는다. 범위는 docs/DATA_POLICY.md
-- `store.py` 예약·감시 만들기·켜기·끄기·지우기와 서버 제한(활성 10개, 중복, 간격, 만료), '예약 작업' 대화방, 아침 브리핑
+- `store.py` 예약·감시 만들기·켜기·끄기·지우기와 서버 제한(활성 10개, 중복, 간격, 만료), '예약 작업' 대화방, 아침 브리핑 켜기(사용자가 켠 뒤에만, 6단계 보강)
 - `watchable.py` 감시에 쓸 수 있는 도구(read_tools, 메일 제외) 검사와 실행 / `watch.py` 감시 판정 에이전트 / `rules.py` 제한 값·서울 시각
 - 도구는 `app/tools/automation.py`, 화면 API는 `app/routers/automations.py`. 자동 작업에는 READ 도구만 간다(절대 원칙 4).
 - 시간이 걸린 테스트는 `run_check(services, now)`에 시각을 넣는다. 테스트에서 DBOS 예약(`apply_schedules`)을 등록하지 않는다

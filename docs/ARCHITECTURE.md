@@ -45,7 +45,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | `app/models/` | 15개 테이블 |
 | `app/schemas/` | 요청·응답 Pydantic 모델(웹이 OpenAPI로 타입 생성) |
 | `app/routers/` | `/api` 아래: health, auth, conversations, tasks, approvals, push, connections(4단계), memories(5단계), automations(6단계: schedules, watches), usage(8단계: 비용 화면) |
-| `app/automation/` | 6단계 자동화: `rules.py`(제한 값, 서울 시각 계산), `store.py`(예약·감시 만들기·켜기·끄기·지우기와 서버 제한, '예약 작업' 대화방, 아침 브리핑 기본 예약), `watchable.py`(감시에 쓸 수 있는 READ 도구 검사·실행), `watch.py`(감시 판정 에이전트 WatchVerdict), `check.py`(1분 검사·예약 실행·감시 실행 본문) |
+| `app/automation/` | 6단계 자동화: `rules.py`(제한 값, 서울 시각 계산), `store.py`(예약·감시 만들기·켜기·끄기·지우기와 서버 제한, '예약 작업' 대화방, 아침 브리핑 켜기 `enable_briefing`), `watchable.py`(감시에 쓸 수 있는 READ 도구 검사·실행), `watch.py`(감시 판정 에이전트 WatchVerdict), `check.py`(1분 검사·예약 실행·감시 실행 본문) |
 | `app/agent/` | 에이전트(아래 절) |
 | `app/tools/` | 도구. `notes.py`(메모, 할 일), 4단계: `http.py`(외부 API 공통 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`. 5단계: `memories.py`(remember 서버 검사, forget, list_memories). 6단계: `automation.py`(create·list·delete_schedule, create·list·delete_watch). 7단계: `gmail.py`(list_mail, read_mail), `mail_text.py`(MIME 부분 트리·HTML → 텍스트, 표준 라이브러리만). 엔드포인트·한도 요약은 `docs/TOOLS.md` |
 | `alembic/` | 마이그레이션. env.py는 동기 엔진(같은 psycopg 3 드라이버) |
@@ -75,6 +75,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | GET | `/api/connections` | 200 `[{"provider": "google", "available", "connected", "calendar", "mail", "scopes", "connected_at"}]`(4단계, `mail`은 7단계: gmail.readonly가 있는가). connected_at은 처음 연결한 시각(행의 created_at, 6단계에 고침: 토큰 갱신으로 바뀌지 않음. 연결된 채 다시 연결하면 그대로, 해제 뒤 연결하면 새 시각). available은 서버 설정(GOOGLE_* 세 값 + 유효한 TOKEN_ENCRYPTION_KEY)이 갖춰졌을 때만 true. 토큰은 응답에 없다 |
 | POST | `/api/connections/google/start` | 4단계 보강: 본문 `{scope?: "mail"}` → 200 `{authorization_url}`. 화면이 그 주소로 이동한다. state는 DB(oauth_states)에 해시로 저장하고 로그인 세션·10분·한 번 사용에 묶으며 PKCE code_verifier는 암호화해 둔다. 로그인 안 했으면 401, 서버 설정이 없으면 409 `not_configured`, 모르는 scope는 422. `scope=mail`이면 캘린더 + gmail.readonly(include_granted_scopes=true). GET은 405 |
 | GET | `/api/schedules` | 200 `{schedules: ScheduleOut[], max_active: 10}`(6단계). ScheduleOut = `id, title, prompt_text, time_of_day("HH:MM"), weekdays(0=월~6=일), repeat_text, is_active, next_run_at, last_run_at, is_briefing, last_task({id, conversation_id, status, final_answer, error, updated_at} \| null)` |
+| PUT | `/api/schedules/briefing` | 200 ScheduleOut(6단계 보강). 본문 `{"time_of_day": "HH:MM"}`. 아침 브리핑을 없으면 만들고 있으면 시각을 바꾸고 켠다(사용자당 하나). 409 `limit_reached`, 422 형식 |
 | PATCH | `/api/schedules/{id}` | 200 ScheduleOut. 본문 `{"is_active": bool}`. 켜면 다음 시각을 지금부터 다시 계산. 404 `not_found` / 409 `limit_reached` |
 | DELETE | `/api/schedules/{id}` | 204 / 404 `not_found` |
 | GET | `/api/watches` | 200 `{watches: WatchOut[], max_active: 10}`(6단계). WatchOut = `id, description, tool_name, tool_input, condition_text, interval_minutes, repeat, is_active, next_run_at, expires_at, last_notified_at, last_result({status, checked_at, summary, error, sources} \| null)`. status = met·not_met·tool_failed·judge_failed·skipped_budget·expired |
@@ -243,7 +244,7 @@ origin이 chat이면 4개 toolset(read_tools, internal_tools, mail_tools, extern
 - 사용자 메시지와 assistant 답변 모두 `messages.task_id`로 task에 연결된다.
   예외(6단계): 예약 작업 task는 사용자 메시지 없이(trigger_message_id null) assistant 답변만 있고, 감시 충족 알림은 task 없이(task_id null)
   '예약 작업' 대화방에 assistant 메시지로 남는다.
-- `scheduled_jobs.last_task_id`(6단계 추가, FK SET NULL): 마지막 실행 task. `users.briefing_seeded_at`(6단계 추가): 아침 브리핑을 만들어 준 시각.
+- `scheduled_jobs.last_task_id`(6단계 추가, FK SET NULL): 마지막 실행 task. `scheduled_jobs.kind`(6단계 보강): custom | briefing. 아침 브리핑은 사용자가 켤 때만 생긴다(`PUT /api/schedules/briefing`). 예전 `users.briefing_seeded_at`은 지웠다.
 - `messages.sources`(8단계 추가, JSONB, null 허용, 마이그레이션 `a45125a7f4d9`): 조건 감시 알림의 출처 링크. 그 밖의 메시지는 null.
   메시지 출처(`origin`)는 컬럼이 아니라 계산한다: 사용자 메시지 → chat, task가 있으면 그 task의 origin, task 없는 답변 → watch.
 
@@ -253,7 +254,6 @@ origin이 chat이면 4개 toolset(read_tools, internal_tools, mail_tools, extern
 DBOS 예약 실행 "automation-check" (매분, ID "sched-automation-check-{시각}")
   automation_check 워크플로 → check.run_check(now)   [단계]는 DBOS가 기록해 복구 때 다시 실행하지 않는다
     [check_clock]      지금 시각을 단계로 기록
-    [seed_briefings]   briefing_seeded_at이 null인 계정에 '아침 브리핑'(매일 07:30, 명세 프롬프트) 생성 + 표시. 지워도 다시 안 생김
     [expire_approvals] 만료가 지난 pending 승인의 task를 잠그고 approvals.expire_task(승인·step expired, task cancelled, 안내 메시지)
     [expire_watches]   만료일이 지난 켜진 감시를 끔(last_result.status=expired)
     [find_due]         next_run_at ≤ now인 켜진 예약·감시
