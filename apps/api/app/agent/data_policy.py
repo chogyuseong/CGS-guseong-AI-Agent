@@ -7,6 +7,9 @@
 결과 등급(produces), 타임아웃, 재시도, 중복 방지, 결과 보관, 화면 표시. 새 도구는 여기에 등록해야 한다
 (tests/test_data_policy.py가 빠진 도구를 잡는다).
 
+도구 목록 거르기(visible_tool, 7단계 보강): 메일 기능 플래그가 꺼져 있으면 메일 도구를, 문맥에 읽어 온 메일이
+있으면 공개 검색·장소·날씨 도구를 모델에게 보이지 않는다(runner가 toolsets.run_toolsets로 건다).
+
 실행 전 검사(outbound_refusal, StepTracking이 도구 실행 직전에 부른다):
 - public만 받는 외부 도구(공개 검색·장소·날씨)는, 같은 작업에서 메일을 읽었으면 실행하지 않는다
   (메일 내용을 검색어로 외부에 보내는 행동을 자동 허용하지 않음).
@@ -15,16 +18,31 @@
 일정 쓰기(EXTERNAL)는 사용자 본인의 Google 계정이고 승인을 거치므로 user_private·mail_private을 받는다.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from pydantic_ai import RunContext
+from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart
+from pydantic_ai.tools import ToolDefinition
 from sqlalchemy import select
 
 from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
+from app.config import Settings
 from app.models import Step
 from app.models.enums import StepStatus
+from app.security import payload_cipher
+
+
+def mail_enabled(settings: Settings) -> bool:
+    """메일 기능 플래그(7단계 보강). 복구 payload를 암호화할 키(PAYLOAD_ENCRYPTION_KEY)가 있을 때만 켠다.
+
+    키가 없으면 DBOS 기록과 모델 기록에 메일 원문이 평문으로 남을 수 있어 메일 도구를 모델에게 주지 않고,
+    도구도 Gmail을 부르지 않으며, 메일 권한 추가 시작도 막는다(BUILD_SPEC 5.2·13절 7단계).
+    """
+    return payload_cipher(settings) is not None
 
 
 class DataClass(StrEnum):
@@ -84,7 +102,7 @@ MAIL_READ = ToolPolicy(
     HTTP_TIMEOUT,
     READ_RETRY,
     "조회라 불필요",
-    "steps.output 앞 500자만(results.output_for_storage)",
+    "steps.output에는 통 수만(results.output_for_storage), 모델 기록은 앞 500자 암호문(history.seal_mail_returns)",
     "외부 콘텐츠로 감싸 출처 표시",
 )
 
@@ -146,6 +164,41 @@ def event_titles(output: Any) -> list[str]:
 def mentions(args: dict[str, Any], titles: list[str]) -> bool:
     text = " ".join(str(v) for v in args.values() if isinstance(v, str))
     return any(title.strip() in text for title in titles)
+
+
+# ---- 7단계 보강: 모델에게 보일 도구(run_toolsets의 filtered) ----
+
+
+def returned_mail(content: Any) -> bool:
+    """메일 도구 결과가 실제로 메일 내용을 돌려줬는가(성공). 거부·실패 결과에는 메일 내용이 없다."""
+    if isinstance(content, ToolResult):
+        return content.ok
+    return isinstance(content, dict) and content.get("status") == "succeeded"
+
+
+def mail_read_in(messages: Sequence[ModelMessage]) -> bool:
+    """문맥(이전 대화 기록 + 이번 run)에 읽어 온 메일 결과가 있는가."""
+    return any(
+        isinstance(part, ToolReturnPart) and part.tool_name in MAIL_TOOLS and returned_mail(part.content)
+        for message in messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+    )
+
+
+def visible_tool(ctx: RunContext[AgentDeps], tool_def: ToolDefinition) -> bool:
+    """모델 요청마다 도구 목록을 거른다(BUILD_SPEC 2.2, 13절 7단계 "메일 작업의 도구 범위 제한").
+
+    - 메일 도구: 메일 기능 플래그(PAYLOAD_ENCRYPTION_KEY)가 꺼져 있으면 보이지 않는다.
+    - 공개 검색·장소·날씨(public만 받는 외부 도구): 문맥에 읽어 온 메일이 있으면(이번 작업이든 같은 대화의 이전
+      작업이든) 보이지 않는다. 메일 처리 작업에는 공개 검색 도구를 함께 주지 않는다. 실행 직전 검사
+      (outbound_refusal)는 두 번째 방어선으로 남긴다.
+    """
+    if tool_def.name in MAIL_TOOLS:
+        return mail_enabled(ctx.deps.settings)
+    if needs_check(tool_def.name):
+        return not mail_read_in(ctx.messages)
+    return True
 
 
 async def outbound_refusal(deps: AgentDeps, tool_name: str, args: dict[str, Any]) -> ToolResult | None:

@@ -13,16 +13,18 @@
 
 저장 규칙(finalize_for_storage):
 - 실패한 run의 중간 메시지(state='interrupted')와 결과 없이 끝난 마지막 도구 호출은 저장하지 않는다.
-- 메일 도구(list_mail·read_mail) 결과는 앞 500자만 저장한다(7단계, clip_mail_returns).
+- 메일 도구(list_mail·read_mail) 결과는 앞 500자만, PAYLOAD_ENCRYPTION_KEY로 암호화해 저장한다
+  (7단계 보강, seal_mail_returns). 모델에게 넘기기 직전에만 푼다(open_mail_returns, runner.execute_agent).
 - 답변 없이 끝난 task(실패, 상한 초과)는 끝에 "중단됨" 응답을 붙여 저장한다. 이미 실행된 도구 호출과 결과는
   남기므로 다음 task의 모델이 "그때 할 일을 이미 추가했다"는 사실을 안다.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any
 
+from cryptography.fernet import Fernet, InvalidToken
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
@@ -37,14 +39,17 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.results import MAIL_TOOLS, ToolResult, output_for_storage
+from app.agent.results import EXTERNAL_NOTICE, MAIL_TOOLS, ToolResult, clip_mail_output
 from app.models import Task
 from app.models.enums import TaskStatus
+from app.payload_crypto import open_json, seal_json
 
 UNFINISHED_STATUSES = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL)
 MAX_TASKS = 10
 MAX_CHARS = 40_000
 INTERRUPTED_NOTE = "(이 작업은 답변을 마치기 전에 중단되었다. 위의 도구 호출 결과까지만 실제로 일어난 일이다.)"
+DROPPED_MAIL_NOTE = "(메일 내용은 저장하지 않았다. 다시 봐야 하면 read_mail로 다시 읽는다.)"
+UNREADABLE_MAIL_NOTE = "(저장된 메일 내용을 풀 수 없다. 다시 봐야 하면 read_mail로 다시 읽는다.)"
 
 
 def dump_messages(messages: Sequence[ModelMessage]) -> list[Any]:
@@ -77,37 +82,77 @@ def without_interrupted(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
 
 
 def history_for_storage(
-    previous: Sequence[ModelMessage], new: Sequence[ModelMessage], *, status: TaskStatus
+    previous: Sequence[ModelMessage], new: Sequence[ModelMessage], *, status: TaskStatus, cipher: Fernet | None
 ) -> list[ModelMessage]:
     """task.message_history에 저장할 기록. 재개한 run이면 previous(이 task가 이미 저장한 기록)에 이어 붙인다.
 
     승인 대기(waiting_approval)일 때는 결과 없는 도구 호출을 지우지 않는다. 재개할 때 그 호출에 승인·거절 결과를
     붙여야 하기 때문이다. 다른 상태는 finalize_for_storage 규칙을 따른다.
+    cipher: PAYLOAD_ENCRYPTION_KEY. 메일 도구 결과를 암호화한다(없으면 메일 내용을 비운다).
     """
-    combined = clip_mail_returns([*previous, *without_interrupted(new)])
+    combined = seal_mail_returns([*previous, *without_interrupted(new)], cipher)
     if status == TaskStatus.WAITING_APPROVAL:
         return combined
     return finalize_for_storage(combined, finished=status == TaskStatus.DONE)
 
 
-def clip_mail_returns(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
-    """7단계: 메일 도구 결과는 저장하는 기록에도 500자만 남긴다(steps.output과 같은 규칙, results.output_for_storage).
+def map_mail_returns(messages: Sequence[ModelMessage], change: Callable[[ToolReturnPart], Any]) -> list[ModelMessage]:
+    """메일 도구(list_mail·read_mail) 결과 부분만 change로 바꾼다. 호출과 결과의 짝(tool_call_id)은 그대로."""
 
-    다음 task(같은 대화)와 승인 재개 run의 모델은 잘린 결과를 본다. 메일을 다시 봐야 하면 read_mail을 다시 부른다.
-    호출과 결과의 짝(tool_call_id)과 도구 이름은 그대로라 remember 검사는 그대로 걸린다.
-    """
-    return [
-        replace(m, parts=[clip_mail_part(p) for p in m.parts]) if isinstance(m, ModelRequest) else m for m in messages
-    ]
-
-
-def clip_mail_part(part: Any) -> Any:
-    if not isinstance(part, ToolReturnPart) or part.tool_name not in MAIL_TOOLS:
+    def part_of(part: Any) -> Any:
+        if isinstance(part, ToolReturnPart) and part.tool_name in MAIL_TOOLS:
+            return replace(part, content=change(part))
         return part
+
+    return [replace(m, parts=[part_of(p) for p in m.parts]) if isinstance(m, ModelRequest) else m for m in messages]
+
+
+def seal_mail_returns(messages: Sequence[ModelMessage], cipher: Fernet | None) -> list[ModelMessage]:
+    """7단계 보강: 저장하는 기록의 메일 결과는 앞 500자(results.clip_mail_output)를 암호화해 둔다.
+
+    data는 {"notice", "sealed": 암호문, "truncated"}가 된다. notice가 그대로라 remember 검사(외부 콘텐츠)는 계속 걸린다.
+    이미 봉한 결과(재개 run의 previous)는 다시 봉하지 않는다. 키가 없으면 내용을 비운다(평문 보관 금지).
+    """
+    return map_mail_returns(messages, lambda part: sealed_content(part, cipher))
+
+
+def sealed_content(part: ToolReturnPart, cipher: Fernet | None) -> Any:
     content = to_jsonable_python(part.content)
     if not isinstance(content, dict):
         content = ToolResult.success(content).model_dump(mode="json")
-    return replace(part, content=output_for_storage(part.tool_name, content))
+    data = content.get("data")
+    if not isinstance(data, dict) or "content" not in data:
+        return content  # 실패 결과(내용 없음) 또는 이미 봉한 결과
+    clipped = clip_mail_output(part.tool_name, content)["data"]
+    if cipher is None:
+        return {**content, "data": {"notice": EXTERNAL_NOTICE, "content": DROPPED_MAIL_NOTE, "truncated": True}}
+    sealed = seal_json(cipher, clipped["content"])
+    return {**content, "data": {"notice": EXTERNAL_NOTICE, "sealed": sealed, "truncated": clipped["truncated"]}}
+
+
+def open_mail_returns(messages: Sequence[ModelMessage], cipher: Fernet | None) -> list[ModelMessage]:
+    """모델에게 넘기기 직전(runner.execute_agent, DBOS 단계 밖)에 봉한 메일 결과를 푼다.
+
+    DBOS prepare 단계의 결과(이전 기록)에는 암호문만 남고, 평문은 이 run의 메모리에서만 쓴다.
+    풀지 못하면(키가 바뀜·없음) 내용 대신 "다시 읽어야 한다"는 안내를 넣는다.
+    """
+    return map_mail_returns(messages, lambda part: opened_content(part, cipher))
+
+
+def opened_content(part: ToolReturnPart, cipher: Fernet | None) -> Any:
+    content = part.content
+    if not isinstance(content, dict):
+        return content
+    data = content.get("data")
+    if not isinstance(data, dict) or "sealed" not in data:
+        return content
+    try:
+        if cipher is None:
+            raise InvalidToken
+        text = open_json(cipher, str(data["sealed"]))
+    except (InvalidToken, ValueError):
+        text = UNREADABLE_MAIL_NOTE
+    return {**content, "data": {"notice": EXTERNAL_NOTICE, "content": text, "truncated": data.get("truncated", True)}}
 
 
 def pending_tool_call_ids(messages: Sequence[ModelMessage]) -> list[str]:

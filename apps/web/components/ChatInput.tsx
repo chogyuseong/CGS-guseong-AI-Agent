@@ -6,7 +6,14 @@
 import { Mic, SendHorizontal, Square } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { joinTranscript, useSpeechInput } from "@/lib/speech";
+import {
+  joinTranscript,
+  readVoiceNoticeAccepted,
+  type SpeechInput,
+  saveVoiceNoticeAccepted,
+  useSpeechInput,
+  VOICE_NOTICE_LINES,
+} from "@/lib/speech";
 
 type ChatInputProps = {
   // 보낼 내용을 받아 서버로 보내는 함수. Promise는 "나중에 끝나는 작업"이다(Python의 awaitable).
@@ -33,6 +40,7 @@ export function ChatInput({ onSend, pending, prefill = null }: ChatInputProps) {
   );
   const { cancel } = speech;
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const voiceNotice = useVoiceNotice(speech);
 
   // 제안을 고르면 입력창을 그 문장으로 바꾸고 포커스한다. 사용자가 읽고 고친 뒤 직접 보낸다.
   useEffect(() => {
@@ -61,6 +69,9 @@ export function ChatInput({ onSend, pending, prefill = null }: ChatInputProps) {
   return (
     <form onSubmit={handleSubmit} className="border-t bg-background p-2">
       {pending && <PendingStatus />}
+      {voiceNotice.asking && !pending && (
+        <VoiceNotice onAccept={voiceNotice.accept} onCancel={voiceNotice.dismiss} />
+      )}
       {speech.listening && <ListeningStatus />}
       {speech.error && (
         <p role="alert" className="break-words px-1 pb-1 text-sm text-destructive">
@@ -83,7 +94,7 @@ export function ChatInput({ onSend, pending, prefill = null }: ChatInputProps) {
           className="block max-h-40 min-h-11 min-w-0 flex-1 resize-none rounded-lg border bg-background px-3 py-2.5 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         />
         {speech.supported && (
-          <MicButton listening={speech.listening} disabled={pending} onClick={speech.toggle} />
+          <MicButton listening={speech.listening} disabled={pending} onClick={voiceNotice.press} />
         )}
         <Button type="submit" aria-label="전송" disabled={pending || !trimmed} className="size-11">
           <SendHorizontal aria-hidden="true" className="size-5" />
@@ -112,6 +123,55 @@ function MicButton(props: { listening: boolean; disabled: boolean; onClick: () =
         <Mic aria-hidden="true" className="size-5" />
       )}
     </Button>
+  );
+}
+
+// 7단계 보강: 처음 마이크를 누르면 바로 듣지 않고 외부 처리 안내를 먼저 보여 준다.
+// 안내를 확인하면 기억하고 바로 듣기 시작한다(같은 클릭 안이라 브라우저의 마이크 권한 요청이 막히지 않는다).
+function useVoiceNotice(speech: SpeechInput) {
+  const [asking, setAsking] = useState(false);
+
+  function press() {
+    if (!speech.listening && !readVoiceNoticeAccepted()) {
+      setAsking(true);
+      return;
+    }
+    speech.toggle();
+  }
+
+  function accept() {
+    saveVoiceNoticeAccepted();
+    setAsking(false);
+    speech.toggle();
+  }
+
+  return { asking, press, accept, dismiss: () => setAsking(false) };
+}
+
+// 음성 최초 사용 안내(BUILD_SPEC 10.2). 화면을 덮는 창 대신 입력창 바로 위에 펼친다(폰에서 입력창과 함께 보이게).
+function VoiceNotice(props: { onAccept: () => void; onCancel: () => void }) {
+  return (
+    <section
+      aria-labelledby="voice-notice-title"
+      className="mb-2 flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm"
+    >
+      <h2 id="voice-notice-title" className="font-semibold">
+        음성 입력 안내
+      </h2>
+      <ul className="flex list-disc flex-col gap-1 pl-5 break-words">
+        {VOICE_NOTICE_LINES.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" onClick={props.onAccept} className="h-11 min-w-0">
+          확인하고 음성 입력
+        </Button>
+        <Button type="button" variant="outline" onClick={props.onCancel} className="h-11 min-w-0">
+          취소
+        </Button>
+      </div>
+    </section>
   );
 }
 

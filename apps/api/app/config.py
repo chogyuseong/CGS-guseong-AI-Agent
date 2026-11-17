@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr = SecretStr("")
     google_redirect_uri: str = ""
     token_encryption_key: SecretStr = SecretStr("")
+    # 7단계 보강: 복구 payload 암호화 키(Fernet, BUILD_SPEC 12.2). DBOS 기록과 메일 결과의 모델 기록을 암호화한다.
+    # 비어 있으면 메일 기능을 켜지 않는다(app/payload_crypto.py, app/google_auth.py mail_enabled).
+    payload_encryption_key: SecretStr = SecretStr("")
 
     # 웹 푸시 (3단계부터 사용)
     vapid_public_key: str = ""

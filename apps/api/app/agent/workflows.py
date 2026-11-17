@@ -39,6 +39,7 @@ from app.automation import check
 from app.config import Settings
 from app.models import Message, Task
 from app.models.enums import TaskOrigin, TaskStatus
+from app.payload_crypto import payload_serializer
 from app.push import PushNotifier
 
 logger = logging.getLogger(__name__)
@@ -222,12 +223,21 @@ async def restart_orphaned_tasks(launcher: WorkflowLauncher, session_factory: as
 
 
 def dbos_config(settings: Settings) -> DBOSConfig:
-    return {
+    """7단계 보강: PAYLOAD_ENCRYPTION_KEY가 있으면 워크플로 입력·단계 결과를 암호화해 저장한다(app/payload_crypto.py).
+
+    키가 없으면 DBOS 기본 직렬화기(pickle, 평문과 같음)이고 메일 기능도 꺼진다. 단계 구성은 바뀌지 않아
+    WORKFLOW_VERSION은 그대로다(키를 넣기 전의 끝나지 않은 워크플로는 serialization 칸이 py_pickle이라 그대로 읽힌다).
+    """
+    config: DBOSConfig = {
         "name": DBOS_APP_NAME,
         "system_database_url": settings.database_url,
         "dbos_system_schema": DBOS_SYSTEM_SCHEMA,
         "application_version": WORKFLOW_VERSION,
     }
+    serializer = payload_serializer(settings)
+    if serializer is not None:
+        config["serializer"] = serializer
+    return config
 
 
 def launch_dbos(settings: Settings) -> None:

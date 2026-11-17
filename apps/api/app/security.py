@@ -175,6 +175,21 @@ def token_cipher(settings: Settings) -> Fernet | None:
         return None
 
 
+def payload_cipher(settings: Settings) -> Fernet | None:
+    """7단계 보강: 복구 payload(DBOS 기록, 메일 결과의 모델 기록)를 암호화하는 Fernet. 키가 없거나 틀리면 None.
+
+    None이면 메일 원문을 안전하게 보관할 수 없으므로 메일 기능을 켜지 않는다(app/google_auth.py mail_enabled).
+    """
+    key = settings.payload_encryption_key.get_secret_value()
+    if not key:
+        return None
+    try:
+        return Fernet(key.encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        logger.warning("PAYLOAD_ENCRYPTION_KEY 형식이 Fernet 키가 아니다(값은 남기지 않음)")
+        return None
+
+
 def add_security_middleware(app: FastAPI, settings: Settings) -> None:
     # 로그인 세션은 미들웨어가 아니라 get_current_user가 DB에서 확인한다. OAuth state도 DB(4단계 보강).
     app.add_middleware(OriginCheckMiddleware, allowed_origin=settings.app_origin)

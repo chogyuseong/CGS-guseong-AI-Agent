@@ -414,6 +414,17 @@ API 쪽만(화면은 다른 작업자, `apps/web`은 건드리지 않음). 사�
 - (제안) Logfire에서 HTTP 요청과 에이전트 실행이 별도 트레이스로 떨어지면, 워크플로를 시작할 때 trace 컨텍스트를 인자로 넘겨 잇는 방법이 있다(DBOS 인자는 DB에 저장되므로 trace id만). 토큰을 넣고 실제 모양을 본 뒤 정한다.
 - (제안) 외부 API 호출(httpx)·DB 쿼리 계측은 켜지 않았다. 켜려면 주소의 검색어·쿼리 매개변수 가리기를 먼저 정한다.
 
+### 7단계 보강: 사용자 판단이 필요한 것
+- (사용자 판단) 메일을 읽은 대화에서는 그 뒤 메시지에서도 공개 검색·장소·날씨를 주지 않는다(이전 기록에 메일 500자가 남아서). BUILD_SPEC 2.2의 "메일 처리 작업"을 대화 단위로 넓게 읽은 것이다. 완화하려면 "새 메시지에 사용자가 직접 쓴 검색어만 허용" 같은 규칙이 필요하다.
+- (사용자 판단) 메일 권한 추가를 동의 뒤로 강제할지. 지금은 둘이 독립이고, 동의 전에는 서버가 메일을 읽지 않는다.
+- (사용자 판단) 기능 플래그를 키 유무로 정했다. 키는 둔 채 메일만 끄는 별도 스위치(예: GMAIL_ENABLED)가 필요하면 BUILD_SPEC 12.2 목록 밖의 이름을 정해야 한다.
+- (사용자 확인) 개발·배포 `.env`에 `PAYLOAD_ENCRYPTION_KEY`를 넣어야 메일 기능이 켜진다(지금 이 PC의 .env 값은 확인·수정하지 않았다).
+- (사용자 판단) BUILD_SPEC 13절 7단계 완료 증거 "메일 내 지시로 … 예약 생성 불가"(15절 30번 "검색 결과 지시로 예약 생성 불가")는
+  아직 성립하지 않는다. create_schedule·create_watch는 INTERNAL이라 메일을 읽은 대화에서도 승인 없이 만들어진다(예약 실행은 READ 도구만
+  쓰므로 피해는 조회·알림에 그친다). 막는 방법 후보: ① 메일·외부 콘텐츠를 읽은 문맥이면 자동화 생성 도구를 숨김(visible_tool 확장)
+  ② remember처럼 사용자 메시지 원문 인용을 요구 ③ 자동화 생성을 승인 카드로. 셋 다 사용 흐름이 바뀌어 이번 범위(STATUS 7단계 5개)
+  밖으로 두었다.
+
 ## 7단계 (2026-11-17)
 - 2026-11-17 음성 입력은 브라우저 `SpeechRecognition`(없으면 `webkitSpeechRecognition`)만 쓰고 lang=ko-KR. 앱은 음성·녹음을 서버로 보내는 코드를 두지 않는다(크롬은 브라우저가 자체적으로 구글 서버에서 인식한다).
 - 2026-11-17 인식 결과는 입력창 끝에 이어 붙이기만 한다(기존 글은 지우지 않고, 끝에 공백이 없으면 한 칸 띄움, 4,000자 제한). 자동 전송하지 않는다.
@@ -601,3 +612,22 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 예산 부족 표시: 감시는 하루 한도에 닿으면 도구·모델을 부르지 않고 last_result.status=paused_budget(발생 기록 skipped/budget). 예약은 지금처럼 모델 없이 budget_exceeded로 끝난다. 자동화 목록 API가 budget_paused를 주고 화면이 "오늘은 쉬는 중, 내일 다시"를 보여 준다.
 ### 배포 준비
 - 2026-11-17 사용자가 "선택이 오면 가장 완성도 있고 효과적인 것"으로 판단을 맡겨 배포처를 권장안 A(Railway 한 곳)로 정했다. 실제 배포는 Railway 계정 로그인·결제가 필요해 하지 않았다(이 PC에 CLI·로그인 없음). 코드 준비: next.config.ts의 API_ORIGIN 빌드 환경변수, apps/api/start.sh(--no-access-log, API_HOST 기본 ::, PORT), DATABASE_URL의 postgresql://·postgres://를 postgresql+psycopg://로 변환. 절차는 docs/DEPLOY.md.
+### 7단계 보강
+- 2026-11-17 `PAYLOAD_ENCRYPTION_KEY`(Fernet, TOKEN_ENCRYPTION_KEY와 다른 키)를 둔다(BUILD_SPEC 12.2). 메일 원문의 복구 payload를 평문으로 남기지 않기 위해서다(BUILD_SPEC 5.2).
+- 2026-11-17 DBOS 기록은 DBOS 3.5.0의 `serializer` 설정(`dbos.Serializer`)으로 pickle → Fernet 암호화한다(`app/payload_crypto.py` EncryptedSerializer). 기본 직렬화기는 pickle+base64라 워크플로 입력(사용자 메시지)·prepare 단계 결과(이전 기록 속 메일)·모델 응답이 평문과 같이 남았다. 설치본 확인: 단계는 결과만 저장하고 입력은 저장하지 않는다(operation_outputs에 입력 칸 없음), 행마다 serialization 이름이 남아 옛 `py_pickle` 행은 DBOS가 기본 직렬화기로 읽는다.
+- 2026-11-17 단계 이름·순서는 바꾸지 않아 `WORKFLOW_VERSION`은 그대로다(myagent-5). 키를 넣기 전에 시작한 끝나지 않은 워크플로도 py_pickle 이름으로 읽힌다.
+- 2026-11-17 기능 플래그는 새 환경변수 없이 "PAYLOAD_ENCRYPTION_KEY가 올바른 Fernet 키인가"로 정한다(`data_policy.mail_enabled`). 키가 있어야 안전한 저장 경로가 성립하므로 둘을 따로 두면 "플래그는 켜졌는데 키가 없는" 위험한 조합이 생긴다. 꺼지면 메일 도구를 모델에게 보이지 않고, 도구는 Gmail을 부르지 않으며(mail_disabled), 메일 권한 추가 시작은 409 mail_disabled, 연결 목록은 mail_enabled=false.
+- 2026-11-17 steps.output의 메일 결과는 내용 없이 `{"stored": false, "mail_count": n}`만 남긴다(BUILD_SPEC 5.2 "steps에는 본문 저장하지 않음", 13절 "steps에 원문 없음"). 7단계의 "앞 500자 저장" 결정을 대체한다. 보낸 사람·제목도 메일 메타데이터(mail_private)라 남기지 않는다. 감싸기(notice)는 그대로라 remember 검사가 외부 콘텐츠로 본다.
+- 2026-11-17 복구 때 끝난 메일 단계는 저장된 결과를 재생하지 않고 다시 읽는다(`tracking.rereads_mail`). 저장분에 내용이 없어 재생하면 모델이 빈 결과를 보고, 메일 도구는 READ라 다시 불러도 흔적이 없다. 암호화된 복구용 결과 칸을 steps에 더하는 방법보다 저장하는 것이 적다.
+- 2026-11-17 tasks.message_history의 메일 결과는 앞 500자(7단계 규칙)를 PAYLOAD_ENCRYPTION_KEY로 암호화해 `data.sealed`에 둔다(`history.seal_mail_returns`). 모델에게 넘기기 직전 `runner.execute_agent`(DBOS 단계 밖)에서만 푼다(`open_mail_returns`). 그래서 DBOS prepare 단계 결과에도 암호문만 들어간다. 키가 없으면 내용을 비우고, 풀지 못하면(키 교체) "read_mail로 다시 읽으라"는 안내로 바꾼다.
+- 2026-11-17 모델이 쓴 답변(메일 요약)은 messages와 모델 기록에 평문으로 남긴다. BUILD_SPEC 5.2 "사용자에게 표시한 요약: 대화 기록으로 보관, 삭제 가능"이고, 대화 삭제로 지워진다. DBOS의 모델 응답 단계 결과는 암호문이다.
+- 2026-11-17 메일 데이터 처리 동의는 `users.mail_consent_at`(시각) 한 칸이다. `PUT /api/connections/google/mail-consent`(동의, 이미 동의했으면 처음 시각 유지)·`DELETE`(철회). 도구는 Google에 묻기 전에 플래그 → 동의 순으로 확인한다(`gmail.mail_refusal`). 동의 전에는 메일 권한이 있어도 Gmail을 부르지 않는다(mail_consent_required). 메일 권한 추가 버튼은 동의와 묶지 않았다(동의 없이는 서버가 메일을 읽지 않으므로 순서를 강제할 이유가 적고, 기존 연결 화면 흐름을 바꾸지 않는다).
+- 2026-11-17 메일 작업의 도구 범위: `toolsets.run_toolsets`가 묶음마다 `filtered(data_policy.visible_tool)`를 씌워 모델 요청마다 거른다. 문맥(같은 대화의 이전 기록 포함)에 성공한 메일 결과가 있으면 public만 받는 외부 도구(web_search, search_places, get_weather)를 보이지 않는다. 이전 기록에도 메일 500자가 들어가므로 같은 대화의 다음 task도 메일 처리 작업으로 본다(검색은 새 대화에서). 실패·거부된 메일 호출은 해당하지 않는다. 실행 직전 검사(outbound_refusal)는 두 번째 방어선으로 둔다. FilteredToolset은 FunctionToolset을 감싸기만 해서 DBOS의 실행 시점 도구 규칙(함수 도구만)을 지킨다. 실행 계획 초안은 정의 그대로의 `toolsets_for`를 쓴다.
+- 2026-11-17 시스템 프롬프트에 "메일을 읽은 대화에서는 웹 검색·장소·날씨 도구가 없다. 새 대화에서 공개 검색어를 직접 입력해 달라고 안내"를 더했다(BUILD_SPEC 2.2 마지막 문단).
+- 2026-11-17 재연결: 토큰 갱신이 invalid_grant이거나 저장된 토큰을 풀 수 없으면 connections 행을 지우지 않고 토큰을 비운 뒤 `reconnect_required_at`을 채운다(4단계의 "행 삭제" 결정 대체, BUILD_SPEC 10.5 "인증 만료와 재연결 상태를 구분"). 그 연결의 대기 중 계획은 `connection_revoked`로 무효화하고 실행기는 "만료·권한 취소, 다시 연결 후 새로 요청" 문장을 준다. 표시가 있으면 도구는 Google에 요청하지 않는다. 연결 목록은 connected·calendar·mail=false, reconnect_required=true. 다시 연결(save_tokens)하면 표시를 지운다(같은 행이지만 대기 계획은 이미 무효화됨). 연결 해제는 그대로 된다(지울 토큰이 없어 Google 철회 요청은 없음).
+- 2026-11-17 Gmail 403의 사유가 insufficientPermissions·ACCESS_TOKEN_SCOPE_INSUFFICIENT(범위 부족)이면 연결 기록에서 gmail.readonly를 빼고 "메일 읽기 권한을 다시 추가해 주세요"(mail_scope_missing)를 준다. 그 밖의 403(accessNotConfigured 등)은 권한 기록을 두고 기존 문장. 사유는 `ExternalApiError.reason`(Google 오류 본문의 errors[].reason, 80자 이하 ASCII만)으로 읽는다. 응답 본문의 다른 글은 꺼내지 않는다.
+- 2026-11-17 화면: 음성 최초 사용 안내는 입력창 위에 펼치는 영역(제목 "음성 입력 안내", [확인하고 음성 입력]·[취소])이다. 확인하면 localStorage `myagent.voice-notice-accepted`에 기억한다(브라우저마다 인식 방식이 달라 계정이 아니라 브라우저에 둔다). 저장소를 못 쓰면 매번 묻는다. 확인 버튼의 클릭 안에서 바로 듣기 시작해 브라우저 마이크 권한 요청이 막히지 않게 했다. 온디바이스 처리는 확인할 방법이 없어 안내하지 않는다(BUILD_SPEC 10.2).
+- 2026-11-17 화면: 연결 화면에 "다시 연결 필요" 배지·이유(role=alert)·[다시 연결]·[연결 해제], 메일 영역 안에 "메일 데이터 처리 동의"(무엇이 AI 모델 제공자에게 가고 무엇이 남는지 4줄, [메일 데이터 처리에 동의]/[동의 철회]), 메일 기능이 꺼져 있으면 안내와 막힌 [메일 읽기 권한 추가]. 타임라인의 메일 단계는 "메일 N통을 확인했습니다 / 작업 기록에는 메일 내용을 저장하지 않습니다"만 보여 주고, 보강 전 기록(앞 500자)은 예전 방식이라고 밝힌다.
+- 2026-11-17 eval 설정(`evals/harness.py`)에 실행마다 새 PAYLOAD_ENCRYPTION_KEY를 넣어 메일 도구가 지금처럼 모델에게 보이게 했다(버리는 DB).
+- 2026-11-17 Logfire 트레이스는 바꾸지 않았다. 메일 작업 트레이스에 내용이 없는 것은 8단계 테스트(`test_observability.py`)가 그대로 확인한다.
+- 2026-11-17 바꾼 기존 테스트: test_gmail(동의 상태 도우미, 403 범위 부족 문장, steps 저장 모양), test_gcal(invalid_grant 뒤 행 유지), test_google_connection(목록 응답 칸 3개), test_agent_run(메일 도구 노출에 키 필요), 웹 ChatInput·GoogleConnection·StepTimeline 테스트와 e2e voice·connections.

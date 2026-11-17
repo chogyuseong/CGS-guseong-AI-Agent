@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VOICE_NOTICE_KEY } from "@/lib/speech";
 import { ChatInput } from "./ChatInput";
 
 describe("ChatInput", () => {
@@ -107,9 +108,88 @@ function micButton() {
   return screen.getByRole("button", { name: "음성 입력" });
 }
 
-describe("ChatInput 음성 입력", () => {
+describe("ChatInput 음성 최초 사용 안내(7단계 보강)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+    FakeRecognition.instances = [];
+  });
+
+  it("처음 누르면 듣지 않고 외부 처리 안내를 보여 준다", () => {
+    vi.stubGlobal("SpeechRecognition", FakeRecognition);
+    render(<ChatInput onSend={vi.fn()} pending={false} />);
+
+    fireEvent.click(micButton());
+
+    const notice = screen.getByRole("region", { name: "음성 입력 안내" });
+    expect(notice).toHaveTextContent("브라우저 회사의 서버(예: Chrome은 Google 서버)");
+    expect(notice).toHaveTextContent("이 앱의 서버로는 음성을 보내지 않습니다");
+    expect(FakeRecognition.instances).toHaveLength(0);
+    expect(micButton()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("확인하면 바로 듣기 시작하고, 기억해서 다음부터는 묻지 않는다", () => {
+    vi.stubGlobal("SpeechRecognition", FakeRecognition);
+    const { unmount } = render(<ChatInput onSend={vi.fn()} pending={false} />);
+
+    fireEvent.click(micButton());
+    fireEvent.click(screen.getByRole("button", { name: "확인하고 음성 입력" }));
+
+    expect(lastRecognition().start).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("region", { name: "음성 입력 안내" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(VOICE_NOTICE_KEY)).toBe("1");
+    unmount();
+
+    render(<ChatInput onSend={vi.fn()} pending={false} />);
+    fireEvent.click(micButton());
+    expect(screen.queryByRole("region", { name: "음성 입력 안내" })).not.toBeInTheDocument();
+    expect(FakeRecognition.instances).toHaveLength(2);
+  });
+
+  it("취소하면 듣지 않고 기억하지도 않는다", () => {
+    vi.stubGlobal("SpeechRecognition", FakeRecognition);
+    render(<ChatInput onSend={vi.fn()} pending={false} />);
+
+    fireEvent.click(micButton());
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    expect(FakeRecognition.instances).toHaveLength(0);
+    expect(window.localStorage.getItem(VOICE_NOTICE_KEY)).toBeNull();
+    fireEvent.click(micButton());
+    expect(screen.getByRole("region", { name: "음성 입력 안내" })).toBeInTheDocument();
+  });
+
+  it("저장소를 쓸 수 없으면 확인 뒤 듣기는 하되 다음에도 다시 묻는다", () => {
+    vi.stubGlobal("SpeechRecognition", FakeRecognition);
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    render(<ChatInput onSend={vi.fn()} pending={false} />);
+
+    fireEvent.click(micButton());
+    fireEvent.click(screen.getByRole("button", { name: "확인하고 음성 입력" }));
+    expect(lastRecognition().start).toHaveBeenCalledTimes(1);
+    lastRecognition().say("안녕");
+    lastRecognition().finish();
+
+    fireEvent.click(micButton());
+    expect(screen.getByRole("region", { name: "음성 입력 안내" })).toBeInTheDocument();
+  });
+});
+
+describe("ChatInput 음성 입력", () => {
+  // 안내는 이미 확인한 상태로 둔다(안내 자체는 위 묶음에서 확인).
+  beforeEach(() => {
+    window.localStorage.setItem(VOICE_NOTICE_KEY, "1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
     FakeRecognition.instances = [];
   });
 

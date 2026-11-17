@@ -55,6 +55,10 @@ ALREADY_RUNNING_MESSAGE = "이 외부 작업은 이미 실행 중이거나 결�
 CONNECTION_REMOVED_MESSAGE = (
     "외부 계정 연결이 해제되어 이 승인으로는 실행할 수 없습니다. 다시 연결한 뒤 새로 요청해 주세요."
 )
+# 7단계 보강: 토큰 갱신이 invalid_grant(만료·Google에서 권한 철회)라 대기 중 계획을 무효화한 경우.
+CONNECTION_REVOKED_MESSAGE = (
+    "Google 연결이 만료되었거나 권한이 취소되어 이 승인으로는 실행할 수 없습니다. 다시 연결한 뒤 새로 요청해 주세요."
+)
 CLOSED_MESSAGE = "이 외부 작업은 이미 끝났거나 실행할 수 없는 상태라 다시 실행하지 않았습니다."
 
 
@@ -144,6 +148,8 @@ async def early_result(session: AsyncSession, row: PlanRow) -> ToolResult | None
         raise PermissionError(NOT_APPROVED_MESSAGE)
     if row.operation.error_code == "connection_removed":
         return ToolResult.failure(CONNECTION_REMOVED_MESSAGE, error_code="connection_removed")
+    if row.operation.error_code == "connection_revoked":
+        return ToolResult.failure(CONNECTION_REVOKED_MESSAGE, error_code="connection_revoked")
     return ToolResult.failure(CLOSED_MESSAGE, error_code="operation_closed")
 
 

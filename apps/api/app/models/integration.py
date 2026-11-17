@@ -21,6 +21,9 @@ class Connection(TimestampedTable):
     encrypted_token: Mapped[str] = mapped_column(Text)
     scopes: Mapped[list[str]] = mapped_column(JSONB)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 7단계 보강: 토큰 갱신이 invalid_grant(만료·Google에서 권한 철회)로 실패한 시각. 채워져 있으면 토큰은 지워져 있고
+    # "다시 연결 필요" 상태다(처음부터 연결 안 된 것과 구분, BUILD_SPEC 10.5). 다시 연결하면 null.
+    reconnect_required_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PushSubscription(TimestampedTable):

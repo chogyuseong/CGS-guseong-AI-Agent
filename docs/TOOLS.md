@@ -60,7 +60,9 @@
 - 토큰 교환: `POST https://oauth2.googleapis.com/token`(form) — `grant_type=authorization_code, code, code_verifier, client_id, client_secret, redirect_uri`.
   응답 `access_token, expires_in, refresh_token(처음·prompt=consent일 때), scope, token_type=Bearer`.
 - 토큰 갱신: 같은 주소 — `grant_type=refresh_token, refresh_token, client_id, client_secret`. 응답에 refresh_token은 없다(기존 것을 이어 쓴다).
-  만료·철회되면 400 `invalid_grant` → 연결을 지우고 "설정에서 다시 연결해 주세요".
+  만료·철회되면 400 `invalid_grant` → "설정에서 다시 연결해 주세요". 7단계 보강: 연결 행은 지우지 않고 토큰만 지운 뒤
+  `connections.reconnect_required_at`을 채운다(연결 화면에 "다시 연결 필요"). 그 연결의 대기 중 실행 계획은 `connection_revoked`로
+  무효화하고, 표시가 있는 동안 도구는 Google에 요청하지 않는다. 다시 연결(콜백)하면 표시가 지워진다.
 - **'테스트' 게시 상태 + 외부 사용자 유형 앱의 refresh token은 7일 뒤 만료된다**(공식 문서). 개인 앱은 테스트 상태로 쓰므로 일주일마다 다시 연결해야 할 수 있다.
 - 권한 철회: `POST https://oauth2.googleapis.com/revoke`, 본문 `token=...`(이 앱은 쿼리 대신 본문으로 보낸다).
 - redirect URI: 등록한 값과 정확히 같아야 한다(끝의 `/` 포함). localhost는 http 허용.
@@ -121,10 +123,16 @@
 - 본문 데이터: `body.data`는 base64url. 부분의 `Content-Type` charset으로 풀고(모르면 UTF-8, 깨진 글자는 대체 문자).
   큰 본문이 `attachmentId`로만 오면 본문을 찾지 못한 것으로 보고 미리보기(snippet)를 넣는다.
 - 오류: 401 authError → 토큰 갱신 후 1회 재시도. 403·429 rateLimitExceeded·userRateLimitExceeded·dailyLimitExceeded → 한도,
-  그 밖의 403(insufficientPermissions 등) → "메일을 읽을 권한이 없습니다…메일 읽기 권한 추가, Gmail API 사용 설정 확인", 404 → 메일 없음.
+  403 insufficientPermissions(범위 부족) → 7단계 보강: 연결 기록(`connections.scopes`)에서 gmail.readonly를 빼고 "메일 읽기 권한을
+  다시 추가해 주세요"(`mail_scope_missing`), 그 밖의 403(accessNotConfigured 등) → "메일을 읽을 권한이 없습니다…Gmail API 사용
+  설정 확인"(권한 기록은 그대로), 404 → 메일 없음. 오류 사유는 `errors[].reason`의 영어 식별자만 읽는다(`http.google_reason`).
+- 7단계 보강: Google에 묻기 전에 메일 기능 플래그(`PAYLOAD_ENCRYPTION_KEY`, 없으면 `mail_disabled`)와 메일 데이터 처리 동의
+  (`users.mail_consent_at`, 없으면 `mail_consent_required`)를 확인한다(`gmail.mail_refusal`).
 - 한도(문서): 프로젝트 분당 1,200,000 단위, 사용자당 분당 6,000 단위. `messages.list` 5단위, `messages.get` 20단위
   (format=full·raw면 60). list_mail 한 번은 최대 205단위, read_mail은 60단위.
-- 결과 크기: 모델에게 본문 4,000자까지(감싸기 6,000자 안). DB(steps.output, tasks.message_history)에는 앞 500자만(명세 [보안]).
+- 결과 크기: 모델에게 본문 4,000자까지(감싸기 6,000자 안). 7단계 보강: steps.output에는 메일 내용 없이 통 수만,
+  tasks.message_history에는 앞 500자를 `PAYLOAD_ENCRYPTION_KEY`로 암호화해 둔다(docs/DATA_POLICY.md).
+- 메일을 읽은 대화(이전 기록 포함)에서는 공개 검색·장소·날씨 도구를 모델에게 주지 않는다(`data_policy.visible_tool`).
 - 하지 않는 것: 보내기, 답장, 삭제, 라벨 변경, 읽음 표시(명세 7단계 6번). 그런 요청을 보내는 코드가 없다.
 
 ## fixture

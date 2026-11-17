@@ -29,12 +29,21 @@ export function readExternalOutput(output: unknown): ExternalOutput | null {
   return { content, truncated, sources, fetchedAt };
 }
 
-// 7단계 메일 도구. 서버는 이 도구의 결과를 작업 기록(steps.output)에 앞 500자만 남긴다
-// (apps/api/app/agent/results.py의 output_for_storage). 길면 content가 객체가 아니라 JSON 앞 500자 문자열이다.
+// 7단계 메일 도구. 7단계 보강부터 서버는 이 도구의 결과를 작업 기록(steps.output)에 내용 없이
+// {stored: false, mail_count: n}만 남긴다(apps/api/app/agent/results.py의 output_for_storage).
+// 보강 전에 남은 기록은 content가 JSON 앞 500자 문자열이다(보관 기간 7일이 지나면 지워진다).
 const MAIL_TOOLS: ReadonlySet<string> = new Set(["list_mail", "read_mail"]);
 
 export function isMailTool(toolName: string): boolean {
   return MAIL_TOOLS.has(toolName);
+}
+
+// 내용 없이 남긴 메일 결과면 통 수, 아니면 null.
+export function storedMailCount(content: unknown): number | null {
+  if (typeof content !== "object" || content === null || Array.isArray(content)) return null;
+  const record = content as Record<string, unknown>;
+  if (record.stored !== false || typeof record.mail_count !== "number") return null;
+  return record.mail_count;
 }
 
 // 링크로 만들어도 되는 주소인지. http·https 절대 주소만 받고(javascript:, data:, 상대 주소는 null),

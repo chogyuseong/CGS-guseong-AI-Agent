@@ -86,6 +86,34 @@ export function collectFinalText(event: SpeechResultEventLike): string {
   return text.trim();
 }
 
+// ---- 7단계 보강: 음성 최초 사용 안내(BUILD_SPEC 10.2) ----
+// 브라우저 음성 인식은 브라우저 회사의 서버에서 처리될 수 있다(크롬은 구글 서버). 처음 마이크를 누를 때 이 사실을
+// 알리고, 확인하면 이 브라우저(localStorage)에 기억해 다시 묻지 않는다. 브라우저마다 처리 방식이 다르므로
+// 계정(서버)이 아니라 브라우저에 기억한다. 저장소를 못 쓰면(사생활 보호 모드 등) 매번 묻는다(안전한 쪽).
+// 온디바이스 처리 여부는 확인할 방법이 없어 안내하지 않는다.
+export const VOICE_NOTICE_KEY = "myagent.voice-notice-accepted";
+export const VOICE_NOTICE_LINES = [
+  "음성 인식은 이 브라우저가 제공하는 기능입니다. 브라우저에 따라 말한 음성이 브라우저 회사의 서버(예: Chrome은 Google 서버)로 보내져 처리될 수 있습니다.",
+  "이 앱의 서버로는 음성을 보내지 않습니다. 인식한 글은 입력창에만 넣고 자동으로 보내지 않습니다.",
+  "확인하면 이 브라우저에서는 다시 묻지 않습니다.",
+];
+
+export function readVoiceNoticeAccepted(): boolean {
+  try {
+    return window.localStorage.getItem(VOICE_NOTICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveVoiceNoticeAccepted(): void {
+  try {
+    window.localStorage.setItem(VOICE_NOTICE_KEY, "1");
+  } catch {
+    // 저장하지 못하면 다음에 다시 묻는다.
+  }
+}
+
 // 지원 여부는 바뀌지 않으므로 구독할 것이 없다.
 function subscribeNothing() {
   return () => {};

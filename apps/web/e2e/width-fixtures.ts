@@ -310,6 +310,9 @@ export async function fakeTabs(page: Page) {
     mail: false,
     scopes: ["https://www.googleapis.com/auth/calendar.events.owned"],
     connected_at: AT,
+    reconnect_required: false,
+    mail_enabled: true,
+    mail_consent: false,
   };
   await page.route("**/api/connections", (route) => route.fulfill({ status: 200, json: [google] }));
   await page.route("**/api/connections/google/**", (route) => route.abort());

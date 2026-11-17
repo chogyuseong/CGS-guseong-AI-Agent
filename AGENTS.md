@@ -174,13 +174,19 @@
 - 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사: 기억 요청·원문 인용·인용/가정·남의 정보·새 사실),
   API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어"
 - 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)
-- Google 연결: `app/google_auth.py`(OAuth·토큰 암호화 저장·갱신), `app/routers/connections.py`(start·callback·상태·해제)
+- Google 연결: `app/google_auth.py`(OAuth·토큰 암호화 저장·갱신, 7단계 보강: 다시 연결 필요 표시), `app/routers/connections.py`(start·callback·상태·해제·메일 동의)
 - 8단계: `app/observability.py` Logfire 설정·가리기(내용 미포함, 쿼리·예외 메시지 지움) / `app/usage_report.py` 비용 화면 합계
   (`GET /api/usage`) / `evals/` eval 데이터·평가기·실행기(승인하지 않음, 가짜 외부 API, 버리는 DB)
 - 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.
 - 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
-  (메일 결과는 steps.output·message_history에 500자만). remember 검사는 5단계 보강부터 사용자 메시지 원문 인용(quote) 검증이다(`app/tools/memories.py`의 `quote_problem`),
+  (7단계 보강: steps.output에는 메일 내용 없이 통 수만). remember 검사는 5단계 보강부터 사용자 메시지 원문 인용(quote) 검증이다(`app/tools/memories.py`의 `quote_problem`),
   도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`POST /api/connections/google/start` `{"scope": "mail"}`)
+- 7단계 보강: `app/payload_crypto.py` 복구 payload 암호화(`PAYLOAD_ENCRYPTION_KEY`). DBOS 직렬화기(`EncryptedSerializer`, `workflows.dbos_config`),
+  모델 기록 속 메일 결과 봉하기·풀기(`history.seal_mail_returns`·`open_mail_returns`, 푸는 곳은 `runner.execute_agent`뿐).
+  키가 없으면 메일 기능이 꺼진다(`data_policy.mail_enabled`). 메일 동의는 `users.mail_consent_at`(`gmail.mail_refusal`이 확인,
+  `PUT/DELETE /api/connections/google/mail-consent`). 모델에게 보일 도구는 `toolsets.run_toolsets`(`data_policy.visible_tool`: 메일을
+  읽은 문맥이면 공개 검색·장소·날씨 제외). 재연결: `google_auth.mark_reconnect_required`(invalid_grant면 행 유지·토큰 삭제·대기 계획
+  `connection_revoked`), Gmail 범위 부족 403이면 `google_auth.drop_scope`. 테스트 DBOS도 같은 직렬화기다(`tests/conftest.py` TEST_PAYLOAD_KEY)
 
 ## 자동화 코드 지도 (apps/api/app/automation, 6단계)
 - `check.py` 1분 검사(만료 승인 정리, 만료 감시 끄기, 할 일 찾기) / 예약 실행 / 감시 실행 본문

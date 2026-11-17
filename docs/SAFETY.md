@@ -172,6 +172,7 @@ EXTERNAL 도구는 서로 독립된 두 장치를 모두 통과해야 실행된�
   보내지 않고 아무것도 저장하지 않는다. 로그인하지 않은 콜백도 거절한다. state가 세션에 묶여 있어 다른 사람의 code를 내 계정에 붙일 수 없다.
 - 범위는 `calendar.events.owned` 하나(내 캘린더의 일정만). 캘린더 권한을 빼고 동의하면 저장하지 않고 토큰을 철회한다.
 - 갱신 실패(invalid_grant)는 연결을 지우고 "다시 연결해 주세요"로 안내한다. 연결 해제는 Google 쪽 철회를 시도하고 실패해도 토큰을 지운다.
+  (7단계 보강: 행은 지우지 않고 토큰만 지운 뒤 "다시 연결 필요"로 표시한다. 처음부터 연결 안 된 것과 화면에서 구분한다)
 - 콜백 오류는 `?google=error&reason=코드`로만 알린다(토큰·응답 본문을 주소에 넣지 않는다).
 
 ### 일정 도구의 이중 방어와 외부 콘텐츠
@@ -285,13 +286,25 @@ EXTERNAL 도구는 서로 독립된 두 장치를 모두 통과해야 실행된�
 - 기본 연결은 캘린더만 요청한다. '메일 읽기 권한 추가'(`POST /api/connections/google/start` `{"scope": "mail"}`)에서만 gmail.readonly를 요청한다.
 - 메일 권한만 따로 철회할 수 없다(Google은 합친 권한을 한꺼번에 철회). 빼려면 연결 해제 후 캘린더만 다시 연결한다.
 
+### 7단계 보강: 동의·기능 플래그·도구 범위·재연결
+- **기능 플래그**: `PAYLOAD_ENCRYPTION_KEY`가 없거나 Fernet 키가 아니면 메일 기능을 켜지 않는다. 메일 도구는 모델에게 보이지 않고
+  (`data_policy.visible_tool`), 불려도 Gmail을 부르지 않으며(`mail_disabled`), 메일 권한 추가 시작은 409 `mail_disabled`다.
+- **메일 데이터 처리 동의**(`users.mail_consent_at`, `PUT/DELETE /api/connections/google/mail-consent`): 동의 전에는 메일 권한이
+  있어도 도구가 Gmail을 부르지 않는다(`mail_consent_required`). 화면은 무엇이 AI 모델 제공자에게 전송되고 무엇이 남는지 알린다.
+- **메일 작업의 도구 범위**: 문맥(같은 대화의 이전 기록 포함)에 읽어 온 메일이 있으면 공개 검색·장소·날씨 도구를 모델에게 주지
+  않는다(BUILD_SPEC 2.2). 실행 직전 검사(`outbound_refusal`)는 두 번째 방어선으로 남는다. 검색은 새 대화에서 한다.
+- **재연결·권한 철회**: 토큰 갱신이 `invalid_grant`면 연결 행을 지우지 않고 "다시 연결 필요"로 표시하고 토큰은 지운다. 그 연결의
+  대기 중 계획은 `connection_revoked`로 무효화한다. Gmail이 범위 부족(403 insufficientPermissions)이면 연결 기록에서 메일 권한을 뺀다.
+
 ### 메일 본문 취급
 
 | 어디 | 무엇이 남나 | 규칙 |
 | --- | --- | --- |
 | 모델 문맥 | list_mail: 보낸 사람·제목·받은 시각·미리보기 200자 / read_mail: 본문 텍스트 앞 4,000자, 첨부 이름 | `ToolResult.external`로 지시문 무시 안내에 감싼다(6,000자). 받는 사람·참조 주소·첨부 id는 넘기지 않는다 |
-| steps.output (작업 기록 화면) | 앞 500자 | 명세 "read_mail 결과는 steps.output에 500자까지만". list_mail도 같다(`results.output_for_storage`, tracking에서 적용) |
-| tasks.message_history (다음 task·승인 재개가 이어받는 기록) | 앞 500자 | 명세에는 없지만 같은 이유로 작업자가 더했다(`history.clip_mail_returns`). 없으면 4,000자가 DB에 그대로 남는다 |
+| steps.output (작업 기록 화면) | 메일 내용 없음(통 수만) | 7단계 보강(BUILD_SPEC 5.2 "steps에는 본문 저장하지 않음"): `{"stored": false, "mail_count": n}`만(`results.output_for_storage`). 복구 때 재생하지 않고 다시 읽는다(READ, `tracking.rereads_mail`) |
+| tasks.message_history (다음 task·승인 재개가 이어받는 기록) | 앞 500자 **암호문** | 7단계 보강: `PAYLOAD_ENCRYPTION_KEY`(Fernet)로 암호화(`history.seal_mail_returns`). 모델에게 넘기기 직전(`runner.execute_agent`, DBOS 단계 밖)에만 푼다 |
+| DBOS `dbos` 스키마(워크플로 입력, 단계 결과) | 모두 **암호문** | 7단계 보강: DBOS 3.5.0 `serializer` 설정으로 pickle → Fernet(`app/payload_crypto.py`). 사용자 메시지·이전 기록·모델 응답이 평문으로 남지 않는다. DBOS는 단계의 입력을 저장하지 않는다(operation_outputs에 입력 칸 없음) |
+| 앱 로그, Logfire 트레이스 | 메일 내용 없음 | 예외 메시지 가리기(3단계 보강), `include_content=False`(8단계). `tests/test_mail_privacy.py`·`test_observability.py`가 표시 문자열로 확인 |
 | step.label, 푸시 | 메일 내용 없음 | label은 "메일 읽는 중", list_mail은 검색어만. 푸시는 고정 문구(3단계) |
 | 감시 에이전트 입력 | 없음 | 입력은 사용자 요청·도구 이름·도구 입력·preview 네 칸뿐(2단계 규칙 그대로, 테스트로 확인) |
 | 감시(watch)·예약(schedule) task | 메일 도구 없음 | 메일 도구는 `mail_tools` 묶음으로 chat에만 넘긴다. 감시는 등록·실행 때 이름으로도 거부 |
@@ -371,9 +384,14 @@ EXTERNAL 도구는 서로 독립된 두 장치를 모두 통과해야 실행된�
 - (6단계) 2시간 넘게 밀린 예약 실행은 알림 없이 건너뛴다. 사용자는 자동화 화면의 마지막 실행 시각으로만 알 수 있다.
 - (7단계) HTML 메일에서 보이지 않게 숨긴 글(display:none, 흰 글씨 등)은 걸러내지 못한다. 그런 글도 모델에게 데이터로 간다
   (지시문 무시 안내와 승인 카드가 방어선).
-- (7단계) 메일 본문은 모델 제공자(Anthropic)에게 프롬프트로 전송된다. DBOS `dbos` 스키마의 단계 기록에는 다음 task가 이어받은
-  기록(메일 결과는 500자로 잘린 것)이 남을 수 있다. Logfire 트레이스에는 메일 본문이 들어가지 않는다(8단계, include_content=False,
-  테스트로 확인. 실제 Logfire 화면 확인은 토큰을 넣은 뒤 사용자가 한다).
+- (7단계) 메일 본문은 모델 제공자(Anthropic)에게 프롬프트로 전송된다(사용자 동의 뒤에만, 7단계 보강). 7단계 보강부터 DBOS 기록과
+  모델 기록의 메일 결과는 암호문이다. 다만 **모델이 쓴 답변**(메일 요약)은 화면에 보인 대화라 `messages`와 모델 기록에 평문으로 남는다
+  (BUILD_SPEC 5.2 "사용자에게 표시한 요약: 대화 기록으로 보관, 삭제 가능"). 모델이 메일 문장을 다른 도구 인자(일정 제목 등)에 옮기면
+  그 인자도 실행 계획·단계 입력에 남는다(승인 카드로 보이는 값). Logfire 트레이스에는 메일 본문이 들어가지 않는다(8단계,
+  include_content=False, 테스트로 확인. 실제 Logfire 화면 확인은 토큰을 넣은 뒤 사용자가 한다).
+- (7단계 보강) `PAYLOAD_ENCRYPTION_KEY`를 바꾸거나 잃으면 끝나지 않은 워크플로를 복구할 수 없고, 이전 대화의 메일 결과는
+  "다시 읽어야 한다"는 안내로 바뀐다(docs/DATA_POLICY.md 키 관리).
+- (7단계 보강) 메일을 읽은 대화에서는 그 대화가 끝날 때까지(이전 기록 한도·7일 보관 안) 공개 검색·장소·날씨를 쓸 수 없다. 새 대화에서 한다.
 - (8단계) Logfire 트레이스의 모양(에이전트·도구 이름, 토큰 수, 시간, 경로)은 남는다. "언제 메일을 읽었는지"는 보인다.
 - (8단계) 가리기는 알려진 모양만 막는다. 새 계측(httpx, DB)을 켜거나 `logfire.info(...)`로 값을 직접 남기면 그 값은 패턴에만 의존한다.
   새 계측을 켤 때는 `tests/test_observability.py`처럼 메모리 exporter로 먼저 확인한다.

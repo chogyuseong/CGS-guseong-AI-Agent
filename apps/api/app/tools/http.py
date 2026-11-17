@@ -33,13 +33,21 @@ class ExternalApiError(Exception):
     """
 
     def __init__(
-        self, message: str, status: int | None = None, *, code: str = "rejected", outcome_unknown: bool = False
+        self,
+        message: str,
+        status: int | None = None,
+        *,
+        code: str = "rejected",
+        outcome_unknown: bool = False,
+        reason: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.status = status
         self.code = code
         self.outcome_unknown = outcome_unknown
+        # 7단계 보강: Google 공통 오류의 첫 사유(errors[].reason, 예: insufficientPermissions). 정해진 영어 코드만.
+        self.reason = reason
 
 
 def build_http_client() -> httpx.AsyncClient:
@@ -108,7 +116,10 @@ def read_response(service: str, response: httpx.Response) -> Any:
         )
     if status in (401, 403):
         raise ExternalApiError(
-            f"{service} 인증에 실패했습니다. API 키와 사용 설정을 확인해 주세요.", status, code="unauthorized"
+            f"{service} 인증에 실패했습니다. API 키와 사용 설정을 확인해 주세요.",
+            status,
+            code="unauthorized",
+            reason=google_reason(response),
         )
     if status >= 400:
         logger.warning("외부 API 요청 거부: service=%s status=%s", service, status)
@@ -128,9 +139,21 @@ def is_rate_limited(response: httpx.Response) -> bool:
     body = safe_json(response)
     if response.status_code == 400:
         return body.get("code") == KAKAO_QUOTA_CODE
-    errors = (body.get("error") or {}).get("errors") if isinstance(body.get("error"), dict) else None
-    reasons = {e.get("reason") for e in errors or [] if isinstance(e, dict)}
-    return bool(reasons & GOOGLE_RATE_REASONS)
+    return bool(set(google_reasons(body)) & GOOGLE_RATE_REASONS)
+
+
+def google_reasons(body: dict[str, Any]) -> list[str]:
+    """Google 공통 오류 본문의 errors[].reason 목록."""
+    error = body.get("error")
+    errors = error.get("errors") if isinstance(error, dict) else None
+    return [e["reason"] for e in errors or [] if isinstance(e, dict) and isinstance(e.get("reason"), str)]
+
+
+def google_reason(response: httpx.Response) -> str | None:
+    """오류 사유 코드 하나(영어 식별자, 80자 이하만). 응답 본문의 다른 글은 꺼내지 않는다."""
+    reasons = google_reasons(safe_json(response))
+    first = reasons[0] if reasons else None
+    return first if first and len(first) <= 80 and first.isascii() else None
 
 
 def safe_json(response: httpx.Response) -> dict[str, Any]:

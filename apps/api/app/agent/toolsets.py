@@ -19,8 +19,9 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from pydantic_ai.tools import ToolDefinition, ToolFuncEither
-from pydantic_ai.toolsets import FunctionToolset
+from pydantic_ai.toolsets import AbstractToolset, FunctionToolset
 
+from app.agent.data_policy import visible_tool
 from app.agent.deps import AgentDeps
 from app.agent.plans import EXTERNAL_TOOL_SPECS
 from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
@@ -127,7 +128,17 @@ EXTERNAL_TOOL_SPECS.update(gcal.SPECS)
 
 
 def toolsets_for(origin: TaskOrigin) -> list[FunctionToolset[AgentDeps]]:
+    """origin에 맞는 도구 묶음(정의 그대로). 실행 계획 초안(plans.draft_plan)이 도구 검증기를 찾을 때도 쓴다."""
     return TOOLSETS_BY_ORIGIN[origin]
+
+
+def run_toolsets(origin: TaskOrigin) -> list[AbstractToolset[AgentDeps]]:
+    """agent.run에 넘길 묶음. 모델 요청마다 data_policy.visible_tool로 보일 도구를 거른다(7단계 보강).
+
+    메일 기능 플래그가 꺼져 있으면 메일 도구를, 문맥에 읽어 온 메일이 있으면 공개 검색·장소·날씨를 뺀다.
+    FilteredToolset은 FunctionToolset을 감싸기만 해서 DBOS의 실행 시점 도구 규칙(함수 도구만 허용)을 그대로 지킨다.
+    """
+    return [toolset.filtered(visible_tool) for toolset in toolsets_for(origin)]
 
 
 def risk_level_of(tool_def: ToolDefinition) -> RiskLevel:

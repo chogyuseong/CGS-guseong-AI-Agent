@@ -1,15 +1,18 @@
 "use client";
 
 import { CalendarDays, LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   type Connection,
   formatConnectedDate,
+  type MailConsentChange,
+  setMailConsent,
   startGoogleConnection,
   useConnections,
   useDisconnectGoogle,
+  useMailConsent,
 } from "@/lib/connections";
 import { MailPermission } from "./MailPermission";
 import { type StartConnection, StartConnectionButton } from "./StartConnectionButton";
@@ -23,6 +26,9 @@ const NOT_CONFIGURED_TEXT =
   "서버에 Google 연결 설정(.env의 GOOGLE_CLIENT_ID 등)이 없어 지금은 연결할 수 없습니다. 서버 설정을 마치면 연결할 수 있습니다.";
 const NO_CALENDAR_TEXT =
   "캘린더 권한이 없어 일정 도구를 쓸 수 없습니다. 다시 연결하면서 캘린더 일정 항목을 허용해 주세요.";
+// 7단계 보강: 토큰 갱신이 invalid_grant(만료·Google 계정에서 권한 철회)로 실패한 상태. 처음부터 연결 안 된 것과 구분한다.
+const RECONNECT_TEXT =
+  "Google 연결이 만료되었거나 Google 계정에서 권한이 취소되었습니다. 캘린더·메일을 쓰려면 다시 연결해 주세요. 승인을 기다리던 일정 작업은 실행되지 않습니다(다시 연결한 뒤 새로 요청해 주세요).";
 const DISCONNECT_FALLBACK = "연결을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 const BIG_BUTTON = "h-12 w-full min-w-0 text-base";
 
@@ -30,6 +36,7 @@ const BIG_BUTTON = "h-12 w-full min-w-0 text-base";
 export function GoogleConnectionCard() {
   const connections = useConnections();
   const disconnect = useDisconnectGoogle();
+  const consent = useMailConsent();
   const google = connections.data?.find((item) => item.provider === "google");
   // 목록은 왔는데 google 항목이 없으면(서버 모양이 바뀜) "확인 중"에 멈추지 않고 오류로 보여 준다.
   const missing = connections.data !== undefined && google === undefined;
@@ -38,6 +45,7 @@ export function GoogleConnectionCard() {
       connection={google}
       loadError={connections.isError || missing}
       onDisconnect={() => disconnect.mutateAsync()}
+      onMailConsent={(agree) => consent.mutateAsync(agree)}
     />
   );
 }
@@ -49,6 +57,8 @@ type ViewProps = {
   onDisconnect: () => Promise<void>;
   // 연결을 시작한다(POST 후 Google 동의 화면으로 이동). 테스트는 가짜 함수를 넘긴다.
   onStart?: StartConnection;
+  // 7단계 보강: 메일 데이터 처리 동의(true)·철회(false). 실패하면 한국어 문장을 담은 Error를 던진다.
+  onMailConsent?: MailConsentChange;
 };
 
 export function GoogleConnectionView({
@@ -56,6 +66,7 @@ export function GoogleConnectionView({
   loadError,
   onDisconnect,
   onStart = startGoogleConnection,
+  onMailConsent = setMailConsent,
 }: ViewProps) {
   const flow = useDisconnectFlow(onDisconnect);
   return (
@@ -75,7 +86,13 @@ export function GoogleConnectionView({
           <li key={line}>{line}</li>
         ))}
       </ul>
-      <ConnectionBody connection={connection} loadError={loadError} flow={flow} onStart={onStart} />
+      <ConnectionBody
+        connection={connection}
+        loadError={loadError}
+        flow={flow}
+        onStart={onStart}
+        onMailConsent={onMailConsent}
+      />
       {flow.done && (
         <p role="status" className="text-sm">
           Google 연결을 해제했습니다.
@@ -87,6 +104,7 @@ export function GoogleConnectionView({
 
 function statusText(connection: Connection): string {
   if (connection.connected) return "연결됨";
+  if (connection.reconnect_required) return "다시 연결 필요";
   return connection.available ? "연결 안 됨" : "서버 설정 없음";
 }
 
@@ -139,9 +157,10 @@ type BodyProps = {
   loadError: boolean;
   flow: DisconnectFlow;
   onStart: StartConnection;
+  onMailConsent: MailConsentChange;
 };
 
-function ConnectionBody({ connection, loadError, flow, onStart }: BodyProps) {
+function ConnectionBody({ connection, loadError, flow, onStart, onMailConsent }: BodyProps) {
   if (connection === undefined) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -154,6 +173,20 @@ function ConnectionBody({ connection, loadError, flow, onStart }: BodyProps) {
   const notConfigured = !connection.available && (
     <p className="break-words text-sm">{NOT_CONFIGURED_TEXT}</p>
   );
+  const mail = (
+    <MailPermission connection={connection} onStart={onStart} onConsent={onMailConsent} />
+  );
+  if (connection.reconnect_required) {
+    return (
+      <ReconnectBody
+        notConfigured={notConfigured}
+        mail={mail}
+        flow={flow}
+        onStart={onStart}
+        available={connection.available}
+      />
+    );
+  }
   if (!connection.connected) {
     return (
       <>
@@ -165,7 +198,7 @@ function ConnectionBody({ connection, loadError, flow, onStart }: BodyProps) {
           onStart={onStart}
           primary
         />
-        <MailPermission connection={connection} onStart={onStart} />
+        {mail}
       </>
     );
   }
@@ -173,7 +206,7 @@ function ConnectionBody({ connection, loadError, flow, onStart }: BodyProps) {
     <>
       <ConnectedDetails connection={connection} />
       {notConfigured}
-      <MailPermission connection={connection} onStart={onStart} />
+      {mail}
       <StartConnectionButton
         label="다시 연결"
         scope={undefined}
@@ -181,6 +214,33 @@ function ConnectionBody({ connection, loadError, flow, onStart }: BodyProps) {
         onStart={onStart}
       />
       <DisconnectArea flow={flow} />
+    </>
+  );
+}
+
+// 7단계 보강: 다시 연결 필요. 이유를 먼저 알리고 [다시 연결]을 크게, 연결 해제(남은 기록 지우기)도 둔다.
+function ReconnectBody(props: {
+  notConfigured: ReactNode;
+  mail: ReactNode;
+  flow: DisconnectFlow;
+  onStart: StartConnection;
+  available: boolean;
+}) {
+  return (
+    <>
+      <p role="alert" className="break-words text-sm font-medium text-destructive">
+        {RECONNECT_TEXT}
+      </p>
+      {props.notConfigured}
+      <StartConnectionButton
+        label="다시 연결"
+        scope={undefined}
+        available={props.available}
+        onStart={props.onStart}
+        primary
+      />
+      {props.mail}
+      <DisconnectArea flow={props.flow} />
     </>
   );
 }

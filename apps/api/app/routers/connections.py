@@ -18,6 +18,12 @@
 '연결 해제':
     DELETE /api/connections/google        → 204 (Google 쪽 권한 철회를 시도하고, 실패해도 우리 DB의 토큰은 지운다)
         4단계 보강: 이 연결로 만든 대기 중 실행 계획(결정 전·승인 후 실행 전)은 cancelled(connection_removed)로 무효화
+7단계 보강:
+    PUT /api/connections/google/mail-consent    → 204 메일 데이터 처리 동의(users.mail_consent_at)
+    DELETE /api/connections/google/mail-consent → 204 동의 철회. 동의 전에는 메일 도구가 Gmail을 부르지 않는다
+    메일 기능 플래그(PAYLOAD_ENCRYPTION_KEY)가 꺼져 있으면 start {"scope": "mail"}은 409 mail_disabled
+    토큰이 만료·철회되면(invalid_grant) 연결 행은 남기고 reconnect_required=true로 보인다
+    (google_auth.mark_reconnect_required)
 
 콜백 reason 코드: not_configured(서버 설정 없음), not_logged_in, access_denied(사용자가 거부),
 google_error(그 밖의 거부),
@@ -36,16 +42,14 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, update
 
 from app import google_auth
-from app.agent.cancel import NOT_STARTED
+from app.agent.data_policy import mail_enabled
 from app.config import Settings
 from app.db import DbSession
 from app.google_auth import GoogleTokens
-from app.models import ActionPlan, Operation, User
-from app.models.enums import OperationStatus
+from app.models import User
 from app.schemas.connections import ConnectionErrorOut, ConnectionOut, GoogleStartOut, GoogleStartRequest
 from app.security import CurrentUser, session_from_request, token_cipher
 from app.tools.http import ExternalApiError
@@ -56,7 +60,6 @@ router = APIRouter(prefix="/connections", tags=["connections"])
 
 CONNECTIONS_PAGE = "/connections"
 MAIL_SCOPE_PARAM = "mail"  # POST /google/start {"scope": "mail"}, 콜백 성공 시 ?google=connected&added=mail
-CONNECTION_REMOVED = "connection_removed"
 
 
 def page_redirect(settings: Settings, **params: str) -> RedirectResponse:
@@ -73,23 +76,52 @@ async def list_connections(request: Request, user: CurrentUser, session: DbSessi
     settings: Settings = request.app.state.settings
     row = await google_auth.find_row(session, user.id)
     scopes = list(row.scopes or []) if row else []
+    usable = google_auth.usable(row)  # 7단계 보강: 다시 연결이 필요하면 연결·권한 모두 없음으로 보인다
     return [
         ConnectionOut(
             provider="google",
             available=google_auth.google_available(settings),
-            connected=row is not None,
-            calendar=google_auth.CALENDAR_SCOPE in scopes,
-            mail=google_auth.GMAIL_SCOPE in scopes,
+            connected=usable,
+            calendar=usable and google_auth.CALENDAR_SCOPE in scopes,
+            mail=usable and google_auth.GMAIL_SCOPE in scopes,
             scopes=scopes,
             # 6단계: 처음 연결한 시각(행을 만든 시각). 토큰 갱신(updated_at)으로는 바뀌지 않는다.
             # 연결된 채로 [다시 연결]하면 같은 행을 고치므로 그대로, 연결 해제 뒤 다시 연결하면 새 시각이다.
             connected_at=row.created_at if row else None,
+            reconnect_required=row is not None and not usable,
+            mail_enabled=mail_enabled(settings),
+            mail_consent=user.mail_consent_at is not None,
         )
     ]
 
 
+@router.put("/google/mail-consent", status_code=status.HTTP_204_NO_CONTENT)
+async def give_mail_consent(user: CurrentUser, session: DbSession) -> Response:
+    """7단계 보강: 메일 데이터 처리 동의.
+
+    메일 내용이 답변을 만들려고 AI 모델 제공자에게 전송됨을 화면에서 알린 뒤 받는다.
+    같은 요청을 다시 보내도 처음 동의 시각을 바꾸지 않는다.
+    """
+    await session.execute(
+        update(User).where(User.id == user.id, User.mail_consent_at.is_(None)).values(mail_consent_at=func.now())
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/google/mail-consent", status_code=status.HTTP_204_NO_CONTENT)
+async def withdraw_mail_consent(user: CurrentUser, session: DbSession) -> Response:
+    """동의 철회. 이후 메일 도구는 Gmail을 부르지 않는다. Google 쪽 메일 권한은 그대로다(연결 해제는 따로)."""
+    await session.execute(update(User).where(User.id == user.id).values(mail_consent_at=None))
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 NOT_CONFIGURED_RESPONSE: dict[int | str, dict[str, Any]] = {
-    409: {"model": ConnectionErrorOut, "description": "detail.code가 not_configured(서버에 Google 설정이 없음)"}
+    409: {
+        "model": ConnectionErrorOut,
+        "description": "detail.code가 not_configured(서버에 Google 설정이 없음) 또는 mail_disabled(메일 기능 꺼짐)",
+    }
 }
 
 
@@ -106,6 +138,10 @@ async def google_start(request: Request, session: DbSession, body: GoogleStartRe
         raise HTTPException(status.HTTP_409_CONFLICT, detail=detail)
     user, login_session = found
     add_mail = body is not None and body.scope == MAIL_SCOPE_PARAM
+    if add_mail and not mail_enabled(settings):
+        # 7단계 보강: 메일 기록을 암호화할 키가 없으면 메일 권한을 받지 않는다(기능 플래그).
+        detail = {"code": "mail_disabled", "message": "서버에서 메일 기능이 꺼져 있습니다."}
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=detail)
     url, state, verifier = google_auth.new_authorization(settings, add_mail=add_mail)
     await google_auth.save_state(
         session,
@@ -199,17 +235,7 @@ async def disconnect(provider: str, request: Request, user: CurrentUser, session
         await google_auth.revoke(request.app.state.http_client, tokens.refresh_token or tokens.access_token)
     row = await google_auth.find_row(session, user.id)
     if row is not None:
-        await invalidate_pending_plans(session, user.id, row.id)
+        await google_auth.invalidate_pending_plans(session, user.id, row.id, google_auth.CONNECTION_REMOVED)
     await google_auth.delete_connection(session, user.id)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-async def invalidate_pending_plans(session: AsyncSession, user_id: int, connection_id: int) -> None:
-    """이 연결로 만든 실행 계획 중 아직 실행하지 않은 것을 무효화한다(BUILD_SPEC 10.5). 커밋은 호출한 쪽."""
-    plan_ids = select(ActionPlan.id).where(ActionPlan.user_id == user_id, ActionPlan.connection_id == connection_id)
-    await session.execute(
-        update(Operation)
-        .where(Operation.plan_id.in_(plan_ids), Operation.status.in_(NOT_STARTED))
-        .values(status=OperationStatus.CANCELLED, error_code=CONNECTION_REMOVED)
-    )

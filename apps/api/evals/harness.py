@@ -66,6 +66,8 @@ def eval_settings(base: Settings, database_url: str) -> Settings:
             "google_client_secret": SecretStr(FAKE),
             "google_redirect_uri": "http://127.0.0.1/eval/callback",
             "token_encryption_key": SecretStr(Fernet.generate_key().decode("ascii")),
+            # 7단계 보강: 메일 기능 플래그. 버리는 DB라 실행마다 새 키로 메일 도구를 모델에게 그대로 보인다.
+            "payload_encryption_key": SecretStr(Fernet.generate_key().decode("ascii")),
             "vapid_public_key": "",
             "vapid_private_key": SecretStr(""),
             "vapid_subject": "",

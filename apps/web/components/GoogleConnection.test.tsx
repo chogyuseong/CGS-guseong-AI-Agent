@@ -12,6 +12,9 @@ function makeConnection(overrides: Partial<Connection> = {}): Connection {
     mail: false,
     scopes: [],
     connected_at: null,
+    reconnect_required: false,
+    mail_enabled: true,
+    mail_consent: false,
     ...overrides,
   };
 }
@@ -29,6 +32,7 @@ function renderView(
   connection: Connection | undefined,
   onDisconnect = vi.fn(neverResolves),
   onStart = vi.fn(neverResolves),
+  onMailConsent = vi.fn(neverResolves),
 ) {
   render(
     <GoogleConnectionView
@@ -36,9 +40,15 @@ function renderView(
       loadError={false}
       onDisconnect={onDisconnect}
       onStart={onStart}
+      onMailConsent={onMailConsent}
     />,
   );
-  return { region: screen.getByRole("region", { name: "Google 계정" }), onDisconnect, onStart };
+  return {
+    region: screen.getByRole("region", { name: "Google 계정" }),
+    onDisconnect,
+    onStart,
+    onMailConsent,
+  };
 }
 
 describe("Google 연결 영역(상태별 표시)", () => {
@@ -223,5 +233,74 @@ describe("연결 시작 버튼(4단계 보강: POST)", () => {
     fireEvent.click(within(region).getByRole("button", { name: "연결 해제" }));
     expect(region).toHaveTextContent("승인을 기다리던 일정 작업은 실행되지 않습니다");
     expect(region).toHaveTextContent("연결 해제는 기록 삭제와 다릅니다");
+  });
+});
+
+describe("다시 연결 필요(7단계 보강: 권한 만료·철회)", () => {
+  const REVOKED = makeConnection({
+    reconnect_required: true,
+    scopes: ["https://www.googleapis.com/auth/calendar.events.owned"],
+    connected_at: "2026-11-16T16:30:00Z",
+  });
+
+  it("'다시 연결 필요' 상태와 이유를 알리고, 다시 연결·연결 해제 버튼을 보여 준다", () => {
+    const { region, onStart } = renderView(REVOKED);
+    expect(within(region).getByText("다시 연결 필요")).toBeInTheDocument();
+    expect(within(region).getByRole("alert")).toHaveTextContent(
+      "Google 연결이 만료되었거나 Google 계정에서 권한이 취소되었습니다",
+    );
+    expect(region).toHaveTextContent("승인을 기다리던 일정 작업은 실행되지 않습니다");
+    fireEvent.click(within(region).getByRole("button", { name: "다시 연결" }));
+    expect(onStart).toHaveBeenCalledWith(undefined);
+    expect(within(region).getByRole("button", { name: "연결 해제" })).toBeEnabled();
+    expect(
+      within(region).queryByRole("button", { name: "Google 계정 연결" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("메일 데이터 처리 동의(7단계 보강)", () => {
+  it("동의 전: 무엇이 어디로 전송되는지 알리고 동의 버튼을 보여 준다", () => {
+    const { onMailConsent } = renderView({ ...CONNECTED, mail: true });
+    const consent = screen.getByRole("region", { name: "메일 데이터 처리 동의" });
+    expect(within(consent).getByText("동의 안 함")).toBeInTheDocument();
+    expect(consent).toHaveTextContent("AI 모델 제공자(Anthropic)에게 전송됩니다");
+    expect(consent).toHaveTextContent("작업 기록에는 메일 내용을 남기지 않습니다");
+    expect(consent).toHaveTextContent("웹 검색·장소·날씨를 쓰지 않습니다");
+    expect(consent).toHaveTextContent("동의하기 전에는 메일 권한이 있어도 메일을 읽지 않습니다");
+    fireEvent.click(within(consent).getByRole("button", { name: "메일 데이터 처리에 동의" }));
+    expect(onMailConsent).toHaveBeenCalledWith(true);
+  });
+
+  it("동의 후: '동의함'과 철회 버튼을 보여 준다", () => {
+    const { onMailConsent } = renderView({ ...CONNECTED, mail: true, mail_consent: true });
+    const consent = screen.getByRole("region", { name: "메일 데이터 처리 동의" });
+    expect(within(consent).getByText("동의함")).toBeInTheDocument();
+    fireEvent.click(within(consent).getByRole("button", { name: "동의 철회" }));
+    expect(onMailConsent).toHaveBeenCalledWith(false);
+  });
+
+  it("처리 중에는 버튼을 막고, 실패하면 한국어 오류를 보여 준다", async () => {
+    const failing = vi.fn().mockRejectedValue(new Error("동의를 저장하지 못했습니다."));
+    renderView({ ...CONNECTED, mail: true }, vi.fn(neverResolves), vi.fn(neverResolves), failing);
+    const consent = screen.getByRole("region", { name: "메일 데이터 처리 동의" });
+    const button = within(consent).getByRole("button", { name: "메일 데이터 처리에 동의" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(failing).toHaveBeenCalledTimes(1);
+    expect(await within(consent).findByRole("alert")).toHaveTextContent(
+      "동의를 저장하지 못했습니다.",
+    );
+    expect(button).toBeEnabled();
+  });
+
+  it("서버에서 메일 기능이 꺼져 있으면 알리고 권한 추가와 동의를 막는다", () => {
+    renderView(makeConnection({ ...CONNECTED, mail_enabled: false }));
+    const mail = mailRegion();
+    expect(mail).toHaveTextContent("서버에서 메일 기능이 꺼져 있습니다");
+    expect(within(mail).getByRole("button", { name: "메일 읽기 권한 추가" })).toBeDisabled();
+    expect(
+      within(mail).queryByRole("button", { name: "메일 데이터 처리에 동의" }),
+    ).not.toBeInTheDocument();
   });
 });

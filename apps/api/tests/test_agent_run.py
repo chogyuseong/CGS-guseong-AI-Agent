@@ -1,6 +1,7 @@
 """1단계 에이전트 실행 테스트 (SPEC 1단계 블록 2). 실제 모델 대신 FunctionModel 대본을 쓴다."""
 
 import httpx
+from pydantic import SecretStr
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,7 +13,7 @@ from app.config import Settings
 from app.models import Conversation, Step, Task, Todo, UsageLog, User
 from app.models.enums import TaskOrigin
 from app.push import PushNotifier
-from tests.conftest import message_body
+from tests.conftest import TEST_PAYLOAD_KEY, message_body
 from tests.fake_push import FakePushSender
 from tests.model_scripts import call, scripted, text
 
@@ -188,7 +189,11 @@ async def test_schedule_task_gets_read_tools_only(
     assert model.seen_tool_names == [READ_TOOL_NAMES]
 
 
-async def test_chat_task_gets_all_tool_levels(client: httpx.AsyncClient, agent: MyAgent, conversation: int) -> None:
+async def test_chat_task_gets_all_tool_levels(
+    client: httpx.AsyncClient, agent: MyAgent, conversation: int, test_settings: Settings
+) -> None:
+    # 7단계 보강: 메일 도구는 메일 기능 플래그(PAYLOAD_ENCRYPTION_KEY)가 있을 때만 보인다(test_mail_privacy.py).
+    test_settings.payload_encryption_key = SecretStr(TEST_PAYLOAD_KEY)
     model = scripted(text("네"))
 
     with agent.override(model=model.model()):

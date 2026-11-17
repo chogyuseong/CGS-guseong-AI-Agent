@@ -32,8 +32,9 @@
                                  executor.reconcile_step): 처리됨 → 영수증, 처리 기록 없음 → 실패, 모름 → unknown
     waiting_approval             승인된 EXTERNAL 호출의 첫 실행. 그대로 실행한다(executor.begin_execution이 검사)
 
-7단계(메일): list_mail·read_mail 결과는 output_for_storage로 앞 500자만 steps.output에 저장한다(명세 [보안]).
-모델에게는 원래 결과(본문 4,000자)가 간다. 복구 재생 때는 저장된 500자 결과가 돌아간다(READ라 다시 읽으면 된다).
+7단계 보강(메일): list_mail·read_mail 결과는 steps.output에 내용 없이 통 수만 저장한다(output_for_storage,
+BUILD_SPEC 5.2). 모델에게는 원래 결과(본문 4,000자)가 간다. 복구 때 끝난 메일 단계는 재생하지 않고 다시 읽는다
+(rereads_mail, READ라 흔적이 없다).
 
 EXTERNAL 도구(2단계): requires_approval 도구는 첫 run에서 실행되지 않으므로 이 hook도 불리지 않는다. step 행은
 runner가 승인 요청을 저장할 때(approvals.save_requests) waiting_approval로 만든다. 승인 후 재개한 run에서 이 hook이
@@ -61,7 +62,7 @@ from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
 from app.agent.data_policy import outbound_refusal
 from app.agent.deps import AgentDeps
 from app.agent.executor import reconcile_step
-from app.agent.results import ToolResult, ToolStatus, output_for_storage
+from app.agent.results import MAIL_TOOLS, ToolResult, ToolStatus, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
 from app.models.enums import RiskLevel, StepStatus
@@ -125,6 +126,14 @@ def recorded_result(step: RecordedStep) -> ToolResult | None:
     if step.output is None:
         return ToolResult.unknown(INTERRUPTED_RESULT_MESSAGE, error_code="interrupted")
     return ToolResult.model_validate(step.output)
+
+
+def rereads_mail(tool_name: str, step: RecordedStep) -> bool:
+    """7단계 보강: 성공한 메일 단계는 저장분에 메일 내용이 없어(output_for_storage) 재생하지 않고 다시 읽는다.
+
+    메일 도구는 READ라 다시 불러도 흔적이 없다. 동의를 철회했거나 권한이 사라졌으면 다시 읽기가 실패로 끝난다.
+    """
+    return tool_name in MAIL_TOOLS and step.status == StepStatus.DONE
 
 
 async def close_uncertain_step(deps: AgentDeps, step_id: int, risk: RiskLevel) -> ToolResult:
@@ -220,7 +229,7 @@ class StepTracking(AbstractCapability[AgentDeps]):
             await raise_if_cancel_requested(ctx.deps)
             step_id = await start_step(ctx.deps, call, tool_def, args)
         else:
-            replayed = recorded_result(recorded)
+            replayed = None if rereads_mail(call.tool_name, recorded) else recorded_result(recorded)
             if replayed is not None:
                 return replayed  # 복구 재생: 이미 끝난 호출은 다시 실행하지 않는다
             if recorded.status == StepStatus.RUNNING and recorded.risk_level != RiskLevel.READ:
@@ -254,7 +263,7 @@ class StepTracking(AbstractCapability[AgentDeps]):
         described = receipt_checked(original, risk)
         if described is not original:
             result = described  # 영수증 없는 외부 성공: 모델에게도 결과 불명으로 알린다
-        # 7단계: 메일 도구 결과는 500자만 저장한다(모델에게 돌려주는 result는 그대로 4,000자까지).
+        # 7단계 보강: 메일 도구 결과는 내용 없이 저장한다(모델에게 돌려주는 result는 그대로 4,000자까지).
         stored = output_for_storage(tool_name, described.model_dump(mode="json"))
         await finish_step(ctx.deps, step_id, output=stored, result=described, duration_ms=elapsed_ms(started))
         return result

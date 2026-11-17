@@ -36,7 +36,8 @@ MAX_EXTERNAL_CHARS = 6000
 EXTERNAL_CONTENT_TOOLS = frozenset(
     {"get_weather", "search_places", "web_search", "list_events", "list_mail", "read_mail"}
 )
-# 7단계: 메일 도구. 감시에 쓸 수 없고(명세), 저장분(steps.output, tasks.message_history)을 500자로 자른다(명세 [보안]).
+# 7단계: 메일 도구. 감시에 쓸 수 없다(명세). 7단계 보강: steps.output에는 내용을 남기지 않고(output_for_storage),
+# tasks.message_history에는 500자로 자른 뒤(clip_mail_output) 암호화한다(history.seal_mail_returns).
 MAIL_TOOLS = frozenset({"list_mail", "read_mail"})
 STORED_MAIL_CHARS = 500
 # 5단계 보강: remember의 "외부 콘텐츠·메모를 읽었으면 저장 금지" 목록(MEMORY_BLOCKING_TOOLS)은 없앴다.
@@ -62,16 +63,44 @@ def wrap_external(content: JsonValue) -> dict[str, JsonValue]:
     return {"notice": EXTERNAL_NOTICE, "content": text[:MAX_EXTERNAL_CHARS], "truncated": True}
 
 
-def output_for_storage(tool_name: str, output: dict[str, Any]) -> dict[str, Any]:
-    """DB에 남길 도구 결과(JSON). 메일 도구의 성공 결과는 content를 앞 500자 문자열로 자른다.
-
-    모델에게 가는 결과(본문 4,000자)는 그대로이고, 저장분만 줄인다. 모양은 감싸기({notice, content, truncated})
-    그대로라 복구 재생(ToolResult.model_validate)과 remember 검사(is_wrapped_external)가 그대로 동작한다.
-    """
+def mail_content(output: dict[str, Any]) -> Any:
+    """메일 도구 결과(저장 JSON)의 원래 내용. 감싸기({notice, content, truncated})면 그 안의 content."""
     data = output.get("data")
-    if tool_name not in MAIL_TOOLS or data is None:
+    return data.get("content") if isinstance(data, dict) and "notice" in data else data
+
+
+def mail_count(tool_name: str, content: Any) -> int:
+    """read_mail이면 1, list_mail이면 목록의 통 수(6,000자를 넘어 잘린 문자열이면 셀 수 없어 0)."""
+    if tool_name == "read_mail":
+        return 1
+    if isinstance(content, dict) and isinstance(content.get("messages"), list):
+        return len(content["messages"])
+    return 0
+
+
+def output_for_storage(tool_name: str, output: dict[str, Any]) -> dict[str, Any]:
+    """steps.output에 남길 도구 결과(JSON). 메일 도구의 성공 결과에는 메일 내용을 하나도 남기지 않는다.
+
+    7단계 보강(BUILD_SPEC 5.2 "메일 미리보기: steps에는 본문 저장하지 않음", 13절 "steps에 원문 없음"):
+    보낸 사람·제목·미리보기·본문 대신 {"stored": false, "mail_count": n}만 남긴다. 감싸기 모양은 그대로라
+    remember 검사(is_wrapped_external)가 외부 콘텐츠로 알아본다. 복구 때 이 결과를 재생하지 않고 다시 읽는다
+    (tracking.py). 모델에게 가는 결과(본문 4,000자)는 그대로다.
+    """
+    if tool_name not in MAIL_TOOLS or output.get("data") is None or output.get("status") != ToolStatus.SUCCEEDED:
         return output
-    content = data.get("content") if isinstance(data, dict) and "notice" in data else data
+    summary = {"stored": False, "mail_count": mail_count(tool_name, mail_content(output))}
+    return {**output, "data": {"notice": EXTERNAL_NOTICE, "content": summary, "truncated": False}}
+
+
+def clip_mail_output(tool_name: str, output: dict[str, Any]) -> dict[str, Any]:
+    """모델 기록(tasks.message_history)에 남길 메일 결과: content를 앞 500자 문자열로 자른다.
+
+    다음 task와 승인 재개 run의 모델이 메일 맥락을 이어 볼 최소한이다. history.seal_mail_returns가 이 값을
+    PAYLOAD_ENCRYPTION_KEY로 암호화해 저장한다(평문으로 두지 않는다).
+    """
+    if tool_name not in MAIL_TOOLS or output.get("data") is None:
+        return output
+    content = mail_content(output)
     text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
     if len(text) <= STORED_MAIL_CHARS and is_wrapped_external(output):
         return output

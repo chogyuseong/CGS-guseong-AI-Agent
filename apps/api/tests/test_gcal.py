@@ -151,7 +151,10 @@ async def test_list_events_401_refreshes_and_retries_once(tool_deps: AgentDeps, 
 async def test_list_events_refresh_failure_disconnects(
     tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession
 ) -> None:
-    """refresh token이 만료·철회되면(테스트 상태 앱은 7일) 연결을 지우고 다시 연결하라고 알린다."""
+    """refresh token이 만료·철회되면(테스트 상태 앱은 7일) 토큰을 지우고 다시 연결하라고 알린다.
+
+    7단계 보강: 연결 행은 지우지 않고 "다시 연결 필요"로 표시한다(tests/test_google_reconnect.py).
+    """
     await connect_google(tool_deps)
     fake_http.route("POST", TOKEN_URL, fixture_response("google_token_invalid_grant.json", status=400))
     fake_http.route("GET", EVENTS, fixture_response("google_error_401.json", status=401))
@@ -161,7 +164,8 @@ async def test_list_events_refresh_failure_disconnects(
     assert result.ok is False
     assert result.error == RECONNECT_MESSAGE
     assert "ya29" not in result.error and "1//" not in result.error
-    assert await connection_row(db_session, tool_deps) is None
+    row = await connection_row(db_session, tool_deps)
+    assert row is not None and row.encrypted_token == "" and row.reconnect_required_at is not None
 
 
 @pytest.mark.parametrize(("name", "status"), [("google_error_429.json", 429), ("google_error_403_rate.json", 403)])

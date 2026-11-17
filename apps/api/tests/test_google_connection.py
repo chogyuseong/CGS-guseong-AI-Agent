@@ -77,6 +77,10 @@ async def test_connections_lists_google_not_connected(
             "mail": False,
             "scopes": [],
             "connected_at": None,
+            # 7단계 보강: 재연결 필요(권한 만료·철회), 메일 기능 플래그, 메일 데이터 처리 동의
+            "reconnect_required": False,
+            "mail_enabled": True,
+            "mail_consent": False,
         }
     ]
 

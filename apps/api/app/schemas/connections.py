@@ -19,6 +19,14 @@ class ConnectionOut(BaseModel):
     mail: bool
     scopes: list[str] = Field(default_factory=list)
     connected_at: datetime | None = None
+    # 7단계 보강: 토큰 갱신이 invalid_grant(만료·Google에서 권한 철회)로 실패해 다시 연결해야 한다.
+    # 이때 connected·calendar·mail은 false다(처음부터 연결 안 된 것과 이 값으로 구분한다).
+    reconnect_required: bool
+    # 7단계 보강: 메일 기능 플래그. 서버에 PAYLOAD_ENCRYPTION_KEY가 없으면 false(메일 권한 추가·메일 도구를 쓸 수 없다).
+    mail_enabled: bool
+    # 7단계 보강: 메일 데이터 처리 동의 여부. 동의 전에는 메일 도구가 Gmail을 부르지 않는다.
+    # PUT/DELETE /api/connections/google/mail-consent로 동의·철회한다.
+    mail_consent: bool
 
 
 class GoogleStartRequest(BaseModel):
@@ -34,7 +42,8 @@ class GoogleStartOut(BaseModel):
 
 
 class ConnectionErrorDetail(BaseModel):
-    code: Literal["not_configured"]
+    # not_configured: 서버에 Google 설정이 없음. mail_disabled(7단계 보강): 메일 기능 플래그가 꺼져 있음.
+    code: Literal["not_configured", "mail_disabled"]
     message: str
 
 

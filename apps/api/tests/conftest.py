@@ -76,6 +76,7 @@ from app.db import get_session
 from app.main import create_app
 from app.models import Conversation, DailyBudget, Task, User
 from app.models.enums import TaskOrigin, TaskStatus
+from app.payload_crypto import EncryptedSerializer
 from app.security import hash_password
 from tests.db_guard import check_test_database
 from tests.fake_http import FakeHttp
@@ -95,6 +96,8 @@ from tests.model_scripts import TEST_AGENT_MODELS
 models.ALLOW_MODEL_REQUESTS = False
 
 API_DIR = Path(__file__).resolve().parents[1]
+# 7단계 보강: 복구 payload 암호화 키(가짜, 세션마다 새로). DBOS 직렬화기와 메일 기록 암호화가 쓴다.
+TEST_PAYLOAD_KEY = Fernet.generate_key().decode("ascii")
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+psycopg://myagent:myagent@127.0.0.1:5432/myagent_test",
@@ -157,6 +160,8 @@ def dbos_runtime(migrated_database_url: str) -> Iterator[None]:
             "system_database_url": migrated_database_url,
             "dbos_system_schema": DBOS_SYSTEM_SCHEMA,
             "application_version": "test",
+            # 7단계 보강: 운영과 같이 워크플로 입력·단계 결과를 암호화해 저장한다(app/payload_crypto.py).
+            "serializer": EncryptedSerializer(Fernet(TEST_PAYLOAD_KEY.encode("ascii"))),
         }
     )
     DBOS.launch()
@@ -329,6 +334,8 @@ def configure_external_keys(settings: Settings) -> None:
     settings.google_client_secret = SecretStr("test-google-secret")
     settings.google_redirect_uri = TEST_GOOGLE_REDIRECT
     settings.token_encryption_key = SecretStr(TEST_FERNET_KEY)
+    # 7단계 보강: 이 키가 있어야 메일 기능이 켜진다(기능 플래그, app/google_auth.py mail_enabled).
+    settings.payload_encryption_key = SecretStr(TEST_PAYLOAD_KEY)
 
 
 @pytest.fixture

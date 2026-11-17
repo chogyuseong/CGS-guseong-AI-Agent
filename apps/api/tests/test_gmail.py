@@ -4,7 +4,8 @@ Google 응답은 공식 문서 형식으로 만든 fixture다(실제 응답 아�
 
 - list_mail·read_mail(READ, 외부 콘텐츠): 정상, 타임아웃, 401(갱신 후 재시도), 403(권한 없음), 429, 빈 결과,
   HTML 메일, 첨부 있는 메일(이름만), 긴 본문(4,000자), 메일 권한 없음
-- steps.output·tasks.message_history 저장분은 500자(명세 '[보안] read_mail 결과는 steps.output에 500자까지만')
+- 7단계 보강: steps.output에는 메일 내용을 남기지 않는다(통 수만, BUILD_SPEC 5.2). 모델 기록은 500자 암호문
+  (tests/test_payload_crypto.py, test_mail_privacy.py)
 - 인자 제약(검색어 길이·제어 문자, 라벨 목록, 개수 1~10, message_id 모양)
 """
 
@@ -15,15 +16,15 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import ValidationError
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import ToolReturnPart
+from sqlalchemy import func, update
 
 from app.agent.agent import MyAgent
 from app.agent.deps import AgentDeps
-from app.agent.history import history_for_storage
-from app.agent.results import EXTERNAL_NOTICE, STORED_MAIL_CHARS, ToolResult, output_for_storage
+from app.agent.results import EXTERNAL_NOTICE, STORED_MAIL_CHARS, ToolResult, clip_mail_output, output_for_storage
 from app.agent.toolsets import mail_tools
 from app.google_auth import CALENDAR_SCOPE, GMAIL_SCOPE, MAIL_SCOPE_MESSAGE, NOT_CONNECTED_MESSAGE
-from app.models.enums import TaskStatus
+from app.models import User
 from app.tools import gmail
 from app.tools.mail_text import html_to_text
 from tests.conftest import payload, tool_context
@@ -55,7 +56,15 @@ def gmail_api(full: dict[str, Any] | None = None, listing: str = "gmail_messages
 
 
 async def connect_mail(deps: AgentDeps, *, expires_in: int = 3600) -> None:
+    """메일 권한까지 연결하고 메일 데이터 처리에 동의한 상태(7단계 보강: 동의 전에는 메일 도구가 동작하지 않는다)."""
     await connect_google(deps, expires_in=expires_in, scopes=MAIL_SCOPES)
+    await give_mail_consent(deps)
+
+
+async def give_mail_consent(deps: AgentDeps) -> None:
+    async with deps.db() as session:
+        await session.execute(update(User).where(User.id == deps.user_id).values(mail_consent_at=func.now()))
+        await session.commit()
 
 
 async def list_mail(deps: AgentDeps, **args: Any) -> ToolResult:
@@ -122,6 +131,7 @@ async def test_list_mail_empty(tool_deps: AgentDeps, fake_http: FakeHttp) -> Non
 
 async def test_list_mail_without_mail_scope_asks_to_add_permission(tool_deps: AgentDeps, fake_http: FakeHttp) -> None:
     await connect_google(tool_deps)  # 캘린더만 연결
+    await give_mail_consent(tool_deps)
 
     result = await list_mail(tool_deps)
 
@@ -132,6 +142,8 @@ async def test_list_mail_without_mail_scope_asks_to_add_permission(tool_deps: Ag
 
 
 async def test_list_mail_not_connected(tool_deps: AgentDeps, fake_http: FakeHttp) -> None:
+    await give_mail_consent(tool_deps)
+
     result = await list_mail(tool_deps)
 
     assert result.ok is False
@@ -176,8 +188,9 @@ async def test_list_mail_403_insufficient_permission(tool_deps: AgentDeps, fake_
 
     result = await list_mail(tool_deps)
 
+    # 7단계 보강: 범위 부족 사유면 메일 권한을 연결 기록에서 빼고 다시 추가하라고 안내한다(test_google_reconnect.py)
     assert result.ok is False
-    assert result.error == gmail.FORBIDDEN_MESSAGE
+    assert result.error == gmail.MAIL_SCOPE_LOST_MESSAGE
     assert "메일 읽기 권한" in result.error
 
 
@@ -313,6 +326,7 @@ async def test_read_mail_not_found(tool_deps: AgentDeps, fake_http: FakeHttp) ->
 
 async def test_read_mail_without_mail_scope(tool_deps: AgentDeps, fake_http: FakeHttp) -> None:
     await connect_google(tool_deps)
+    await give_mail_consent(tool_deps)
 
     result = await read_mail(tool_deps)
 
@@ -329,45 +343,44 @@ def test_html_to_text_handles_entities_blocks_and_unclosed_script() -> None:
     assert html_to_text(html) == "첫 줄\n둘째 줄 <b>\n하나\n둘"
 
 
-# ---- 저장은 500자 ----
+# ---- 저장: steps에는 메일 내용 없음, 모델 기록에는 500자 암호문(7단계 보강) ----
 
 
-def test_output_for_storage_cuts_mail_results_to_500_chars() -> None:
-    result = ToolResult.external({"body": "메일 본문 " * 1000})
-    output = result.model_dump(mode="json")
+def test_output_for_storage_keeps_no_mail_text() -> None:
+    """BUILD_SPEC 5.2 "메일 미리보기: steps에는 본문 저장하지 않음". 보낸 사람·제목·본문 모두 남기지 않고 통 수만."""
+    listed = ToolResult.external({"messages": [{"id": "a", "subject": "제목"}, {"id": "b", "subject": "제목2"}]})
+    read = ToolResult.external({"id": "a", "from": "김민지", "body": "메일 본문 " * 1000})
 
-    stored = output_for_storage("read_mail", output)
+    stored_list = output_for_storage("list_mail", listed.model_dump(mode="json"))
+    stored_read = output_for_storage("read_mail", read.model_dump(mode="json"))
 
-    assert STORED_MAIL_CHARS == 500
-    assert stored["data"]["notice"] == EXTERNAL_NOTICE
-    assert stored["data"]["truncated"] is True
-    assert len(stored["data"]["content"]) == 500
-    assert ToolResult.model_validate(stored).ok is True  # 복구 재생 때 다시 읽을 수 있는 모양
-    assert output_for_storage("web_search", output) == output  # 메일이 아닌 도구는 그대로
+    assert stored_list["data"] == {
+        "notice": EXTERNAL_NOTICE,
+        "content": {"stored": False, "mail_count": 2},
+        "truncated": False,
+    }
+    assert stored_read["data"]["content"] == {"stored": False, "mail_count": 1}
+    assert "김민지" not in json.dumps(stored_read, ensure_ascii=False)
+    assert ToolResult.model_validate(stored_read).ok is True  # 저장 모양은 ToolResult 그대로
+    web = ToolResult.external({"items": ["x"]}).model_dump(mode="json")
+    assert output_for_storage("web_search", web) == web  # 메일이 아닌 도구는 그대로
     failure = ToolResult.failure("실패").model_dump(mode="json")
     assert output_for_storage("read_mail", failure) == failure
 
 
-def test_message_history_keeps_only_500_chars_of_mail() -> None:
-    long_result = ToolResult.external({"body": "본문" * 3000})
-    messages = [
-        ModelRequest(parts=[UserPromptPart("메일 읽어줘")]),
-        ModelResponse(parts=[ToolCallPart("read_mail", {"message_id": "abc"}, tool_call_id="c1")]),
-        ModelRequest(parts=[ToolReturnPart("read_mail", long_result, tool_call_id="c1")]),
-        ModelResponse(parts=[TextPart("요약입니다")]),
-    ]
+def test_clip_mail_output_keeps_500_chars() -> None:
+    """모델 기록(암호화 전)에 남기는 양: 앞 500자."""
+    output = ToolResult.external({"body": "메일 본문 " * 1000}).model_dump(mode="json")
 
-    stored = history_for_storage([], messages, status=TaskStatus.DONE)
+    clipped = clip_mail_output("read_mail", output)
 
-    [returned] = [p for m in stored for p in m.parts if isinstance(p, ToolReturnPart)]
-    content: Any = returned.content
-    # 본문은 500자만 남는다(결과의 나머지 필드는 상태·출처 같은 짧은 메타데이터).
-    assert len(content["data"]["content"]) <= 500
-    assert content["data"]["truncated"] is True
-    assert returned.tool_call_id == "c1"  # 호출과 결과의 짝은 그대로
+    assert STORED_MAIL_CHARS == 500
+    assert clipped["data"]["notice"] == EXTERNAL_NOTICE
+    assert clipped["data"]["truncated"] is True
+    assert len(clipped["data"]["content"]) == 500
 
 
-async def test_mail_step_output_is_stored_up_to_500_chars(
+async def test_mail_step_output_has_no_mail_text(
     tool_deps: AgentDeps, fake_http: FakeHttp, client: httpx.AsyncClient, agent: MyAgent, conversation: int
 ) -> None:
     await connect_mail(tool_deps)
@@ -381,7 +394,7 @@ async def test_mail_step_output_is_stored_up_to_500_chars(
     [step] = task["steps"]
     assert (step["tool_name"], step["ok"], step["risk_level"]) == ("read_mail", True, "READ")
     assert step["label"] == "메일 읽는 중"
-    assert len(step["output"]["data"]["content"]) == 500
+    assert step["output"]["data"]["content"] == {"stored": False, "mail_count": 1}
     model_saw: list[Any] = [
         p.content for m in model.seen_messages[-1] for p in m.parts if isinstance(p, ToolReturnPart)
     ]

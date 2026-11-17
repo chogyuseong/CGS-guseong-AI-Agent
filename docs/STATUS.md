@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 6단계 보강 완료(2026-11-17). 배포 전 코드 준비 끝(docs/DEPLOY.md, 실제 배포는 사용자 계정 연결 뒤). 다음은 7단계 보강(음성과 Gmail).
+현재 단계: BUILD_SPEC 기준 7단계 보강 완료(2026-11-17, 음성과 Gmail). 배포 전 코드 준비 끝(docs/DEPLOY.md, 실제 배포는 사용자 계정 연결 뒤). 다음은 8단계 보강(평가와 관찰).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -17,6 +17,14 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   해제 시 계획 무효화·갱신 잠금, draft_message(초안 카드), 데이터 전송 등급·공개 검색 차단, 도구 체크리스트
 - 3단계 보강(2026-11-17): 끊긴 외부 작업 결과 재조회(reconcile)·needs_review, 장애 지점 5곳 결과 표(docs/FAULTS.md),
   취소와 실행 경합, outbox(실행·재개 시작 요청), 푸시 notification_key·notifications, 앱 로그 예외 메시지 가리기
+- 5·6단계 보강(2026-11-17): 아래 차이 목록 참고
+- 7단계 보강(2026-11-17): 음성 최초 사용 안내, 메일 데이터 처리 동의, 메일 작업의 공개 검색 제외, 복구 payload 암호화
+  (PAYLOAD_ENCRYPTION_KEY: DBOS 기록 전체·모델 기록 속 메일, 키 없으면 메일 기능 꺼짐), steps에 메일 내용 없음,
+  재연결 필요 상태·Gmail 범위 부족 처리. 마이그레이션 11dcb5772dd1
+
+실제 검증한 항목(2026-11-17, 7단계 보강 끝): API pytest 568개, ruff·pyright 0건, 새 마이그레이션 11dcb5772dd1 업·다운·업과
+`alembic check` 차이 없음, 웹 Biome 0건·tsc 통과·Vitest 288개, Playwright 40개(실제 API 서버 + Chrome 360px).
+실제 Gmail 계정·실제 모델로는 확인하지 않았다(가짜 HTTP·FunctionModel).
 
 실제 검증한 항목(2026-11-17, 두 번째 PC, 4단계 보강 끝):
 - API pytest 498개(`uv run python -m pytest`), ruff·pyright 0건, 새 마이그레이션 f4bbe5621c5e(oauth_states) 업·다운·업과 check 차이 없음
@@ -45,8 +53,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 6단계 보강(아래 차이 목록의 6단계). 남긴 것: AgentReply(6단계로), 메일 실행 기록 암호화(7단계).
-DBOS 워크플로 입력·단계 결과·message_history의 사용자 글은 5단계 보강에서 7일 정리·대화 삭제로 지운다(docs/DATA_POLICY.md)
+다음 시작 지점: 8단계 보강(아래 차이 목록의 8단계). 사용자 확인: 개발·배포 .env에 PAYLOAD_ENCRYPTION_KEY를 넣어야 메일 기능이
+켜진다(docs/DECISIONS.md "7단계 보강: 사용자 판단이 필요한 것"). DBOS 기록은 7단계 보강부터 키가 있으면 암호문이다(docs/DATA_POLICY.md)
 관련 커밋: (이 파일을 커밋한 커밋)
 
 ---
@@ -116,11 +124,27 @@ DBOS 워크플로 입력·단계 결과·message_history의 사용자 글은 5�
 - 남긴 것: 채팅 task 전체의 AgentReply(sources·needs_clarification), 예약 시간대는 서울만 만든다(컬럼은 있음)
 
 ### 7단계 — 음성과 Gmail
-- [ ] 음성 최초 사용 시 브라우저 서비스 외부 처리 안내
-- [ ] 메일 데이터 처리 동의
-- [ ] 메일 작업에 공개 검색 도구 제공 안 함
-- [ ] message_history·DBOS·trace에 메일 원문이 남는 경로 검증, 필요하면 PAYLOAD_ENCRYPTION_KEY로 암호화. 안 되면 기능 플래그로 끔
-- [ ] 재연결·권한 철회 처리
+- [x] 음성 최초 사용 시 브라우저 서비스 외부 처리 안내(확인 후 이 브라우저에 기억) — components/ChatInput.test.tsx
+  "음성 최초 사용 안내", e2e/voice.spec.ts
+- [x] 메일 데이터 처리 동의(users.mail_consent_at, PUT/DELETE /api/connections/google/mail-consent. 동의 전에는 Gmail을 부르지 않음)
+  — tests/test_mail_privacy.py(test_mail_tools_refuse_before_consent, test_consent_api_turns_mail_on_and_off),
+  components/GoogleConnection.test.tsx "메일 데이터 처리 동의", e2e/connections.spec.ts
+- [x] 메일 작업에 공개 검색 도구 제공 안 함(메일을 읽은 문맥이면 web_search·search_places·get_weather를 모델에게 주지 않음,
+  outbound_refusal은 두 번째 방어선) — tests/test_mail_privacy.py(test_public_tools_are_hidden_after_reading_mail,
+  test_public_tools_stay_hidden_in_the_same_conversation_only, test_refused_mail_call_does_not_hide_search), test_data_policy
+- [x] message_history·DBOS·trace에 메일 원문이 남는 경로 검증과 PAYLOAD_ENCRYPTION_KEY 암호화. 키가 없으면 기능 플래그로 메일 끔
+  — tests/test_mail_privacy.py(test_mail_text_is_not_stored_in_plaintext: steps 내용 없음·message_history 암호문·dbos 스키마 전 행
+  암호문(풀면 원문 있음)·앱 로그 없음, test_next_task_model_sees_decrypted_mail, test_mail_is_disabled_without_payload_key,
+  test_recovery_rereads_mail_instead_of_replaying), tests/test_payload_crypto.py, trace는 tests/test_observability.py
+  (test_mail_task_trace_has_no_content). 한계: 모델이 쓴 답변(요약)은 화면에 보인 대화라 평문으로 남는다(BUILD_SPEC 5.2)
+- [x] 재연결·권한 철회 처리(invalid_grant → "다시 연결 필요"·토큰 삭제·대기 계획 connection_revoked, Gmail 범위 부족 403 → 메일 권한
+  기록에서 뺌, 화면 안내) — tests/test_google_reconnect.py, components/GoogleConnection.test.tsx "다시 연결 필요", e2e/connections.spec.ts
+- 완료 증거(BUILD_SPEC 13절 7단계): 음성 자동 전송 없음(ChatInput.test·voice.spec), 메일 본문이 검색어로 유출되지 않음(검색 도구 숨김 +
+  test_data_policy), 메일 내 지시로 외부 행동·기억 생성 불가(test_mail_flow: 일정 삭제는 승인 대기·감시 mismatch, remember 거부),
+  **예약 생성은 막지 않음**(create_schedule·create_watch는 INTERNAL이라 메일을 읽은 대화에서도 승인 없이 만들어진다. 막는 방식은
+  사용자 판단, docs/DECISIONS.md "7단계 보강: 사용자 판단이 필요한 것"), steps·로그·트레이스에 원문 없음(test_mail_privacy,
+  test_observability), 복구 저장소의 민감 payload 정책(test_mail_privacy의 dbos 스키마 검사, test_payload_crypto)
+- 사용자 판단으로 남긴 것: docs/DECISIONS.md "7단계 보강: 사용자 판단이 필요한 것"
 
 ### 8단계 — 평가와 관찰
 - [ ] TELEMETRY_ENABLED(명시적 설정 없으면 전송 안 함), LOGFIRE_TOKEN 없을 때 OTLP 우회 전송 확인

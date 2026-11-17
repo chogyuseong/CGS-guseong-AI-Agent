@@ -38,7 +38,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | `app/config.py` | `.env`를 읽는 Settings(pydantic-settings), `MODEL_PRICES`(공식 가격) |
 | `app/db.py` | 비동기 엔진, 요청마다 세션 하나를 주는 `get_session`/`DbSession` |
 | `app/security.py` | bcrypt 비밀번호 해시, 서명된 세션 쿠키, Origin 검사 미들웨어, `CurrentUser`, OAuth 토큰 암호화(`token_cipher`: Fernet, `TOKEN_ENCRYPTION_KEY`) |
-| `app/google_auth.py` | Google OAuth(4단계): 동의 화면 주소(state·PKCE), 토큰 교환·갱신·철회(httpx로 REST 직접), 토큰 암호화 저장, 도구용 `access_token(deps)`(만료 1분 전·401이면 갱신, invalid_grant면 연결 삭제) |
+| `app/google_auth.py` | Google OAuth(4단계): 동의 화면 주소(state·PKCE), 토큰 교환·갱신·철회(httpx로 REST 직접), 토큰 암호화 저장, 도구용 `access_token(deps)`(만료 1분 전·401이면 갱신, invalid_grant면 토큰을 지우고 "다시 연결 필요" 표시(7단계 보강)) |
 | `app/rate_limit.py` | 메시지 전송 제한(사용자당 분당 20회, 메모리 슬라이딩 윈도) |
 | `app/users.py`, `app/cli.py` | 사용자 조회·생성, `python -m app.cli create-user`, 시험 푸시 `python -m app.cli send-test-push` |
 | `app/event_loop.py` | Windows에서 SelectorEventLoop를 쓰는 이유와 CLI용 `run_async` |
@@ -72,7 +72,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | GET | `/api/push/public-key` | 200 `{"enabled": bool, "public_key": str \| null}`. enabled는 VAPID 세 값(공개 키, 개인 키, VAPID_SUBJECT)이 모두 있을 때만 true |
 | POST | `/api/push/subscribe` | 204. 본문은 브라우저 `PushSubscription.toJSON()` 그대로 `{"endpoint", "keys": {"p256dh", "auth"}, "expirationTime"?}`. endpoint는 푸시 서비스의 https 주소만(아니면 422). 같은 endpoint면 키·사용자를 갱신 |
 | POST | `/api/push/unsubscribe` | 204. 본문 `{"endpoint"}`. 없거나 남의 것이어도 204 |
-| GET | `/api/connections` | 200 `[{"provider": "google", "available", "connected", "calendar", "mail", "scopes", "connected_at"}]`(4단계, `mail`은 7단계: gmail.readonly가 있는가). connected_at은 처음 연결한 시각(행의 created_at, 6단계에 고침: 토큰 갱신으로 바뀌지 않음. 연결된 채 다시 연결하면 그대로, 해제 뒤 연결하면 새 시각). available은 서버 설정(GOOGLE_* 세 값 + 유효한 TOKEN_ENCRYPTION_KEY)이 갖춰졌을 때만 true. 토큰은 응답에 없다 |
+| GET | `/api/connections` | 200 `[{"provider": "google", "available", "connected", "calendar", "mail", "scopes", "connected_at", "reconnect_required", "mail_enabled", "mail_consent"}]`(4단계, `mail`은 7단계: gmail.readonly가 있는가. 뒤 세 칸은 7단계 보강: 다시 연결 필요·메일 기능 플래그·메일 데이터 처리 동의). connected_at은 처음 연결한 시각(행의 created_at, 6단계에 고침: 토큰 갱신으로 바뀌지 않음. 연결된 채 다시 연결하면 그대로, 해제 뒤 연결하면 새 시각). available은 서버 설정(GOOGLE_* 세 값 + 유효한 TOKEN_ENCRYPTION_KEY)이 갖춰졌을 때만 true. 토큰은 응답에 없다 |
 | POST | `/api/connections/google/start` | 4단계 보강: 본문 `{scope?: "mail"}` → 200 `{authorization_url}`. 화면이 그 주소로 이동한다. state는 DB(oauth_states)에 해시로 저장하고 로그인 세션·10분·한 번 사용에 묶으며 PKCE code_verifier는 암호화해 둔다. 로그인 안 했으면 401, 서버 설정이 없으면 409 `not_configured`, 모르는 scope는 422. `scope=mail`이면 캘린더 + gmail.readonly(include_granted_scopes=true). GET은 405 |
 | GET | `/api/schedules` | 200 `{schedules: ScheduleOut[], max_active: 10}`(6단계). ScheduleOut = `id, title, prompt_text, time_of_day("HH:MM"), weekdays(0=월~6=일), repeat_text, is_active, next_run_at, last_run_at, is_briefing, last_task({id, conversation_id, status, final_answer, error, updated_at} \| null)` |
 | PUT | `/api/schedules/briefing` | 200 ScheduleOut(6단계 보강). 본문 `{"time_of_day": "HH:MM"}`. 아침 브리핑을 없으면 만들고 있으면 시각을 바꾸고 켠다(사용자당 하나). 409 `limit_reached`, 422 형식 |
@@ -180,7 +180,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `toolsets.py` | read_tools / internal_tools / mail_tools(7단계, READ, chat 전용) / external_tools(일정 쓰기 셋, requires_approval, `build_external_toolset`) 와 origin별 조합, step 문구(TOOL_LABELS), 승인 카드 문장(TOOL_PREVIEWS). 외부 콘텐츠 도구 목록(EXTERNAL_CONTENT_TOOLS)은 5단계부터 `results.py`에 있고 여기서 다시 내보낸다 |
 | `model_choice.py` | 설정의 API 키로 AnthropicModel 만들기, 호출 제한 시간(1단계 보강에서 FAST→SMART 전환 제거) |
 | `budget.py` | UsageLimits, 비용 계산(MODEL_PRICES), 하루 비용 검사 |
-| `history.py` | 이전 기록 저장 형식(JSON), 자르기, 실패한 run 기록 정리, 승인 대기 기록 저장·결과 없는 호출 찾기. 7단계: 메일 도구 결과는 500자만 저장(`clip_mail_returns`) |
+| `history.py` | 이전 기록 저장 형식(JSON), 자르기, 실패한 run 기록 정리, 승인 대기 기록 저장·결과 없는 호출 찾기. 7단계 보강: 메일 도구 결과는 앞 500자를 PAYLOAD_ENCRYPTION_KEY로 암호화해 저장(`seal_mail_returns`), 모델에게 줄 때만 푼다(`open_mail_returns`) |
 | `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 동적 지시문(오늘 날짜·요일, 이번 주 날짜표, 다음 주 월요일 / 5단계: 기억 최근 30줄을 요청마다 DB에서 읽어 안내문 + `<user_memories>`로 감쌈, `memory_instruction`) |
 | `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장, settings, http), ToolResult(`external()`: 지시문 무시 안내로 감싸고 6,000자로 자름), EXTERNAL_CONTENT_TOOLS, `is_wrapped_external`. 7단계: MAIL_TOOLS, `output_for_storage`(메일 결과 저장분 500자), STORED_TEXT_TOOLS·MEMORY_BLOCKING_TOOLS(remember 검사 목록) |
 
@@ -214,7 +214,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 `DELETE /api/memories`(전체, `{deleted}`). 기억을 만드는 API는 없다(remember로만 생긴다).
 
 | `list_mail(query?, label?, max_results=5)` | READ, 외부 콘텐츠 (7단계, chat 전용) | Gmail 메일 목록(최대 10통). id·보낸 사람·제목·받은 시각·안 읽음·미리보기. 검색어 200자, 라벨은 INBOX·UNREAD·STARRED·IMPORTANT·SENT만 |
-| `read_mail(message_id)` | READ, 외부 콘텐츠 (7단계, chat 전용) | 메일 한 통. 본문 텍스트 앞 4,000자(HTML은 텍스트로), 첨부는 이름만. DB 저장은 500자 |
+| `read_mail(message_id)` | READ, 외부 콘텐츠 (7단계, chat 전용) | 메일 한 통. 본문 텍스트 앞 4,000자(HTML은 텍스트로), 첨부는 이름만. steps에는 내용 없이 통 수만, 모델 기록은 500자 암호문(7단계 보강) |
 
 origin이 chat이면 4개 toolset(read_tools, internal_tools, mail_tools, external_tools) 전부, schedule·watch면 read_tools만 넘긴다
 (일정 쓰기 도구, 자동화 생성·삭제 도구, 메일 도구는 자동 작업에 없다).
@@ -240,7 +240,7 @@ origin이 chat이면 4개 toolset(read_tools, internal_tools, mail_tools, extern
 - `push_subscriptions`(3단계부터 사용): endpoint UNIQUE. 발송 성공 때 `last_used_at`, 404·410이면 행 삭제.
 - EXTERNAL 호출 한 번 = steps 1행 + approvals 1행(tool_call_id UNIQUE) + guard_checks 1행.
 - `connections`(4단계부터 사용): `(user_id, provider)` UNIQUE. `encrypted_token`은 `{access_token, refresh_token, expires_at}` JSON을
-  Fernet으로 암호화한 문자열, `scopes`·`expires_at`(access token 만료)은 평문. 갱신이 invalid_grant로 실패하면 행을 지운다. 마이그레이션 변경 없음.
+  Fernet으로 암호화한 문자열, `scopes`·`expires_at`(access token 만료)은 평문. 갱신이 invalid_grant로 실패하면 토큰을 지우고 `reconnect_required_at`을 채운다(7단계 보강, 마이그레이션 11dcb5772dd1. `users.mail_consent_at`도 같은 마이그레이션).
 - 사용자 메시지와 assistant 답변 모두 `messages.task_id`로 task에 연결된다.
   예외(6단계): 예약 작업 task는 사용자 메시지 없이(trigger_message_id null) assistant 답변만 있고, 감시 충족 알림은 task 없이(task_id null)
   '예약 작업' 대화방에 assistant 메시지로 남는다.

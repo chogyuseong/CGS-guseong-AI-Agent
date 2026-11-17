@@ -15,6 +15,9 @@ class User(TimestampedTable):
     password_hash: Mapped[str] = mapped_column(String(255))
     # 6단계 추가: 아침 브리핑 기본 예약을 만들어 준 시각. 한 번 만들면 채워지고, 사용자가 브리핑을 끄거나 지워도
     # 다시 만들지 않는다(null인 계정에만 만든다. app/automation/store.py).
+    # 7단계 보강: 메일 데이터 처리 동의 시각(BUILD_SPEC 5.2 "메일 원문: 사용자 동의 후 LLM 전송").
+    # null이면 메일 도구가 Gmail을 부르지 않는다. 철회하면 다시 null.
+    mail_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class UserSession(TimestampedTable):

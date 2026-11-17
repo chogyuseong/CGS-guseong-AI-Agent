@@ -1,5 +1,5 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-17 (BUILD_SPEC 기준 6단계 보강 완료, 배포 전 코드 준비 완료. 다음은 실제 배포(사용자 계정)와 7단계 보강)
+마지막 갱신 2026-11-17 (BUILD_SPEC 기준 7단계 보강 완료, 배포 전 코드 준비 완료. 다음은 8단계 보강과 실제 배포(사용자 계정))
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
@@ -65,14 +65,21 @@
                      (5) 완료: 예산 부족이면 감시 paused_budget, 자동화 화면 '오늘은 쉬는 중' 안내
   배포 준비     완료  Railway(선택지 A)로 정함. API_ORIGIN 환경변수, apps/api/start.sh, DATABASE_URL 형식 변환.
                      실제 배포는 Railway 계정 로그인·결제가 필요해 하지 않음 → docs/DEPLOY.md 순서대로
-  7~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
+  7단계 보강   완료  음성 첫 사용 안내(브라우저 서비스 외부 처리), 메일 데이터 처리 동의(users.mail_consent_at),
+                     메일을 읽은 대화에는 공개 검색·장소·날씨 도구를 주지 않음, PAYLOAD_ENCRYPTION_KEY로 DBOS 기록과
+                     모델 기록 속 메일 결과 암호화(키가 없으면 메일 기능 꺼짐), invalid_grant면 '다시 연결 필요' 표시·
+                     대기 계획 무효화, Gmail 권한 부족이면 메일 권한 제거. 마이그레이션 11dcb5772dd1
+                     ★ .env에 PAYLOAD_ENCRYPTION_KEY를 넣어야 메일이 켜진다(.env.example 설명. 잃으면 끝나지 않은 작업 복구 불가)
+                     남은 것: "메일 안의 지시로 예약 생성 불가"는 아직 성립 안 함(사용자 판단, docs/DECISIONS.md
+                     "7단계 보강: 사용자 판단이 필요한 것" 5개)
+  8~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC, 6단계 보강·배포 준비 끝): API pytest 542개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
-웹: Biome 0건, tsc, Vitest 278개, Playwright 38개.
+검사(2026-11-17, 7단계 보강 끝): API pytest 568개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
+웹: Biome 0건, tsc, Vitest 288개, Playwright 40개.
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 7단계 보강을 진행해라(배포는 docs/DEPLOY.md, 계정 연결 뒤)"
-(7단계: 음성 외부 처리 안내, Gmail 승인·암호화 등 docs/STATUS.md 차이 목록. 중간 단위마다 커밋·push)
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 8단계 보강을 진행해라(배포는 docs/DEPLOY.md, 계정 연결 뒤)"
+(8단계: TELEMETRY_ENABLED, eval 사례를 BUILD_SPEC 16절로, 실행 기록. 그 전에 7단계 판단 5개를 사용자에게 묻는다)
 
 
 ========================================
@@ -237,12 +244,12 @@ PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 �
 
 잘 옮겨졌는지 확인:
 
-  pnpm api:test                    542개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:test                    568개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
   pnpm api:check                   ruff, pyright 문제 0건
   pnpm --dir apps/web lint
   pnpm --dir apps/web typecheck
-  pnpm --dir apps/web test         278개 통과
-  pnpm --dir apps/web e2e          38개 통과(API 서버가 8000에 떠 있어야 하고 3000은 비어 있어야 한다.
+  pnpm --dir apps/web test         288개 통과
+  pnpm --dir apps/web e2e          40개 통과(API 서버가 8000에 떠 있어야 하고 3000은 비어 있어야 한다.
                                    먼저 다른 터미널에서 pnpm api)
 
 화면 확인(실제 모델 호출, 요청당 약 $0.002):

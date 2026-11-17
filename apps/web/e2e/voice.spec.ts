@@ -81,8 +81,14 @@ test("360px에서 마이크로 말한 문장이 입력창에만 들어가고 전
   await expect(input).toBeInViewport({ ratio: 1 });
   await expect(send).toBeInViewport({ ratio: 1 });
 
+  // 7단계 보강: 처음 누르면 외부 처리 안내가 먼저 뜨고, 확인해야 듣기 시작한다.
   await mic.click();
+  const notice = page.getByRole("region", { name: "음성 입력 안내" });
+  await expect(notice).toContainText("Chrome은 Google 서버");
+  await expect(notice.getByRole("button", { name: "확인하고 음성 입력" })).toBeInViewport();
+  await notice.getByRole("button", { name: "확인하고 음성 입력" }).click();
   await expect(input).toHaveValue(SPOKEN_TEXT);
+  await expect(notice).toHaveCount(0);
   await expect(mic).toHaveAttribute("aria-pressed", "false");
   expect(
     await page.evaluate(() => (window as unknown as { __speechLang: string }).__speechLang),
@@ -96,6 +102,12 @@ test("360px에서 마이크로 말한 문장이 입력창에만 들어가고 전
   await page.waitForTimeout(1000);
   expect(postCount()).toBe(0);
   expect(hydrationErrors).toEqual([]);
+
+  // 한 번 확인하면 이 브라우저에서는 다시 묻지 않는다.
+  await input.fill("");
+  await mic.click();
+  await expect(input).toHaveValue(SPOKEN_TEXT);
+  await expect(page.getByRole("region", { name: "음성 입력 안내" })).toHaveCount(0);
 });
 
 test("음성 인식을 지원하지 않는 브라우저에서는 마이크 버튼이 없다", async ({ page }) => {

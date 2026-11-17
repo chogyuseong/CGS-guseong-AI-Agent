@@ -311,6 +311,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connections/google/mail-consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Give Mail Consent
+         * @description 7단계 보강: 메일 데이터 처리 동의. 메일 내용이 답변을 만들려고 AI 모델 제공자에게 전송됨을 화면에서 알린 뒤 받는다.
+         *
+         *     같은 요청을 다시 보내도 처음 동의 시각을 바꾸지 않는다.
+         */
+        put: operations["give_mail_consent_api_connections_google_mail_consent_put"];
+        post?: never;
+        /**
+         * Withdraw Mail Consent
+         * @description 동의 철회. 이후 메일 도구는 Gmail을 부르지 않는다. Google 쪽 메일 권한은 그대로다(연결 해제는 따로).
+         */
+        delete: operations["withdraw_mail_consent_api_connections_google_mail_consent_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/connections/google/start": {
         parameters: {
             query?: never;
@@ -637,9 +663,9 @@ export interface components {
         ConnectionErrorDetail: {
             /**
              * Code
-             * @constant
+             * @enum {string}
              */
-            code: "not_configured";
+            code: "not_configured" | "mail_disabled";
             /** Message */
             message: string;
         };
@@ -666,6 +692,12 @@ export interface components {
             scopes?: string[];
             /** Connected At */
             connected_at?: string | null;
+            /** Reconnect Required */
+            reconnect_required: boolean;
+            /** Mail Enabled */
+            mail_enabled: boolean;
+            /** Mail Consent */
+            mail_consent: boolean;
         };
         /** ConversationCreate */
         ConversationCreate: {
@@ -1866,6 +1898,42 @@ export interface operations {
             };
         };
     };
+    give_mail_consent_api_connections_google_mail_consent_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    withdraw_mail_consent_api_connections_google_mail_consent_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     google_start_api_connections_google_start_post: {
         parameters: {
             query?: never;
@@ -1888,7 +1956,7 @@ export interface operations {
                     "application/json": components["schemas"]["GoogleStartOut"];
                 };
             };
-            /** @description detail.code가 not_configured(서버에 Google 설정이 없음) */
+            /** @description detail.code가 not_configured(서버에 Google 설정이 없음) 또는 mail_disabled(메일 기능 꺼짐) */
             409: {
                 headers: {
                     [name: string]: unknown;

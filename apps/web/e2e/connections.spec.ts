@@ -13,6 +13,9 @@ type FakeConnection = {
   mail: boolean;
   scopes: string[];
   connected_at: string | null;
+  reconnect_required: boolean;
+  mail_enabled: boolean;
+  mail_consent: boolean;
 };
 
 const NOT_CONNECTED: FakeConnection = {
@@ -23,6 +26,9 @@ const NOT_CONNECTED: FakeConnection = {
   mail: false,
   scopes: [],
   connected_at: null,
+  reconnect_required: false,
+  mail_enabled: true,
+  mail_consent: false,
 };
 const CONNECTED: FakeConnection = {
   ...NOT_CONNECTED,
@@ -33,7 +39,12 @@ const CONNECTED: FakeConnection = {
 };
 
 async function fakeConnections(page: Page, initial: FakeConnection) {
-  const server = { connection: initial, deletes: 0, starts: [] as unknown[] };
+  const server = {
+    connection: initial,
+    deletes: 0,
+    starts: [] as unknown[],
+    consents: [] as string[],
+  };
   await page.route("**/api/connections", (route) =>
     route.fulfill({ status: 200, json: [server.connection] }),
   );
@@ -41,6 +52,13 @@ async function fakeConnections(page: Page, initial: FakeConnection) {
     if (route.request().method() !== "DELETE") return route.abort();
     server.deletes += 1;
     server.connection = NOT_CONNECTED;
+    return route.fulfill({ status: 204 });
+  });
+  // 7단계 보강: 메일 데이터 처리 동의(PUT)·철회(DELETE)
+  await page.route("**/api/connections/google/mail-consent", (route) => {
+    const method = route.request().method();
+    server.consents.push(method);
+    server.connection = { ...server.connection, mail_consent: method === "PUT" };
     return route.fulfill({ status: 204 });
   });
   await page.route("**/api/connections/google/start", (route) => {
@@ -207,4 +225,43 @@ test("360px 연결 화면(7단계): 메일 권한이 있으면 '있음'과 빼�
   await expect(mail).toContainText("연결 해제 후 캘린더만 다시 연결");
   await expect(mail.getByRole("button", { name: "메일 읽기 권한 추가" })).toHaveCount(0);
   await expectNoHorizontalScroll(page);
+});
+
+test("360px 연결 화면(7단계 보강): 권한이 만료·철회되면 '다시 연결 필요'와 이유를 보여 주고 다시 연결로 시작한다", async ({
+  page,
+}) => {
+  const server = await fakeConnections(page, {
+    ...NOT_CONNECTED,
+    reconnect_required: true,
+    scopes: ["https://www.googleapis.com/auth/calendar.events.owned"],
+    connected_at: "2026-11-16T16:30:00Z",
+  });
+  const region = await openConnections(page);
+
+  await expect(region).toContainText("다시 연결 필요");
+  await expect(region.getByRole("alert")).toContainText("Google 계정에서 권한이 취소되었습니다");
+  await expectTappable(region.getByRole("button", { name: "연결 해제" }));
+  const reconnect = region.getByRole("button", { name: "다시 연결" });
+  await expectTappable(reconnect);
+  await reconnect.click();
+  await expect(page).toHaveURL(/google=connected/);
+  expect(server.starts).toEqual([{}]);
+});
+
+test("360px 연결 화면(7단계 보강): 메일 데이터 처리 동의를 누르면 저장하고 '동의함'과 철회 버튼으로 바뀐다", async ({
+  page,
+}) => {
+  const server = await fakeConnections(page, { ...CONNECTED, mail: true });
+  const region = await openConnections(page);
+  const consent = region.getByRole("region", { name: "메일 데이터 처리 동의" });
+
+  await expect(consent).toContainText("동의 안 함");
+  await expect(consent).toContainText("AI 모델 제공자(Anthropic)에게 전송됩니다");
+  const agree = consent.getByRole("button", { name: "메일 데이터 처리에 동의" });
+  await expectTappable(agree);
+  await agree.click();
+
+  await expect(consent).toContainText("동의함");
+  await expectTappable(consent.getByRole("button", { name: "동의 철회" }));
+  expect(server.consents).toEqual(["PUT"]);
 });

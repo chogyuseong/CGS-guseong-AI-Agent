@@ -33,6 +33,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx
+from cryptography.fernet import Fernet
 from pydantic_ai import capture_run_messages
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import ModelMessage, ModelResponse
@@ -60,12 +61,13 @@ from app.agent.history import (
     history_for_storage,
     load_conversation_history,
     load_messages,
+    open_mail_returns,
     pending_tool_call_ids,
 )
 from app.agent.plans import PlanDraft
 from app.agent.replies import AutomationReply
 from app.agent.results import not_executed_output
-from app.agent.toolsets import label_for, preview_for, toolsets_for
+from app.agent.toolsets import label_for, preview_for, run_toolsets, toolsets_for
 from app.config import Settings
 from app.models import ActionPlan, AgentRun, Conversation, Message, Operation, Step, Task, UsageLog
 from app.models.enums import (
@@ -78,6 +80,7 @@ from app.models.enums import (
     UsagePurpose,
 )
 from app.push import PushKind, PushNotifier
+from app.security import payload_cipher
 
 logger = logging.getLogger(__name__)
 
@@ -280,8 +283,13 @@ def deps_for(services: RunServices, info: TaskInfo) -> AgentDeps:
 
 
 async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInput) -> Outcome:
+    """agent.run 한 번. DBOS 단계가 아니라 입력·중간 결과가 DBOS에 저장되지 않는다(모델 응답만 단계 결과로 남는다).
+
+    7단계 보강: 이전 기록의 메일 결과는 여기서만 풀어 모델에게 준다(prepare 단계 결과에는 암호문만 남는다).
+    도구 묶음은 run_toolsets(메일 기능 플래그, 메일 작업의 공개 검색 제외)다.
+    """
     deps = deps_for(services, info)
-    history = run_input.history
+    history = open_mail_returns(run_input.history, payload_cipher(services.settings))
     with capture_run_messages() as captured:
         try:
             result = await services.agent.run(
@@ -289,7 +297,7 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
                 deps=deps,
                 message_history=history,
                 deferred_tool_results=run_input.deferred_results,
-                toolsets=toolsets_for(info.origin),
+                toolsets=run_toolsets(info.origin),
                 output_type=output_type_for(info.origin),
                 usage_limits=build_usage_limits(services.settings),
                 usage=run_input.usage,
@@ -413,9 +421,16 @@ async def close_unexecuted_steps(session: AsyncSession, task_id: int) -> None:
 
 
 async def save_outcome(
-    session: AsyncSession, info: TaskInfo, outcome: Outcome, previous: Sequence[ModelMessage] = ()
+    session: AsyncSession,
+    info: TaskInfo,
+    outcome: Outcome,
+    previous: Sequence[ModelMessage] = (),
+    cipher: Fernet | None = None,
 ) -> None:
-    """task 상태·기록·사용량을 저장하고 커밋한다. 재개한 run이면 요청 수·토큰·기록을 앞선 run에 더한다."""
+    """task 상태·기록·사용량을 저장하고 커밋한다. 재개한 run이면 요청 수·토큰·기록을 앞선 run에 더한다.
+
+    cipher(PAYLOAD_ENCRYPTION_KEY): 기록 속 메일 결과를 암호화한다(7단계 보강, history.seal_mail_returns).
+    """
     task = await session.get_one(Task, info.id)
     responses = [m for m in outcome.new_messages if isinstance(m, ModelResponse)]
     if outcome.status == TaskStatus.DONE and await has_unresolved_operation(session, info.id):
@@ -427,7 +442,7 @@ async def save_outcome(
     task.error = outcome.error
     task.request_count = (task.request_count or 0) + len(responses)
     task.total_tokens = (task.total_tokens or 0) + sum(r.usage.total_tokens for r in responses)
-    stored = history_for_storage(previous, outcome.new_messages, status=outcome.status)
+    stored = history_for_storage(previous, outcome.new_messages, status=outcome.status, cipher=cipher)
     task.message_history = dump_messages(stored) if stored else None
     session.add_all(usage_rows(info, outcome.new_messages))
     if outcome.status != TaskStatus.WAITING_APPROVAL:
@@ -507,7 +522,7 @@ async def finish(
                 session, task_id=info.id, user_id=info.user_id, origin=info.origin, requests=requests
             )
         session.add_all(guard_usage_rows(info, reviews))
-        await save_outcome(session, info, outcome, previous)
+        await save_outcome(session, info, outcome, previous, payload_cipher(services.settings))
     return push_kind_for(info, outcome.status, finished_at=time.time())
 
 

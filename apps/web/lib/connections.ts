@@ -105,6 +105,28 @@ export function useDisconnectGoogle() {
   });
 }
 
+// 7단계 보강: 메일 데이터 처리 동의(PUT)·철회(DELETE). 동의 전에는 서버의 메일 도구가 Gmail을 부르지 않는다.
+export type MailConsentChange = (agree: boolean) => Promise<void>;
+const CONSENT_ERROR = "동의 상태를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
+export const setMailConsent: MailConsentChange = async (agree) => {
+  const path = "/api/connections/google/mail-consent";
+  const request = agree ? api.PUT(path) : api.DELETE(path);
+  const result = await request.catch(() => {
+    throw new Error("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
+  });
+  if (!result.response.ok) throw new Error(CONSENT_ERROR);
+};
+
+// 동의·철회 뒤 연결 상태(mail_consent)를 다시 가져온다.
+export function useMailConsent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: setMailConsent,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: connectionKeys.all }),
+  });
+}
+
 const START_FALLBACK = "연결을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 const START_ERRORS: Record<number, string> = {
   401: "로그인이 풀려 연결을 시작하지 못했습니다. 다시 로그인한 뒤 연결해 주세요.",
@@ -123,7 +145,17 @@ export async function startGoogleConnection(
       throw new Error(NETWORK_TEXT);
     });
   if (result.data === undefined) {
-    throw new Error(START_ERRORS[result.response.status] ?? START_FALLBACK);
+    throw new Error(startErrorText(result.response.status, result.error));
   }
   navigate(result.data.authorization_url);
+}
+
+export const MAIL_DISABLED_TEXT =
+  "서버에서 메일 기능이 꺼져 있습니다(메일 기록을 암호화할 키가 설정되지 않음). 서버 설정을 마치면 쓸 수 있습니다.";
+
+// 409는 서버 설정 없음(not_configured) 또는 메일 기능 꺼짐(mail_disabled, 7단계 보강)이다.
+function startErrorText(status: number, error: unknown): string {
+  const detail = (error as { detail?: { code?: string } } | undefined)?.detail;
+  if (status === 409 && detail?.code === "mail_disabled") return MAIL_DISABLED_TEXT;
+  return START_ERRORS[status] ?? START_FALLBACK;
 }

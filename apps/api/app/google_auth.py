@@ -30,12 +30,14 @@ from urllib.parse import urlencode
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.cancel import NOT_STARTED
 from app.agent.deps import AgentDeps
 from app.config import Settings
-from app.models import Connection, OAuthState
+from app.models import ActionPlan, Connection, OAuthState, Operation
+from app.models.enums import OperationStatus
 from app.security import token_cipher
 from app.tools import http
 from app.tools.http import ExternalApiError
@@ -62,6 +64,9 @@ NOT_CONNECTED_MESSAGE = "Google 계정이 연결되어 있지 않습니다. 설�
 RECONNECT_MESSAGE = "Google 연결이 끊겼습니다(권한이 만료되었거나 취소됨). 설정에서 Google 계정을 다시 연결해 주세요."
 UNAVAILABLE_MESSAGE = "서버에 Google 연결 설정이 없어 캘린더를 쓸 수 없습니다. 관리자가 .env를 확인해야 합니다."
 MAIL_SCOPE_MESSAGE = "메일을 읽을 권한이 없습니다. 설정의 Google 연결에서 메일 읽기 권한을 추가해 주세요."
+# 실행 계획 무효화 이유(operations.error_code). 실행기(executor.early_result)가 안내 문장으로 바꾼다.
+CONNECTION_REMOVED = "connection_removed"  # 사용자가 연결 해제
+CONNECTION_REVOKED = "connection_revoked"  # 7단계 보강: 만료·Google에서 권한 철회(invalid_grant)
 # 연결은 있는데 이 범위가 없을 때의 안내. 캘린더 범위가 없는 연결은 저장하지 않으므로 '연결 없음'과 같다.
 MISSING_SCOPE_MESSAGES = {CALENDAR_SCOPE: NOT_CONNECTED_MESSAGE, GMAIL_SCOPE: MAIL_SCOPE_MESSAGE}
 
@@ -274,13 +279,16 @@ async def save_tokens(session: AsyncSession, user_id: int, tokens: GoogleTokens,
     row.encrypted_token = tokens.encrypt(cipher)
     row.scopes = tokens.scopes
     row.expires_at = tokens.expires_at
+    row.reconnect_required_at = None  # 7단계 보강: 다시 연결하면 "다시 연결 필요" 표시를 지운다
 
 
 async def load_tokens(session: AsyncSession, user_id: int, cipher: Fernet) -> GoogleTokens | None:
-    """저장된 토큰. 없으면 None. 풀 수 없으면(키가 바뀜) 다시 연결해야 한다."""
+    """저장된 토큰. 없으면 None. 다시 연결이 필요하거나 풀 수 없으면(키가 바뀜) GoogleReconnectRequiredError."""
     row = await find_row(session, user_id)
     if row is None:
         return None
+    if row.reconnect_required_at is not None:
+        raise GoogleReconnectRequiredError
     try:
         return GoogleTokens.decrypt(row, cipher)
     except (InvalidToken, ValueError, KeyError) as error:
@@ -300,6 +308,50 @@ async def delete_connection(session: AsyncSession, user_id: int) -> None:
     await session.execute(delete(Connection).where(Connection.user_id == user_id, Connection.provider == PROVIDER))
 
 
+async def invalidate_pending_plans(session: AsyncSession, user_id: int, connection_id: int, reason: str) -> None:
+    """이 연결로 만든 실행 계획 중 아직 실행하지 않은 것을 무효화한다(BUILD_SPEC 10.5). 커밋은 호출한 쪽.
+
+    reason: connection_removed(사용자가 연결 해제), connection_revoked(7단계 보강: 만료·Google에서 권한 철회).
+    """
+    plan_ids = select(ActionPlan.id).where(ActionPlan.user_id == user_id, ActionPlan.connection_id == connection_id)
+    await session.execute(
+        update(Operation)
+        .where(Operation.plan_id.in_(plan_ids), Operation.status.in_(NOT_STARTED))
+        .values(status=OperationStatus.CANCELLED, error_code=reason)
+    )
+
+
+async def mark_reconnect_required(session: AsyncSession, row: Connection) -> None:
+    """7단계 보강: 토큰이 만료·철회되었다. 행은 남겨 "다시 연결 필요"로 표시하고(처음부터 연결 안 된 것과 구분),
+    쓸 수 없는 토큰은 지우고, 이 연결로 만든 대기 중 계획은 무효화한다. 커밋은 호출한 쪽."""
+    row.encrypted_token = ""
+    row.reconnect_required_at = datetime.now(UTC)
+    await invalidate_pending_plans(session, row.user_id, row.id, CONNECTION_REVOKED)
+
+
+async def reconnect_needed(session: AsyncSession, row: Connection) -> GoogleReconnectRequiredError:
+    """표시를 남기고 커밋한 뒤 올릴 예외를 돌려준다(행을 지우지 않는다, 7단계 보강)."""
+    await mark_reconnect_required(session, row)
+    await session.commit()
+    return GoogleReconnectRequiredError()
+
+
+async def drop_scope(deps: AgentDeps, scope: str) -> None:
+    """7단계 보강: Google이 범위 부족(403 insufficientPermissions)이라고 답하면 그 범위를 연결 기록에서 뺀다.
+
+    메일 권한이 빠진 연결로 다시 요청하지 않고, 연결 화면이 '메일 읽기 권한 추가'를 다시 보여 준다.
+    """
+    async with deps.db() as session:
+        row = await session.scalar(
+            select(Connection)
+            .where(Connection.user_id == deps.user_id, Connection.provider == PROVIDER)
+            .with_for_update()
+        )
+        if row is not None and scope in (row.scopes or []):
+            row.scopes = [item for item in row.scopes if item != scope]
+            await session.commit()
+
+
 # ---- 4. 도구가 쓰는 access token ----
 
 
@@ -317,7 +369,12 @@ async def is_connected(deps: AgentDeps) -> bool:
         return False
     async with deps.db() as session:
         row = await find_row(session, deps.user_id)
-    return row is not None and CALENDAR_SCOPE in (row.scopes or [])
+    return usable(row) and row is not None and CALENDAR_SCOPE in (row.scopes or [])
+
+
+def usable(row: Connection | None) -> bool:
+    """연결이 있고 다시 연결이 필요하지 않은가(7단계 보강)."""
+    return row is not None and row.reconnect_required_at is None
 
 
 async def access_token(deps: AgentDeps, *, scope: str = CALENDAR_SCOPE, force_refresh: bool = False) -> str:
@@ -325,7 +382,7 @@ async def access_token(deps: AgentDeps, *, scope: str = CALENDAR_SCOPE, force_re
 
     연결이 없으면 "연결해 주세요", 연결은 있는데 메일 범위가 없으면 "메일 읽기 권한을 추가해 주세요"
     (어느 쪽이든 Google에 요청을 보내지 않는다).
-    갱신이 invalid_grant로 실패하면 연결을 지우고 GoogleReconnectRequiredError(“다시 연결해 주세요”).
+    갱신이 invalid_grant로 실패하면 토큰을 지우고 "다시 연결 필요"로 표시한 뒤 GoogleReconnectRequiredError(7단계 보강).
     """
     cipher = require_cipher(deps.settings)
     async with deps.db() as session:
@@ -343,7 +400,7 @@ async def refresh_locked(deps: AgentDeps, cipher: Fernet, *, used_access: str) -
     """연결 행을 잠근 채 갱신한다(4단계 보강, BUILD_SPEC 10.5 동시 갱신 충돌 방지).
 
     기다리는 사이 다른 요청이 이미 갱신했으면(토큰이 바뀌었고 아직 유효) 그 토큰을 쓰고 Google에 다시 요청하지 않는다.
-    갱신이 invalid_grant면 연결을 지운다(다시 연결 필요).
+    갱신이 invalid_grant거나 토큰을 풀 수 없으면 행은 남기고 "다시 연결 필요"로 표시한다(7단계 보강).
     """
     async with deps.db() as session:
         row = await session.scalar(
@@ -353,18 +410,18 @@ async def refresh_locked(deps: AgentDeps, cipher: Fernet, *, used_access: str) -
         )
         if row is None:
             raise GoogleNotConnectedError
+        if row.reconnect_required_at is not None:
+            raise GoogleReconnectRequiredError
         try:
             current = GoogleTokens.decrypt(row, cipher)
         except (InvalidToken, ValueError, KeyError) as error:
-            raise GoogleReconnectRequiredError from error
+            raise await reconnect_needed(session, row) from error
         if current.access_token != used_access and current.expires_at - REFRESH_MARGIN > datetime.now(UTC):
             return current.access_token
         try:
             refreshed = await refresh_tokens(deps.http, deps.settings, current)
-        except GoogleReconnectRequiredError:
-            await session.delete(row)
-            await session.commit()
-            raise
+        except GoogleReconnectRequiredError as error:
+            raise await reconnect_needed(session, row) from error
         await save_tokens(session, deps.user_id, refreshed, cipher)
         await session.commit()
         return refreshed.access_token
