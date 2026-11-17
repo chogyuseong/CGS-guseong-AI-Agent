@@ -472,7 +472,7 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 고친 것 1: 1280px에서 모든 화면이 화면 끝까지 늘어났다(말풍선 85%가 1000px 넘게, 하단 탭 다섯 개가 화면 전체에 흩어짐). `(tabs)/layout.tsx`의 main을 `max-w-3xl`(768px) 가운데 정렬로, 하단 탭 목록도 같은 폭으로 모았다(탭 막대의 경계선은 화면 끝까지). 768px 이하에서는 달라지는 것이 없다. 로그인은 원래 카드가 `max-w-sm` 가운데라 그대로다.
 - 2026-11-17 고친 것 2: 대화 목록 시트의 닫기(X) 버튼이 28px(shadcn 기본)이었다. `components/ui`(생성 코드)는 고치지 않고 `ConversationSheet`에서 `showCloseButton={false}` 뒤 머리줄에 44px 닫기 버튼(`SheetClose`, 이름 "닫기")을 뒀다.
 - 2026-11-17 점검에서 문제가 없던 것: 360·390·768px의 모든 화면(긴 글자·URL은 기존 `wrap-anywhere`로 줄이 바뀌고, 승인 카드·mismatch 확인 버튼은 48px로 화면 안), 로그인 네 폭. 개발 모드에서만 보이는 Next.js 표시(오른쪽 위 N 동그라미)는 머리줄 위에 겹쳐 보이지만 배포 화면에는 없어 그대로 뒀다.
-- 2026-11-17 다크 모드: `globals.css`에 `.dark` 색은 있지만 `.dark` 클래스를 붙이는 코드가 없어 앱은 늘 밝은 화면이다(다크 모드 미지원 구조). 그래서 다크 색 확인은 하지 않았다. `layout.tsx`의 `themeColor`는 다크 모드 폰에서 상태 표시줄을 #0a0a0a로 칠해 밝은 화면과 어긋나지만 읽을 수 없는 조합은 아니라 바꾸지 않았다. (제안) 다크 모드를 지원할지, 아니면 themeColor를 흰색 하나로 둘지 사용자가 정한다.
+- 2026-11-17 다크 모드: `globals.css`에 `.dark` 색은 있지만 `.dark` 클래스를 붙이는 코드가 없어 앱은 늘 밝은 화면이다(다크 모드 미지원 구조). 그래서 다크 색 확인은 하지 않았다. `layout.tsx`의 `themeColor`는 다크 모드 폰에서 상태 표시줄을 #0a0a0a로 칠해 밝은 화면과 어긋나지만 읽을 수 없는 조합은 아니라 바꾸지 않았다. (제안) 다크 모드를 지원할지, 아니면 themeColor를 흰색 하나로 둘지 사용자가 정한다. → 2026-11-18 9단계 보강에서 시스템 설정을 따르는 다크 모드로 지원(아래 "9단계 보강").
 - 2026-11-17 키보드가 올라온 상태의 입력창·승인 카드는 자동화로 볼 수 없어 `docs/PHONE-CHECK.md`에 폰 확인 목록으로 적었다. 그 문서에 단계별로 "폰에서 직접 볼 것"(로그인, 채팅, 승인 카드, 알림과 푸시, 음성 입력, Google 연결·메일, 기억, 자동화·브리핑)을 함께 모았고 푸시·내구성 절차는 기존 문서로 링크했다.
 - 2026-11-17 쓰이지 않던 `components/EmptyScreen.tsx`(0단계 빈 탭 화면)를 지웠다. 저장소 어디에서도 가져다 쓰지 않았다(README 폴더 설명에서도 뺐다).
 
@@ -650,3 +650,20 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-18 표를 만들다 찾은 차이: 승인됐지만 실행 전에 task가 끝나면(재개 직전 하루 비용 상한, 실행 중 취소 요청 뒤 종료, 오류) step만 failed로 닫고 operation은 approved로 남았다. 실행기는 running task에서만 실행하므로 다시 쓰일 수는 없었지만, 보관 정리(retention)가 approved를 "열린 외부 작업"으로 봐 그 task의 기록을 지우지 못했다. `runner.close_unexecuted_steps`가 같은 트랜잭션에서 awaiting_approval·approved operation을 cancelled로 닫는다(test_finished_task_leaves_no_approved_operation). 승인 행은 사용자의 결정 기록이라 approved 그대로 둔다.
 - 2026-11-18 task의 waiting_input·reconciling·partially_done은 정의만 있고 쓰지 않는다(되묻기는 done, 재조회는 도구 실행 안, 일부 완료는 budget_exceeded·cancelled + 영수증 표시). 명세가 허용하는 범위로 보고 표에 "쓰지 않는 상태"로 적었다. operation planned도 DB에 쓰지 않는다(초안은 메모리, 저장할 때 awaiting_approval).
 - 2026-11-18 운영 절차 docs/OPERATIONS.md: 마이그레이션은 코드 롤백을 기본으로 하고 downgrade는 백업 뒤 한 단계씩(상태 값을 옛 값으로 바꿔 쓰는 손실이 있어서). 복원은 새 DB에 먼저 하고 확인 뒤 전환. WORKFLOW_VERSION을 올리는 배포는 running task가 없을 때만. 로컬 복원 연습을 했다(배포 환경 검증은 아님).
+- 2026-11-18 다크 모드(위 2026-11-17 "(제안)"의 답): 시스템 설정(`prefers-color-scheme`)만 따른다. `globals.css`의 어두운 토큰을 `.dark` 클래스 대신 `@media (prefers-color-scheme: dark)`로 켜고 `@custom-variant dark`도 같은 조건으로 바꿨다. 앱 안의 '화면 테마: 시스템/밝게/어둡게' 선택은 두지 않는다. BUILD_SPEC 10.1은 "다크 모드"만 요구하고, 선택을 두면 첫 렌더 전에 저장값을 읽는 스크립트(깜빡임 방지)와 기기별 저장이 더 필요하다. CSS만으로 켜지므로 첫 화면 깜빡임이 없다. (제안) 사용자가 원하면 나중에 설정 화면에 선택을 더한다.
+- 2026-11-18 상태 색을 토큰 `--success`·`--warning`(밝음 green-800·amber-700, 어둠 green-400·amber-400)으로 두고 화면 코드의 고정 색(text-green-600, border-amber-500/40 등)을 없앴다. `lib/theme.test.ts`가 app·components(ui 제외)에 Tailwind 팔레트 색·hex가 다시 들어오면 실패한다.
+- 2026-11-18 명도 대비 검사는 axe를 들이지 않고 `e2e/contrast-audit.ts`(WCAG 2.x 식, 캔버스로 색을 sRGB로 읽음)로 360px 어둠·밝음 두 번 잰다. 새 의존성 없이 지금 화면 구조(단색 배경)에서는 충분하다. 재 보니 밝은 화면에서 3곳이 4.5 미만이라 토큰을 바꿨다: `--destructive` red-600→red-700(연한 빨강 배지 3.97), `--muted-foreground` 0.556→0.5(bg-muted 위 4.35), `--success` green-700→green-800(배지 4.29). 어두운 화면은 처음부터 통과했다.
+- 2026-11-18 PWA: manifest의 theme_color는 값 하나만 받아 밝은 색(#ffffff)을 두고, 어두운 화면은 `<meta name="theme-color" media="(prefers-color-scheme: dark)">`(#0a0a0a)가 맡는다. 아이콘 경로·색은 `lib/pwa.ts` 한 곳. maskable 512(글자를 안전 영역 안으로 줄임)와 apple-touch-icon 180을 기존 아이콘과 같은 그림으로 더했다(생성 스크립트는 저장소에 두지 않고 결과 PNG만).
+- 2026-11-18 폴링 간격(BUILD_SPEC 10.1 "폴링")을 `lib/polling.ts` 한 곳으로 모았다(`lib/polling.test.ts`).
+
+  | 상태 | 간격 |
+  |---|---|
+  | 대기·실행 중·취소 요청·재개 중(같은 단계를 본 지 0~10초) | 1초 |
+  | 같은 단계 10~30초 / 30~60초 / 60초 이후 | 2초 / 3초 / 5초 |
+  | 사용자 결정을 기다리는 승인 대기 | 15초(30분 내내 1초 금지, 다른 기기 결정 반영 위해 멈추지는 않음) |
+  | 작업 기록 목록: 진행 중 task 있음 / 승인 대기뿐 | 3초 / 15초 |
+  | 끝난 상태, 아직 못 받은 상태 | 멈춤 |
+  | 탭이 보이지 않음(visibilityState hidden) | 멈춤. 다시 보이면·다시 연결되면 바로 가져옴 |
+
+  백오프 기준은 서버 시각(created_at)이 아니라 화면이 지금 단계를 처음 본 시각이다(기기 시계가 어긋나도, 승인 뒤 재개처럼 단계가 바뀌면 다시 1초부터). 예전 값은 실행 중 1초 고정, 승인 대기 3초였다. 숨은 탭 멈춤·복귀 즉시 갱신은 TanStack Query 5.107의 기본 동작(`refetchIntervalInBackground: false`, focusManager가 visibilitychange를 들음)이고, 폴링 쿼리에는 `POLLING_QUERY_OPTIONS`로 명시했다(`refetchOnWindowFocus·refetchOnReconnect: "always"`). 재접속 복구는 새로 고침·다른 기기에서 같은 조회가 서버의 지금 상태를 가져오는 것으로 한다.
+- 2026-11-18 `scripts/biome-check.mjs`가 git이 무시하는 생성 파일 `next-env.d.ts`를 검사해 `pnpm lint`가 실패했다. 스크립트는 .gitignore를 읽지 않으므로 `ALWAYS_SKIPPED`에 넣었다(Biome CLI는 vcs.useIgnoreFile로 이미 건너뜀).

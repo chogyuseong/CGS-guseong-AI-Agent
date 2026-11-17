@@ -14,12 +14,16 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 // .css는 뺀다: WASM판 JS API(@biomejs/js-api 6.1.0)는 css.parser.tailwindDirectives 설정을 lint에 반영하지 않아
 // Tailwind 문법(@custom-variant, @apply 등)을 오류로 본다(2026-11-16 확인). CSS는 shadcn이 만든 globals.css뿐이다.
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".mts", ".json"]);
+// 이 스크립트는 .gitignore를 읽지 않으므로 git이 무시하는 생성 파일·폴더를 여기에 적는다
+// (Biome CLI는 biome.json의 vcs.useIgnoreFile로 같은 파일을 건너뛴다).
+// next-env.d.ts: next dev·next typegen이 다시 만드는 파일이라 포맷을 맞춰 둘 수 없다.
 const ALWAYS_SKIPPED = [
   "node_modules",
   ".next",
   "test-results",
   "playwright-report",
   "blob-report",
+  "next-env.d.ts",
 ];
 
 // biome.json의 files.includes에서 "!경로" 항목을 제외 목록으로 읽는다.

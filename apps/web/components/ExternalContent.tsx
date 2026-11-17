@@ -24,7 +24,7 @@ export function ExternalContent({
   return (
     <section
       aria-labelledby={titleId}
-      className="flex min-w-0 flex-col gap-2 rounded border border-amber-500/40 bg-amber-500/5 p-2"
+      className="flex min-w-0 flex-col gap-2 rounded border border-warning/40 bg-warning/5 p-2"
     >
       <p id={titleId} className="flex items-center gap-1 font-medium">
         <Globe aria-hidden="true" className="size-3.5 shrink-0" />
@@ -50,7 +50,7 @@ export function ExternalContent({
 }
 
 // 7단계 보강: 메일 결과는 작업 기록에 내용이 없다(통 수만). 보강 전 기록(앞 500자 문자열)은 그대로 보여 준다.
-const NOTE_CLASS = "font-medium text-amber-700 dark:text-amber-400";
+const NOTE_CLASS = "font-medium text-warning";
 
 function MailContent({ content }: { content: unknown }) {
   const count = storedMailCount(content);

@@ -1,8 +1,15 @@
 // 채팅·작업 기록 화면이 쓰는 서버 데이터 훅 모음(TanStack Query).
 // 타입은 모두 pnpm gen:api가 만든 schema.d.ts에서 꺼낸다. 손으로 API 타입을 쓰지 않는다.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
+import {
+  createPhaseClock,
+  POLLING_QUERY_OPTIONS,
+  taskListPollInterval,
+  taskPollInterval,
+} from "@/lib/polling";
 
 type Schemas = components["schemas"];
 export type Conversation = Schemas["ConversationOut"];
@@ -41,21 +48,6 @@ type ApprovalLike = { status: Schemas["ApprovalStatus"] };
 
 function hasPendingApproval(approvals: readonly ApprovalLike[]): boolean {
   return approvals.some((approval) => approval.status === "pending");
-}
-
-// 끝나지 않은 task는 1초마다 다시 가져온다(3단계: 서버가 즉시 202로 답하고 화면이 폴링으로 진행을 본다).
-// 승인 대기 중에는 사용자가 결정할 때까지 바뀌지 않으므로 3초로 늦춘다. 다른 기기에서 결정한 결과가
-// 이 화면에도 반영되어야 하므로 완전히 멈추지는 않는다.
-// 단, 승인을 모두 결정해 서버가 재개를 시작하기 직전(waiting_approval인데 pending이 없음)이면 곧 바뀌므로 1초.
-export function taskRefetchInterval(
-  status: TaskStatus | undefined,
-  approvals?: readonly ApprovalLike[],
-): number | false {
-  if (status === undefined || isTaskFinished(status)) return false;
-  if (status === "waiting_approval") {
-    return approvals !== undefined && !hasPendingApproval(approvals) ? 1000 : 3000;
-  }
-  return 1000;
 }
 
 // 답변 자리에 보여 줄 진행 단계.
@@ -223,7 +215,11 @@ export function useSendMessage(conversationId: number) {
   });
 }
 
+// 끝나지 않은 task는 폴링으로 진행을 본다(3단계: 서버가 즉시 202로 답한다). 간격 규칙은 lib/polling.ts.
+// 재접속(새로 고침, 다른 기기)하면 이 조회가 서버의 지금 상태를 그대로 가져와 화면을 복구한다.
 export function useTask(taskId: number) {
+  // 화면(컴포넌트)마다 단계 시계를 하나씩 둔다. 같은 단계가 길어지면 간격을 늘린다.
+  const clock = useRef(createPhaseClock());
   return useQuery({
     queryKey: chatKeys.task(taskId),
     queryFn: async () => {
@@ -232,10 +228,12 @@ export function useTask(taskId: number) {
       });
       return requireData(data, response, "작업");
     },
+    ...POLLING_QUERY_OPTIONS,
     // refetchInterval에 함수를 주면 매번 최신 결과를 보고 다시 가져올지 정한다(TanStack Query v5).
-    // 화면이 백그라운드(다른 탭, 폰 화면 꺼짐)면 TanStack Query가 폴링을 쉬고, 돌아오면(창 포커스) 바로 다시 가져온다.
-    refetchInterval: (query) =>
-      taskRefetchInterval(query.state.data?.status, query.state.data?.approvals),
+    refetchInterval: (query) => {
+      const phase = taskPhase(query.state.data);
+      return taskPollInterval(phase, clock.current.elapsed(phase, Date.now()));
+    },
   });
 }
 
@@ -263,7 +261,7 @@ export function openScheduleTaskIds(
     .sort((a, b) => a - b);
 }
 
-// 작업 기록 탭의 목록. 끝나지 않은 task가 있으면 상태 배지가 바뀌도록 3초마다 다시 가져온다.
+// 작업 기록 탭의 목록. 끝나지 않은 task가 있으면 상태 배지가 바뀌도록 다시 가져온다(간격은 lib/polling.ts).
 // enabled=false면 가져오지 않는다('예약 작업' 대화방에서만 진행 중인 예약 task를 찾으려고 쓴다).
 export function useTasks({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
@@ -273,8 +271,8 @@ export function useTasks({ enabled = true }: { enabled?: boolean } = {}) {
       const { data, response } = await api.GET("/api/tasks", { params: { query: { limit: 50 } } });
       return requireData(data, response, "작업 기록");
     },
-    refetchInterval: (query) =>
-      query.state.data?.some((task) => !isTaskFinished(task.status)) ? 3000 : false,
+    ...POLLING_QUERY_OPTIONS,
+    refetchInterval: (query) => taskListPollInterval(query.state.data?.map((task) => task.status)),
   });
 }
 

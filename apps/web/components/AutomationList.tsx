@@ -43,7 +43,7 @@ function BudgetPausedNotice() {
     <p
       role="status"
       aria-label="비용 한도"
-      className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm"
+      className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm"
     >
       오늘 비용 한도에 닿아 자동 작업이 쉬는 중입니다. 예약 실행과 감시 확인은 건너뛰고, 내일(서울
       자정 이후) 다시 실행됩니다. 한도는 비용 화면에서 확인할 수 있습니다.

@@ -172,8 +172,16 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [ ] (남음, 사용자 확인 후) 실제 eval 실행과 측정값·가장 취약한 유형·개선 전후 비교(BUILD_SPEC 8단계 완료 증거)
 
 ### 9단계 — 배포와 운영
-- [ ] 다크 모드, PWA 아이콘 확인
-- [ ] 폴링: 승인 대기 느리게, 보이지 않을 때 줄이기
+- [x] 다크 모드(시스템 설정을 따름, 테마 선택 없음), 상태 색 토큰, 명도 대비 — lib/theme.test.ts(어두운 토큰이
+  prefers-color-scheme, 화면 코드에 고정 색 없음), e2e/dark-mode.spec.ts(360px 어둠·밝음에서 로그인·채팅·단계·외부 콘텐츠·
+  초안 카드·승인 카드·음성 안내·대화 목록·작업 기록·자동화·기억·설정·연결·비용의 글자 대비 4.5:1(큰 글자 3:1), 배경색).
+  밝은 화면에서 찾은 대비 부족 3곳은 토큰을 바꿔 고침(docs/DECISIONS.md). 스크린샷은 저장소 밖에서 눈으로 확인.
+  **실기기 확인은 미완료**(docs/PHONE-CHECK.md 10절 "다크 모드")
+- [x] PWA manifest와 아이콘 — lib/pwa.test.ts(192·512·maskable 512·apple-touch 180 파일이 있고 PNG 크기가 같음),
+  e2e/dark-mode.spec.ts(theme-color 밝음·어둠 meta, apple-touch-icon·manifest 아이콘 주소가 200 image/png). 홈 화면 추가는 실기기 미확인
+- [x] 폴링: 실행 중 1초에서 백오프(2·3·5초), 승인 대기 15초, 끝나면 멈춤, 숨은 탭 멈춤·복귀 즉시 갱신 — lib/polling.ts·
+  lib/polling.test.ts, components/PendingTask.test.tsx(승인 대기 3.5초 동안 다시 안 가져옴, focusManager로 숨김·복귀). 간격 표는 docs/DECISIONS.md
+- [x] `pnpm lint`가 생성 파일 next-env.d.ts 때문에 실패하던 것 — scripts/biome-check.mjs에서 제외
 - [x] 마이그레이션·롤백(downgrade 위험), 백업·복원, DBOS 업그레이드(WORKFLOW_VERSION)와 실행 중 작업, 키 교체, 모델/API 장애
   표시·대응, 7일 실사용 기록 양식 — docs/OPERATIONS.md. 모델 장애 화면 문구는 tests/test_outage.py(가짜 모델 529)
 - [x] 테스트 DB 복원 연습 — **로컬 docker postgres에서만**(2026-11-18, docs/OPERATIONS.md 7절: pg_dump → 버리는 DB에 복원 →

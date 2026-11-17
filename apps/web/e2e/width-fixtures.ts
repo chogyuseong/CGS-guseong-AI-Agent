@@ -60,6 +60,11 @@ function doneSteps() {
     step(1, "web_search", `웹에서 '${LONG_SENTENCE}' 찾는 중`, external({ query: "꽃집", items })),
     step(2, "read_mail", "메일 읽는 중", external(mail.slice(0, 500), true)),
     step(3, "add_todo", `할 일에 '${LONG_WORD}' 추가하는 중`, { ok: true, data: { id: 7 } }),
+    // 9단계 보강: 메시지 초안 카드(긴 본문)도 폭·다크 모드 점검에 넣는다.
+    step(4, "draft_message", "메시지 초안 쓰는 중", {
+      ok: true,
+      data: { kind: "message_draft", recipient: LONG_WORD, body: LONG_SENTENCE, sent: false },
+    }),
   ];
 }
 

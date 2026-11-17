@@ -28,7 +28,7 @@ export function CallbackNotice() {
       className={cn(
         "flex items-start gap-2 rounded-lg border p-3 text-sm break-words",
         success
-          ? "border-green-600/30 bg-green-600/5 text-green-800 dark:text-green-300"
+          ? "border-success/30 bg-success/5 text-success"
           : "border-destructive/40 bg-destructive/5 text-destructive",
       )}
     >

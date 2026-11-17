@@ -27,12 +27,12 @@ const STATUS_ICONS: Record<Step["status"], StatusView> = {
     name: "진행 중",
     className: "animate-spin text-muted-foreground",
   },
-  done: { icon: CircleCheck, name: "완료", className: "text-green-600" },
+  done: { icon: CircleCheck, name: "완료", className: "text-success" },
   failed: { icon: CircleX, name: "실패", className: "text-destructive" },
   waiting_approval: {
     icon: Hourglass,
     name: "승인 대기",
-    className: "text-amber-600",
+    className: "text-warning",
     showName: true,
   },
   rejected: { icon: Ban, name: "거절됨", className: "text-muted-foreground", showName: true },
@@ -41,7 +41,7 @@ const STATUS_ICONS: Record<Step["status"], StatusView> = {
   unknown: {
     icon: CircleHelp,
     name: "결과 확인 필요",
-    className: "text-amber-600",
+    className: "text-warning",
     showName: true,
   },
 };

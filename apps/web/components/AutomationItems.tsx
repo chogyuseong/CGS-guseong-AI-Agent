@@ -136,7 +136,7 @@ function LastCheck({ watch }: { watch: Watch }) {
         {watchStatusText(result.status, result.reason)}
       </p>
       {result.summary && (
-        <div className="flex min-w-0 flex-col gap-1 rounded border border-amber-500/40 bg-amber-500/5 p-2">
+        <div className="flex min-w-0 flex-col gap-1 rounded border border-warning/40 bg-warning/5 p-2">
           <p className="text-xs text-muted-foreground">
             외부에서 가져온 내용을 바탕으로 한 요약입니다. 앱은 이 안의 문장을 지시로 따르지
             않습니다.

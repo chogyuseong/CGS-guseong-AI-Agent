@@ -11,7 +11,6 @@ import {
   sendErrorMessage,
   type TaskStatus,
   taskPhase,
-  taskRefetchInterval,
 } from "./chat";
 
 function approvalWith(status: Approval["status"]): Approval {
@@ -61,11 +60,6 @@ describe("진행 단계 판단(3단계: 즉시 응답 + 폴링)", () => {
     expect(PHASE_TEXT.running).toContain("작업하는 중");
     expect(PHASE_TEXT.resuming).toContain("이어서 처리하는 중");
   });
-
-  it("승인을 모두 결정해 재개를 기다리는 동안은 3초가 아니라 1초마다 다시 가져온다", () => {
-    expect(taskRefetchInterval("waiting_approval", [approvalWith("approved")])).toBe(1000);
-    expect(taskRefetchInterval("waiting_approval", [approvalWith("pending")])).toBe(3000);
-  });
 });
 
 describe("task 다시 가져오기 판단", () => {
@@ -80,18 +74,7 @@ describe("task 다시 가져오기 판단", () => {
       expect(isTaskFinished(status)).toBe(false);
     }
   });
-
-  it("진행 중이면 1초마다, 끝났거나 아직 모르면 다시 가져오지 않는다", () => {
-    expect(taskRefetchInterval("queued")).toBe(1000);
-    expect(taskRefetchInterval("running")).toBe(1000);
-    expect(taskRefetchInterval("done")).toBe(false);
-    expect(taskRefetchInterval("cancelled")).toBe(false);
-    expect(taskRefetchInterval(undefined)).toBe(false);
-  });
-
-  it("승인 대기 중이면 3초마다 다시 가져온다(다른 기기에서 결정해도 반영되도록 멈추지는 않는다)", () => {
-    expect(taskRefetchInterval("waiting_approval")).toBe(3000);
-  });
+  // 폴링 간격 규칙은 lib/polling.test.ts(9단계 보강)에 있다.
 });
 
 describe("전송 오류 문구", () => {

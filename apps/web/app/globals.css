@@ -2,11 +2,15 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* 9단계 보강: 다크 모드는 시스템 설정(prefers-color-scheme)을 따른다(테마 선택 화면은 두지 않음, docs/DECISIONS.md).
+   shadcn 컴포넌트의 dark: 변형도 같은 조건으로 켠다. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -49,6 +53,12 @@
 }
 
 :root {
+  /* 브라우저 기본 요소(스크롤바, 입력칸, 자동 완성 배경)도 시스템 설정에 맞춰 그린다. */
+  color-scheme: light dark;
+  /* 상태 색(완료·주의). 글자로 쓸 때 연한 바탕(/5, /10) 위에서도 대비 4.5:1 이상인 값
+     (밝음: green-800·amber-700, 어둠: green-400·amber-400). e2e/dark-mode.spec.ts가 잰다. */
+  --success: oklch(0.448 0.119 151.328);
+  --warning: oklch(0.555 0.163 48.998);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -60,10 +70,12 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  /* 9단계 보강: shadcn 기본값 0.556은 bg-muted 위에서 대비 4.35라 0.5로 낮췄다. */
+  --muted-foreground: oklch(0.5 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* 9단계 보강: shadcn 기본값(red-600)은 연한 빨강 배지(bg-destructive/10) 위에서 대비 3.97이라 red-700으로 낮췄다. */
+  --destructive: oklch(0.505 0.213 27.518);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -83,7 +95,10 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
+@media (prefers-color-scheme: dark) {
+:root {
+  --success: oklch(0.792 0.209 151.711);
+  --warning: oklch(0.828 0.189 84.429);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -115,6 +130,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
 }
 
 @layer base {

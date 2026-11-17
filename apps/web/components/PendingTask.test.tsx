@@ -1,5 +1,5 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Approval } from "@/lib/approvals";
 import type { Task, TaskStatus } from "@/lib/chat";
@@ -119,6 +119,30 @@ describe("PendingTask(즉시 응답 뒤 진행 표시)", () => {
     await waitFor(() => expect(screen.queryByText("작업하는 중…")).not.toBeInTheDocument());
     await new Promise((resolve) => setTimeout(resolve, 1500));
     expect(taskCalls()).toBe(3);
+  }, 8000);
+
+  it("사용자 결정을 기다리는 승인 대기면 1초·3초마다 가져오지 않는다(15초 간격)", async () => {
+    serveTasks(makeTask("waiting_approval", { approvals: [{ ...approved, status: "pending" }] }));
+    renderPending();
+
+    await waitFor(() => expect(taskCalls()).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    expect(taskCalls()).toBe(1);
+  }, 8000);
+
+  it("탭이 보이지 않으면 폴링을 멈추고, 다시 보이면 바로 서버 상태를 가져온다", async () => {
+    serveTasks(makeTask("running"));
+    renderPending();
+    await waitFor(() => expect(taskCalls()).toBe(1));
+
+    act(() => focusManager.setFocused(false));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const hiddenCalls = taskCalls();
+    expect(hiddenCalls).toBe(1);
+
+    act(() => focusManager.setFocused(true));
+    await waitFor(() => expect(taskCalls()).toBe(hiddenCalls + 1), { timeout: 500 });
+    act(() => focusManager.setFocused(undefined));
   }, 8000);
 });
 

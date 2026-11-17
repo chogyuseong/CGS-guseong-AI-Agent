@@ -211,7 +211,7 @@ function GuardVerdictView({ guard }: { guard: Approval["guard"] }) {
 function GuardBadge({ verdict }: { verdict: NonNullable<Approval["guard"]>["verdict"] }) {
   if (verdict === "match") {
     return (
-      <Badge className="bg-green-600/10 text-green-700 dark:text-green-400">
+      <Badge className="bg-success/10 text-success">
         <ShieldCheck aria-hidden="true" />
         AI 검토: 일치로 추정
       </Badge>
