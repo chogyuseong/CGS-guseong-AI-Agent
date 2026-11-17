@@ -80,9 +80,11 @@ from app.security import hash_password
 from tests.db_guard import check_test_database
 from tests.fake_http import FakeHttp
 from tests.fake_push import FakePushSender
+from tests.fake_service import FakeExternalService
 from tests.fake_tools import (
     COUNTER,
     FAKE_EXTERNAL_SPEC,
+    HOLDER,
     FakeExternalCounter,
     fake_external,
     preview_fake_external,
@@ -282,7 +284,15 @@ def automation_services(app: FastAPI) -> AutomationServices:
 
 
 @pytest.fixture
-def fake_external_counter(monkeypatch: pytest.MonkeyPatch) -> FakeExternalCounter:
+def fake_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeExternalService:
+    """가짜 외부 서비스(SQLite 파일, 테스트마다 새 파일). fake_external이 이 서비스로 요청한다(2단계 보강)."""
+    service = FakeExternalService(tmp_path / "fake_external.sqlite3")
+    monkeypatch.setattr(HOLDER, "service", service)
+    return service
+
+
+@pytest.fixture
+def fake_external_counter(monkeypatch: pytest.MonkeyPatch, fake_service: FakeExternalService) -> FakeExternalCounter:
     """chat task의 EXTERNAL 도구 묶음에 테스트 전용 fake_external을 넣는다(테스트가 끝나면 원래대로)."""
     COUNTER.calls.clear()
     external = build_external_toolset([fake_external])

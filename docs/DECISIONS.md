@@ -545,3 +545,4 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 재개 때 `ToolApproved(override_args=계획의 정규화 인자)`를 넘겨, 도구가 기록 속 모델 인자가 아니라 승인된 인자로 실행된다(Pydantic AI 2.68 `_deferred.ToolApproved.override_args`). 실행기 해시 검사가 한 번 더 막는다.
 - 2026-11-17 성공 결과에는 `finish_execution`이 영수증(execution_receipts: provider, 외부 리소스 id, 결과 요약)을 만들고 operation_id·receipt_id를 붙인다. EXTERNAL 도구의 성공인데 receipt_id가 없으면 StepTracking이 unknown(no_receipt)으로 바꾼다(절대 원칙 10). 실행 도중 끊긴 EXTERNAL 호출은 step과 함께 operation도 unknown(interrupted)으로 둔다.
 - 2026-11-17 Google 일정 도구의 멱등성(안정적인 event ID)과 대상 버전(ETag 조건부 요청)은 4단계 보강에서 한다. 지금은 operation·영수증 기록과 실행 전 검사까지다.
+- 2026-11-17 가짜 외부 서비스(tests/fake_service.py)는 별도 프로세스가 아니라 SQLite 파일에 기록하는 HTTP 처리기를 httpx.MockTransport로 부른다. 요청마다 파일을 새로 열어, 앱·워크플로·서비스 객체를 다시 만들어도 기록이 남는다(같은 프로세스 메모리 카운터에 기대지 않음). 포트·네트워크를 쓰지 않아 테스트가 빠르고 서로 간섭하지 않는다. 같은 키 = 효과 1건, 같은 키에 다른 본문 = 409, GET으로 결과 조회(3단계 재조회용). 실제 프로세스 강제 종료 시험이 필요하면 3단계에서 별도 프로세스로 띄운다.
