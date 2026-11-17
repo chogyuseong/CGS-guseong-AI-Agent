@@ -51,7 +51,7 @@
 그 밖에:
 - **내구성 실행**: 작업은 DBOS 워크플로로 돌아서 서버가 죽었다 살아나도 이어서 끝납니다. 메시지 전송 API는 바로 202로 응답하고 화면이 진행 상황을 폴링합니다.
 - **예약·감시**: 1분마다 도는 DBOS 예약 워크플로가 예약 작업과 조건 감시("내일 비 올 확률 60% 넘으면 알려줘")를 실행합니다.
-- **비용 관리**: 작업당 모델 요청 수·토큰 상한, 사용자별 하루 비용 상한. 도구 호출이 4번을 넘으면 작은 모델(Haiku)에서 큰 모델(Sonnet)로 바꿉니다. 설정 탭의 비용 화면(`/usage`)에서 일별 토큰·비용, 용도별 합계, 오늘 남은 한도를 봅니다.
+- **비용 관리**: 작업당 모델 요청 수·토큰 상한, 사용자별 하루 비용 상한. 모든 요청은 작은 모델(Haiku)로 처리합니다(도구 호출 횟수로 큰 모델로 바꾸지 않음). 설정 탭의 비용 화면(`/usage`)에서 일별 토큰·비용, 용도별 합계, 오늘 남은 한도를 봅니다.
 - **관찰**: Logfire 트레이스(토큰이 없으면 아무것도 보내지 않고, 있어도 대화·도구 결과 내용은 넣지 않음).
 - **평가**: Pydantic Evals로 사례 30개를 실제 앱 흐름에 돌리는 eval 실행기.
 
@@ -79,7 +79,7 @@ flowchart LR
     W -->|"HTTP"| A["apps/api<br/>FastAPI"]
     A -->|"워크플로 시작<br/>(바로 202 응답)"| D["DBOS 워크플로<br/>run_task / resume_task<br/>1분 검사(예약·감시)"]
     D --> G["Pydantic AI Agent<br/>READ / INTERNAL / EXTERNAL 도구"]
-    G -->|"모델 요청"| M["Anthropic API<br/>Haiku 5.5 / Sonnet 5.5"]
+    G -->|"모델 요청"| M["Anthropic API<br/>Haiku 5.5"]
     G -->|"공식 REST API"| X["카카오 · 네이버 · Open-Meteo<br/>Google Calendar · Gmail"]
     D -->|"EXTERNAL 호출마다"| S["감시 에이전트<br/>(도구 없음, 입력 4가지)"]
     D -->|"고정 문구 푸시"| P["브라우저 푸시 서비스"]
@@ -204,7 +204,7 @@ sequenceDiagram
 | 에이전트 | Pydantic AI 2.68 (Anthropic) | `requires_approval`·`DeferredToolRequests`로 승인을 프레임워크 수준에서 멈출 수 있고, 도구 실행 hook(`wrap_tool_execute`)으로 모든 도구의 단계 기록을 한 곳에서 강제 |
 | 내구성 실행 | DBOS 3.5 | Redis·별도 워커 없이 PostgreSQL 하나로 "죽었다 살아나도 이어서 실행"과 1분 예약 실행. 워크플로 ID로 중복 실행 방지 |
 | DB | PostgreSQL 16, psycopg 3 | 앱·Alembic·DBOS가 같은 드라이버 하나를 공유 |
-| 모델 | Claude Haiku 5.5(기본·감시), Sonnet 5.5(도구 호출 4번 초과) | 대부분의 요청은 작은 모델로 충분하고, 복잡한 작업만 큰 모델 |
+| 모델 | Claude Haiku 5.5(기본·감시) | 큰 모델(SMART)은 평가 근거가 생긴 뒤 명시적 정책으로 도입한다(BUILD_SPEC 6.1) |
 | 푸시 | Web Push(VAPID, pywebpush) | 앱 스토어 없이 폰 홈 화면 앱으로 알림 |
 | 관찰·평가 | Logfire, Pydantic Evals | Pydantic AI와 같은 생태계, 내용 미포함 계측 가능 |
 | 테스트 | pytest, Vitest, Playwright(설치된 Chrome) | 이 PC의 Smart App Control이 서명 없는 실행 파일을 막아서, Python 도구는 `python -m`, Biome은 WASM판, Playwright는 설치된 Chrome으로 돌립니다 |
@@ -243,7 +243,7 @@ Copy-Item .env.example .env
 | 언제 필요한가 | 변수 |
 | --- | --- |
 | 필수(없으면 서버가 뜨지 않음) | `DATABASE_URL`(예시 값 그대로 로컬 docker DB), `SESSION_SECRET`, `APP_ORIGIN` |
-| 채팅 | `ANTHROPIC_API_KEY` (선택: `AGENT_MODEL_FAST`·`AGENT_MODEL_SMART`·`AGENT_MODEL_GUARD`, `DAILY_COST_LIMIT_USD`, `TASK_MAX_REQUESTS`, `TASK_MAX_TOKENS`) |
+| 채팅 | `ANTHROPIC_API_KEY` (선택: `AGENT_MODEL_FAST`·`AGENT_MODEL_SMART`·`AGENT_MODEL_GUARD`, `DAILY_COST_LIMIT_USD`, `TASK_MAX_REQUESTS`, `TASK_MAX_TOKENS`, `MODEL_CALL_TIMEOUT_SECONDS`) |
 | 장소·날씨·검색 | `KAKAO_REST_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` (Open-Meteo는 키 없음) |
 | Google 캘린더·메일 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY` |
 | 웹 푸시 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` ([docs/PUSH-CHECK.md](docs/PUSH-CHECK.md)) |

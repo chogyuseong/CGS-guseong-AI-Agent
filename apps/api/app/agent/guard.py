@@ -20,7 +20,7 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities import ResolveModelId
 from pydantic_ai.usage import RunUsage
 
-from app.agent.model_choice import build_model_resolver
+from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.config import Settings
 from app.models.enums import VerdictKind
 
@@ -63,6 +63,7 @@ def build_guard_agent(settings: Settings) -> GuardAgent:
         name="myagent-guard",
         output_type=GuardVerdict,
         instructions=GUARD_INSTRUCTIONS,
+        model_settings=model_settings_for(settings),
         capabilities=[ResolveModelId(build_model_resolver(settings))],
     )
 

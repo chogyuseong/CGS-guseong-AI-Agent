@@ -18,7 +18,7 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities import ResolveModelId
 from pydantic_ai.usage import RunUsage
 
-from app.agent.model_choice import build_model_resolver
+from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.agent.results import ToolResult
 from app.automation import rules
 from app.config import Settings
@@ -62,6 +62,7 @@ def build_watch_agent(settings: Settings) -> WatchAgent:
         name="myagent-watch",
         output_type=WatchVerdict,
         instructions=WATCH_INSTRUCTIONS,
+        model_settings=model_settings_for(settings),
         capabilities=[ResolveModelId(build_model_resolver(settings))],
     )
 

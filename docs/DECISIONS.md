@@ -515,4 +515,5 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 메시지 전송 본문에 `client_request_id`(UUID, 필수)를 둔다. tasks에 `UNIQUE(user_id, client_request_id)`. messages에는 user_id가 없어 사용자 범위 고유성을 tasks에서 건다.
 - 2026-11-17 같은 id가 다시 오면 같은 대화방·같은 내용일 때만 처음 task_id를 202로 돌려주고(전송 한도도 쓰지 않음), 대화방이나 내용이 다르면 409. 동시에 두 번 오면 UNIQUE 위반을 잡아 먼저 저장된 task를 돌려준다.
 - 2026-11-17 화면은 전송마다 `crypto.randomUUID()`를 만들고 네트워크 오류(fetch 예외)일 때만 같은 id로 최대 3번 보낸다. 서버가 답한 오류는 다시 보내지 않는다.
-- 2026-11-17 task 저장과 워크플로 등록 사이에 서버가 죽으면 task가 queued로 남고, 시작 때 `restart_orphaned_tasks`가 이어서 시작한다(기존). outbox는 3단계 보강에서 다룬다.
+- 2026-11-17 task 저장과 워크플로 등록 사이에 서버가 죽으면 task가 queued로 남고, 시작 때 `restart_orphaned_tasks`가 이어서 시작한다(기존). outbox는 3단계 보강에서 다룬다.- 2026-11-17 FAST→SMART 자동 전환(SelectModel, 도구 호출 4번 초과)을 뺐다. BUILD_SPEC 6.1이 "도구 호출 횟수만으로 SMART로 자동 전환하지 않는다"고 정한다. 메인·감시·감시 판정 에이전트는 각자 설정된 모델 하나만 쓴다. `AGENT_MODEL_SMART` 설정은 남겨 둔다(명세 환경변수 목록, 나중 정책용).
+- 2026-11-17 `MODEL_CALL_TIMEOUT_SECONDS`(기본 60초)를 세 에이전트의 `model_settings.timeout`으로 건다(Pydantic AI 2.68 ModelSettings.timeout).

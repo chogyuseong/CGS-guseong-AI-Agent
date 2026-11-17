@@ -4,8 +4,6 @@ Agent 하나가 하는 일 (한 번의 agent.run 안에서 반복):
 
     사용자 요청 + 이전 기록
       ▼
-    [SelectModel] 이번 요청에 쓸 모델을 고른다 (도구 호출 4번 이하 FAST, 넘으면 SMART)
-      ▼
     [ResolveModelId] 'anthropic:모델ID' 문자열 → 설정의 API 키로 만든 AnthropicModel
       ▼
     모델 요청 (instructions = 시스템 프롬프트 + 오늘 날짜 + 기억 최근 30줄, 도구 목록 = origin별 toolset)
@@ -21,7 +19,7 @@ Agent는 앱이 시작할 때 한 번 만든다(build_agent). DBOS.launch() 전�
 모델 요청 하나하나가 DBOS 단계가 되어, 서버가 죽었다 살아나도 이미 받은 모델 응답은 다시 요청하지 않는다.
 워크플로 밖에서 부르면 이 capability는 아무 일도 하지 않는다(보통 run).
 - DBOS 단계 이름에 Agent 이름이 들어가므로 고유한 name('myagent')이 필요하다.
-- 모델은 문자열로 고르므로(SelectModel) 등록할 필요가 없다. 문자열은 단계 안에서 ResolveModelId로 다시 만들어진다.
+- 모델은 문자열(AGENT_MODEL_FAST)이라 등록할 필요가 없다. 문자열은 단계 안에서 ResolveModelId로 다시 만들어진다.
   모델 '객체'를 실행 중에 바꿔 끼우려면(테스트의 가짜 모델) models=에 등록해야 한다(extra_models).
 - 도구 실행은 DBOS 단계가 아니다. 복구 때 같은 호출이 두 번 실행되지 않게 하는 일은 StepTracking이 한다(tracking.py).
 - 도구 호출은 순서대로(sequential) 실행한다. 복구 때 단계 번호가 달라지지 않게 하고, step 순서도 정해진다.
@@ -30,13 +28,13 @@ Agent는 앱이 시작할 때 한 번 만든다(build_agent). DBOS.launch() 전�
 from collections.abc import Mapping
 
 from pydantic_ai import Agent
-from pydantic_ai.capabilities import ResolveModelId, SelectModel
+from pydantic_ai.capabilities import ResolveModelId
 from pydantic_ai.durable_exec.dbos import DBOSDurability
 from pydantic_ai.models import Model
 from pydantic_ai.tools import DeferredToolRequests
 
 from app.agent.deps import AgentDeps
-from app.agent.model_choice import build_model_resolver, build_model_selector
+from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.agent.prompts import (
     SYSTEM_PROMPT,
     automation_instruction,
@@ -55,17 +53,17 @@ AGENT_NAME = "myagent"
 def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None = None) -> MyAgent:
     """extra_models: 워크플로 안에서 agent.override(model=...)로 끼울 모델 객체(테스트의 가짜 모델만 쓴다)."""
     return Agent(
-        # 기본 모델. 실제로는 SelectModel이 요청마다 FAST/SMART를 고른다.
+        # 일반 요청은 FAST 하나로 한다. 도구 호출 횟수로 SMART로 바꾸지 않는다(BUILD_SPEC 6.1).
         settings.agent_model_fast,
         name=AGENT_NAME,
         deps_type=AgentDeps,
         output_type=[str, DeferredToolRequests],
+        model_settings=model_settings_for(settings),
         # 기억(memory_instruction)은 마지막에 둔다. 요청마다 DB에서 최근 30줄을 새로 읽는다(prompts.py).
         # automation_instruction(6단계)은 예약·감시 task에만 "자동 실행, 조회만, 행동은 [제안] 줄로"를 붙인다.
         instructions=[SYSTEM_PROMPT, current_date_instruction, automation_instruction, memory_instruction],
         capabilities=[
             ResolveModelId(build_model_resolver(settings)),
-            SelectModel(build_model_selector(settings)),
             StepTracking(),
             DBOSDurability(models=extra_models, parallel_execution_mode="sequential"),
         ],

@@ -1,52 +1,44 @@
-"""FAST로 시작하고 이번 task의 도구 호출이 4번을 넘으면 SMART로 바꾸는 규칙 테스트."""
+"""모델 선택(1단계 보강, BUILD_SPEC 6.1).
 
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    ToolCallPart,
-    UserPromptPart,
-)
+- 일반 요청은 FAST 하나로 한다. 도구 호출 횟수만으로 SMART로 자동 전환하지 않는다
+  (예전 명세의 "도구 호출 4번을 넘으면 SMART" 규칙을 뺐다). SMART는 평가 근거가 생긴 뒤 명시적 정책으로 도입한다.
+- 모델 호출마다 MODEL_CALL_TIMEOUT_SECONDS를 건다.
+"""
 
-from app.agent.model_choice import SWITCH_AFTER_TOOL_CALLS, choose_model_name, count_tool_calls_in_current_run
+from typing import Any
 
-FAST = "anthropic:fast-model"
-SMART = "anthropic:smart-model"
+from pydantic_ai.capabilities import AbstractCapability, SelectModel
 
-
-def responses_with_tool_calls(count: int) -> list[ModelMessage]:
-    return [ModelResponse(parts=[ToolCallPart("list_todos", {}, tool_call_id=f"c{i}")]) for i in range(count)]
+from app.agent.agent import build_agent
+from app.agent.guard import build_guard_agent
+from app.automation.watch import build_watch_agent
+from app.config import Settings
 
 
-def test_switch_threshold_is_four() -> None:
-    assert SWITCH_AFTER_TOOL_CALLS == 4
+def capability_types(agent: Any) -> set[type]:
+    found: set[type] = set()
+
+    def visit(capability: AbstractCapability[Any]) -> None:
+        found.add(type(capability))
+
+    agent.root_capability.apply(visit)
+    return found
 
 
-def test_fast_until_four_tool_calls_then_smart() -> None:
-    assert choose_model_name(0, fast=FAST, smart=SMART) == FAST
-    assert choose_model_name(4, fast=FAST, smart=SMART) == FAST
-    assert choose_model_name(5, fast=FAST, smart=SMART) == SMART
+def test_main_agent_uses_fast_only_without_model_switch(test_settings: Settings) -> None:
+    agent = build_agent(test_settings)
+
+    assert SelectModel not in capability_types(agent)
+    assert agent.model == test_settings.agent_model_fast
 
 
-def test_counts_only_tool_calls_after_latest_user_prompt() -> None:
-    previous_task: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart("이전 요청")]),
-        *responses_with_tool_calls(6),
-        ModelResponse(parts=[TextPart("이전 답")]),
-    ]
-    current_task: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart("이번 요청")]),
-        *responses_with_tool_calls(2),
-    ]
+def test_model_call_timeout_is_applied_to_every_agent(test_settings: Settings) -> None:
+    test_settings.model_call_timeout_seconds = 42.0
 
-    assert count_tool_calls_in_current_run(previous_task + current_task) == 2
+    for agent in (build_agent(test_settings), build_guard_agent(test_settings), build_watch_agent(test_settings)):
+        assert agent.model_settings is not None
+        assert agent.model_settings.get("timeout") == 42.0
 
 
-def test_counts_parallel_tool_calls_in_one_response() -> None:
-    messages: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart("요청")]),
-        ModelResponse(parts=[ToolCallPart("a", {}, tool_call_id="1"), ToolCallPart("b", {}, tool_call_id="2")]),
-    ]
-
-    assert count_tool_calls_in_current_run(messages) == 2
+def test_default_model_call_timeout(test_settings: Settings) -> None:
+    assert test_settings.model_call_timeout_seconds == 60.0

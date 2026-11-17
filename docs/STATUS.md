@@ -46,12 +46,12 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [ ] agent_runs(최초 실행·재개 회차) 분리. 지금은 tasks에 모델 기록
 - [ ] 예산: 모델 호출마다 예약 → 정산(budget_reservations, daily_budgets 잠금). 지금은 실행 시작 때 하루 비용만 검사
 - [ ] 가격 미등록 모델은 호출 차단(지금은 비용 0으로 기록하고 경고)
-- [ ] FAST→SMART 자동 전환 제거(BUILD_SPEC 6.1: 도구 호출 횟수만으로 전환 금지). `app/agent/model_choice.py`
+- [x] FAST→SMART 자동 전환 제거(BUILD_SPEC 6.1: 도구 호출 횟수만으로 전환 금지). `app/agent/model_choice.py`
 - [ ] task 상태 12개(cancel_requested, partially_done, needs_review, waiting_input 등), 취소 API `POST /tasks/{id}/cancel`
 - [ ] ToolResult를 status(succeeded/failed/unknown)·error_code·retryable·operation_id·receipt_id·truncated 구조로
 - [ ] AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력
 - [ ] 내부 DB 변경(todo 등)의 호출 키 기반 중복 방지 확인
-- [ ] MODEL_CALL_TIMEOUT_SECONDS
+- [x] MODEL_CALL_TIMEOUT_SECONDS
 
 ### 2단계 — 승인 계획
 - [ ] action_plans(operation_id, canonical_args, args_hash, tool_version, connection_id, target_version, 만료 2종, policy_version)

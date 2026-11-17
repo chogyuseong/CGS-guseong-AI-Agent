@@ -16,7 +16,7 @@
 
   0단계 보강   완료  서버 저장형 세션(sessions 테이블), 로그인 실패 제한(1분 5회),
                      APP_ENV, 테스트 DB 보호 확대, .gitattributes(LF), STATUS·VERSIONS 문서
-  1단계 보강   진행 중  (1) client_request_id 중복 방지 완료. 남은 것: 모델 선택, 호출별 예산,
+  1단계 보강   진행 중  (1) client_request_id (2) SMART 전환 제거·호출 제한 시간 완료. 남은 것: 호출별 예산,
                      task 상태·취소, ToolResult 구조
   2~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 

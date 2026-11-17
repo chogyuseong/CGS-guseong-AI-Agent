@@ -176,7 +176,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `guard.py` | 감시 에이전트(도구 없음, AGENT_MODEL_GUARD). 입력 4가지만, 실패는 unsure |
 | `tracking.py` | 도구 실행 hook(wrap_tool_execute)으로 steps 기록, 예상 못 한 예외를 ok=false로 바꿈. 복구 때 끝난 호출은 기록된 결과를 재생, 도중에 끊긴 INTERNAL·EXTERNAL 호출은 다시 실행하지 않고 failed("실행 여부를 확인할 수 없음") |
 | `toolsets.py` | read_tools / internal_tools / mail_tools(7단계, READ, chat 전용) / external_tools(일정 쓰기 셋, requires_approval, `build_external_toolset`) 와 origin별 조합, step 문구(TOOL_LABELS), 승인 카드 문장(TOOL_PREVIEWS). 외부 콘텐츠 도구 목록(EXTERNAL_CONTENT_TOOLS)은 5단계부터 `results.py`에 있고 여기서 다시 내보낸다 |
-| `model_choice.py` | FAST/SMART 선택 규칙, 설정의 API 키로 AnthropicModel 만들기 |
+| `model_choice.py` | 설정의 API 키로 AnthropicModel 만들기, 호출 제한 시간(1단계 보강에서 FAST→SMART 전환 제거) |
 | `budget.py` | UsageLimits, 비용 계산(MODEL_PRICES), 하루 비용 검사 |
 | `history.py` | 이전 기록 저장 형식(JSON), 자르기, 실패한 run 기록 정리, 승인 대기 기록 저장·결과 없는 호출 찾기. 7단계: 메일 도구 결과는 500자만 저장(`clip_mail_returns`) |
 | `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 동적 지시문(오늘 날짜·요일, 이번 주 날짜표, 다음 주 월요일 / 5단계: 기억 최근 30줄을 요청마다 DB에서 읽어 안내문 + `<user_memories>`로 감쌈, `memory_instruction`) |

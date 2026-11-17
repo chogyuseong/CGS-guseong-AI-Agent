@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     daily_cost_limit_usd: Decimal = Decimal("1.0")
     task_max_requests: int = 12
     task_max_tokens: int = 60000
+    # 모델 호출 한 번의 제한 시간(초). 넘으면 그 호출은 실패로 끝난다(1단계 보강, BUILD_SPEC 6.1).
+    model_call_timeout_seconds: float = 60.0
 
     # 외부 도구 (4단계부터 사용)
     kakao_rest_api_key: SecretStr = SecretStr("")
