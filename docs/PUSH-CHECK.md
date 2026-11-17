@@ -61,6 +61,12 @@ PC의 3000번을 인터넷의 https 주소로 잠깐 열어 주는 도구를 쓴
 | ngrok | `ngrok http 3000` | 무료 계정과 토큰 필요 |
 | Tailscale Funnel | `tailscale funnel 3000` | Tailscale 계정 필요 |
 
+**교육장 네트워크(2026-11-17 확인)**: cloudflared가 쓰는 7844 포트가 UDP·TCP 모두 막혀 빠른 터널이 붙지 않는다
+(`--protocol http2`도 실패). localtunnel은 주소는 나오지만 연결이 자주 끊겨 503이 난다. 이 네트워크에서는 PC를 폰 핫스팟에
+연결하거나 다른 네트워크에서 확인한다. cloudflared를 막 설치한 창에서는 명령을 못 찾으니
+`& "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://127.0.0.1:3000`처럼 전체 경로로 실행한다.
+localtunnel은 `--local-host 127.0.0.1`을 붙인다(화면 서버가 IPv4로만 열려 있어 `localhost`가 ::1로 가면 연결 거부).
+
 **Smart App Control**: 위 도구는 실행 파일(exe)이라 이 PC에서 막힐 수 있다("An Application Control policy has blocked this file").
 막히면 끄거나 우회하지 말고 다른 도구를 쓴다. Node로 도는 도구(예: `npx localtunnel --port 3000`)는 exe를 받지 않는다.
 

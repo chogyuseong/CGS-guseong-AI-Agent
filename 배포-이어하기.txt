@@ -43,6 +43,7 @@
 
 검사(2026-11-17, 두 번째 PC, 3단계 보강 끝): API pytest 461개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
 웹은 3단계에 변경 없음(2단계 끝 기준 Biome 0건, tsc, Vitest 269개, Playwright 37개).
+웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
 다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 4단계 보강을 진행해라"
 (4단계: 일정 생성 안정적인 event ID·재조회, 수정·삭제 ETag 조건부 요청, draft_message, OAuth POST·state DB, 데이터 전송 등급.

@@ -36,7 +36,9 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - 실제 프로세스 강제 종료 복구: 이번에도 하지 않음. 장애 지점은 그 지점의 DB·외부 상태를 만들어 재개 워크플로를
   실제로 돌리는 방식으로 재현했다(docs/FAULTS.md). 1분 검사 워크플로 단계 구성이 바뀌어 WORKFLOW_VERSION을 myagent-4로
   올렸으므로, 원하면 docs/DURABILITY-CHECK.md 절차로 한 번 더 확인할 수 있다
-- iOS·Android 실기기 푸시: 사용자 확인 필요(docs/PUSH-CHECK.md)
+- 웹 푸시 PC 확인(2026-11-17, 사용자): Chrome에서 알림 켜기 → send-test-push 3번 → 알림 표시 확인
+- iOS·Android 실기기 푸시: 미확인. 이 PC의 네트워크가 터널을 막는다(cloudflared 7844 UDP·TCP 차단, localtunnel은 연결이
+  자주 끊겨 503). 다른 네트워크(폰 핫스팟·집)나 9단계 배포 주소에서 확인한다(사용자 결정)
 - HTTPS 개발 접속(폰): 터널 방법만 문서(docs/PUSH-CHECK.md). 실기기 확인은 사용자
 
 사용자 확인이 필요한 항목:
