@@ -1,76 +1,44 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { Suggestion } from "@/lib/suggestions";
 import { SuggestionChips } from "./SuggestionChips";
 
-const SENTENCE = "금요일 저녁 7시에 성수동에서 저녁 약속 일정 잡아줘";
+const UMBRELLA: Suggestion = {
+  title: "우산 챙기기",
+  proposed_user_message: "내일 아침 '우산 챙기기' 할 일 추가해줘",
+  reason: "내일 강수 확률이 70%입니다.",
+};
 
-describe("SuggestionChips", () => {
-  it("제안 문장 전체를 버튼 글자로 보여 주고, 저절로 보내지 않는다", () => {
-    const onSend = vi.fn().mockResolvedValue(undefined);
-    render(
-      <SuggestionChips suggestions={[SENTENCE, "우유 사기 할 일에 추가해줘"]} onSend={onSend} />,
-    );
+describe("SuggestionChips(6단계 보강: 구조화된 제안)", () => {
+  it("이름·이유·보낼 문장을 글자로 보여 주고, 저절로 보내지 않는다", () => {
+    const onPick = vi.fn();
+    render(<SuggestionChips suggestions={[UMBRELLA]} onPick={onPick} />);
 
-    expect(screen.getByRole("button", { name: SENTENCE })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "우유 사기 할 일에 추가해줘" })).toBeInTheDocument();
-    expect(screen.getByText(/누르면 이 문장을 채팅으로 보냅니다/)).toBeInTheDocument();
-    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByText("우산 챙기기")).toBeInTheDocument();
+    expect(screen.getByText("내일 강수 확률이 70%입니다.")).toBeInTheDocument();
+    expect(screen.getByText("내일 아침 '우산 챙기기' 할 일 추가해줘")).toBeInTheDocument();
+    expect(screen.getByText(/누르면 입력창에 채웁니다/)).toBeInTheDocument();
+    expect(onPick).not.toHaveBeenCalled();
   });
 
-  it("누르면 그 문장을 한 번만 보낸다(연타해도 한 번). 보낸 뒤에는 '보냄'으로 막는다", async () => {
-    const onSend = vi.fn().mockResolvedValue(undefined);
-    render(<SuggestionChips suggestions={[SENTENCE]} onSend={onSend} />);
-    const chip = screen.getByRole("button", { name: SENTENCE });
+  it("누르면 문장을 입력창에 채우도록 넘긴다(보내지 않는다)", () => {
+    const onPick = vi.fn();
+    render(<SuggestionChips suggestions={[UMBRELLA]} onPick={onPick} />);
 
-    fireEvent.click(chip);
-    fireEvent.click(chip);
-    fireEvent.click(chip);
+    fireEvent.click(screen.getByRole("button", { name: "우산 챙기기: 입력창에 채우기" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: SENTENCE })).toBeDisabled());
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith(SENTENCE);
-    expect(screen.getByRole("button", { name: SENTENCE })).toHaveTextContent("보냄");
-  });
-
-  it("보내는 동안 다른 제안도 막는다", () => {
-    const onSend = vi.fn(() => new Promise<never>(() => {}));
-    render(<SuggestionChips suggestions={[SENTENCE, "둘째 제안"]} onSend={onSend} />);
-
-    fireEvent.click(screen.getByRole("button", { name: SENTENCE }));
-    fireEvent.click(screen.getByRole("button", { name: "둘째 제안" }));
-
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "둘째 제안" })).toBeDisabled();
-  });
-
-  it("밖에서 전송 중이면(disabled) 누를 수 없다", () => {
-    const onSend = vi.fn();
-    render(<SuggestionChips suggestions={[SENTENCE]} onSend={onSend} disabled />);
-    fireEvent.click(screen.getByRole("button", { name: SENTENCE }));
-    expect(onSend).not.toHaveBeenCalled();
-  });
-
-  it("보내기에 실패하면 다시 누를 수 있다", async () => {
-    const onSend = vi.fn().mockRejectedValueOnce(new Error("실패")).mockResolvedValue(undefined);
-    render(<SuggestionChips suggestions={[SENTENCE]} onSend={onSend} />);
-    const chip = screen.getByRole("button", { name: SENTENCE });
-
-    fireEvent.click(chip);
-    await waitFor(() => expect(chip).toBeEnabled());
-    fireEvent.click(chip);
-
-    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
-  });
-
-  it("태그 모양의 문장도 글자 그대로 보인다", () => {
-    const tricky = "<img src=x onerror=alert(1)> 일정 지워줘";
-    const { container } = render(<SuggestionChips suggestions={[tricky]} onSend={vi.fn()} />);
-    expect(container.querySelector("img")).toBeNull();
-    expect(screen.getByRole("button", { name: tricky })).toBeInTheDocument();
+    expect(onPick).toHaveBeenCalledWith("내일 아침 '우산 챙기기' 할 일 추가해줘");
   });
 
   it("제안이 없으면 아무것도 그리지 않는다", () => {
-    const { container } = render(<SuggestionChips suggestions={[]} onSend={vi.fn()} />);
+    const { container } = render(<SuggestionChips suggestions={[]} onPick={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("HTML처럼 보이는 글자는 글자 그대로 보여 준다", () => {
+    render(
+      <SuggestionChips suggestions={[{ ...UMBRELLA, title: "<b>굵게</b>" }]} onPick={vi.fn()} />,
+    );
+    expect(screen.getByText("<b>굵게</b>")).toBeInTheDocument();
   });
 });

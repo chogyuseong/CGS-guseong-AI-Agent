@@ -11,6 +11,24 @@ describe("ChatInput", () => {
     expect(screen.getByRole("status")).toHaveTextContent("답변을 기다리는 중");
   });
 
+  it("제안을 고르면 입력창에 채우고 포커스만 준다. 보내지 않는다(6단계 보강)", () => {
+    const onSend = vi.fn();
+    const { rerender } = render(<ChatInput onSend={onSend} pending={false} prefill={null} />);
+
+    rerender(
+      <ChatInput
+        onSend={onSend}
+        pending={false}
+        prefill={{ id: 1, text: "우유 사기 할 일 추가해줘" }}
+      />,
+    );
+
+    const input = screen.getByLabelText("메시지 입력");
+    expect(input).toHaveValue("우유 사기 할 일 추가해줘");
+    expect(input).toHaveFocus();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("내용이 공백뿐이면 전송 버튼을 막는다", () => {
     render(<ChatInput onSend={vi.fn()} pending={false} />);
     fireEvent.change(screen.getByLabelText("메시지 입력"), { target: { value: "   " } });

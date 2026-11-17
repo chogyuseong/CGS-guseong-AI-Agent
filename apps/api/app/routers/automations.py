@@ -17,10 +17,11 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import ValidationError
 from sqlalchemy import select
 
+from app.agent.budget import daily_cost_exceeded
 from app.automation import rules, store
 from app.automation.store import AutomationError
 from app.db import DbSession
@@ -121,11 +122,12 @@ async def last_tasks(session: DbSession, user_id: int, jobs: list[ScheduledJob])
 
 
 @router.get("/schedules")
-async def list_schedules(user: CurrentUser, session: DbSession) -> ScheduleListOut:
+async def list_schedules(request: Request, user: CurrentUser, session: DbSession) -> ScheduleListOut:
     jobs = await store.list_schedules(session, user.id)
     tasks = await last_tasks(session, user.id, jobs)
     items = [schedule_out(job, tasks.get(job.last_task_id or 0)) for job in jobs]
-    return ScheduleListOut(schedules=items, max_active=rules.MAX_ACTIVE_SCHEDULES)
+    paused = await daily_cost_exceeded(session, user.id, request.app.state.settings)
+    return ScheduleListOut(schedules=items, max_active=rules.MAX_ACTIVE_SCHEDULES, budget_paused=paused)
 
 
 @router.put("/schedules/briefing", responses={409: ERRORS[409]})
@@ -167,9 +169,12 @@ async def delete_schedule(schedule_id: int, user: CurrentUser, session: DbSessio
 
 
 @router.get("/watches")
-async def list_watches(user: CurrentUser, session: DbSession) -> WatchListOut:
+async def list_watches(request: Request, user: CurrentUser, session: DbSession) -> WatchListOut:
     watches = await store.list_watches(session, user.id)
-    return WatchListOut(watches=[watch_out(w) for w in watches], max_active=rules.MAX_ACTIVE_WATCHES)
+    paused = await daily_cost_exceeded(session, user.id, request.app.state.settings)
+    return WatchListOut(
+        watches=[watch_out(w) for w in watches], max_active=rules.MAX_ACTIVE_WATCHES, budget_paused=paused
+    )
 
 
 @router.patch("/watches/{watch_id}", responses=ERRORS)

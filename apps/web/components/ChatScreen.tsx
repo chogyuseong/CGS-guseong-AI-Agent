@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { isAutomationRoom } from "@/lib/automations";
 import {
   countUserMessages,
@@ -11,18 +11,21 @@ import {
   useSendMessage,
   useTasks,
 } from "@/lib/chat";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type Prefill } from "./ChatInput";
 import { ConversationSheet } from "./ConversationSheet";
 import { MessageList } from "./MessageList";
 
 // 대화 하나의 채팅 화면: 상단(대화 목록 버튼과 제목), 메시지 목록, 하단 입력창.
 // (Django로 치면 conversation_detail 뷰 + 템플릿을 한 컴포넌트에 둔 것)
-// '예약 작업' 대화방(6단계)이면 예약 결과의 [제안] 버튼과 진행 중인 예약 task를 함께 보여 준다.
+// '예약 작업' 대화방(6단계)이면 예약 결과의 제안 버튼과 진행 중인 예약 task를 함께 보여 준다.
 export function ChatScreen({ conversationId }: { conversationId: number }) {
   const { data: conversations } = useConversations();
   const title = conversations?.find((item) => item.id === conversationId)?.title;
   const automationRoom = isAutomationRoom(title);
   const send = useSendMessage(conversationId);
+  // 6단계 보강: 제안 버튼은 입력창에 문장만 채운다(보내기는 사용자). 같은 문장을 다시 골라도 채우도록 id를 올린다.
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
+  const pick = (text: string) => setPrefill((previous) => ({ id: (previous?.id ?? 0) + 1, text }));
 
   return (
     <>
@@ -30,7 +33,12 @@ export function ChatScreen({ conversationId }: { conversationId: number }) {
       <section className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
         <h1 className="sr-only">채팅</h1>
         {automationRoom && <AutomationRoomNotice />}
-        <ChatMessages conversationId={conversationId} automationRoom={automationRoom} send={send} />
+        <ChatMessages
+          conversationId={conversationId}
+          automationRoom={automationRoom}
+          send={send}
+          onPick={pick}
+        />
       </section>
       {send.error && (
         <p role="alert" className="border-t px-4 py-2 text-sm text-destructive">
@@ -38,7 +46,7 @@ export function ChatScreen({ conversationId }: { conversationId: number }) {
         </p>
       )}
       {/* mutateAsync: 전송이 끝날 때까지 기다릴 수 있는 함수. 실패하면 예외를 던져 입력 내용을 남긴다. */}
-      <ChatInput onSend={send.mutateAsync} pending={send.isPending} />
+      <ChatInput onSend={send.mutateAsync} pending={send.isPending} prefill={prefill} />
     </>
   );
 }
@@ -47,9 +55,10 @@ type ChatMessagesProps = {
   conversationId: number;
   automationRoom: boolean;
   send: ReturnType<typeof useSendMessage>;
+  onPick: (text: string) => void;
 };
 
-function ChatMessages({ conversationId, automationRoom, send }: ChatMessagesProps) {
+function ChatMessages({ conversationId, automationRoom, send, onPick }: ChatMessagesProps) {
   const messages = useMessages(conversationId);
   // 예약 task는 내 메시지 없이 시작하므로 작업 목록에서 진행 중인 것을 찾는다(이 대화방에서만 가져온다).
   const tasks = useTasks({ enabled: automationRoom });
@@ -75,8 +84,8 @@ function ChatMessages({ conversationId, automationRoom, send }: ChatMessagesProp
       messages={messages.data}
       pendingText={pendingText}
       automationRoom={automationRoom}
-      // [제안] 버튼은 '예약 작업' 대화방에서만. 누르면 입력창 전송과 같은 길(일반 채팅 메시지)로 보낸다.
-      onSuggestion={automationRoom ? send.mutateAsync : undefined}
+      // 제안 버튼은 '예약 작업' 대화방에서만. 누르면 입력창에 문장을 채운다(보내지 않는다).
+      onSuggestion={automationRoom ? onPick : undefined}
       sending={send.isPending}
       openTaskIds={
         automationRoom ? openScheduleTaskIds(tasks.data, conversationId, messages.data) : []
@@ -88,8 +97,8 @@ function ChatMessages({ conversationId, automationRoom, send }: ChatMessagesProp
 function AutomationRoomNotice() {
   return (
     <p className="mb-3 rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground">
-      예약 작업 결과와 조건 감시 알림이 이 대화방에 남습니다. 자동 작업은 조회만 하고, [제안] 버튼은
-      누를 때만 그 문장을 보냅니다.
+      예약 작업 결과와 조건 감시 알림이 이 대화방에 남습니다. 자동 작업은 조회만 하고, 제안 버튼은
+      누르면 입력창에 문장을 채웁니다. 보내기는 직접 합니다.
     </p>
   );
 }

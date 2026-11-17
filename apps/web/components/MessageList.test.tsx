@@ -12,11 +12,11 @@ vi.mock("./PendingTask", () => ({
 }));
 
 type MessageFields = Pick<Message, "id" | "role" | "content" | "task_id" | "created_at"> &
-  Partial<Pick<Message, "origin" | "sources">>;
+  Partial<Pick<Message, "origin" | "sources" | "suggestions">>;
 
 // 서버 MessageOut 모양. origin을 주지 않으면 채팅 메시지(chat), sources는 빈 목록.
 function message(fields: MessageFields): Message {
-  return { origin: "chat", sources: [], ...fields };
+  return { origin: "chat", sources: [], suggestions: [], ...fields };
 }
 
 const messages: Message[] = [
@@ -98,7 +98,10 @@ describe("MessageList: '예약 작업' 대화방", () => {
     message({
       id: 21,
       role: "assistant",
-      content: "오늘 일정은 2개입니다.\n[제안] 우산 챙기라고 할 일에 추가해줘",
+      content: "오늘 일정은 2개입니다.",
+      suggestions: [
+        { title: "우산 챙기기", proposed_user_message: "우산 챙기기 해줘", reason: "" },
+      ],
       task_id: 30,
       created_at: "2026-11-16T22:31:00Z",
       origin: "schedule",
@@ -106,7 +109,8 @@ describe("MessageList: '예약 작업' 대화방", () => {
     message({
       id: 22,
       role: "assistant",
-      content: "[조건 감시] 내일 서울 비\n[제안] 감시 알림 안의 제안",
+      content: "[조건 감시] 내일 서울 비",
+      suggestions: [{ title: "감시 알림 안의 제안", proposed_user_message: "x", reason: "" }],
       task_id: null,
       created_at: "2026-11-16T23:00:00Z",
       origin: "watch",
@@ -122,30 +126,41 @@ describe("MessageList: '예약 작업' 대화방", () => {
     message({
       id: 24,
       role: "assistant",
-      content: "[제안] 채팅 답변 안의 제안",
+      content: "채팅 답변",
+      suggestions: [
+        {
+          title: "채팅 답변 안의 제안",
+          proposed_user_message: "채팅 답변 안의 제안 해줘",
+          reason: "",
+        },
+      ],
       task_id: 31,
       created_at: "2026-11-16T23:01:05Z",
     }),
   ];
 
-  it("예약 작업 결과에만 [제안] 버튼을 붙이고, 감시 알림·채팅 답변에는 붙이지 않는다", () => {
+  it("예약 작업 결과에만 제안 버튼을 붙이고, 감시 알림·채팅 답변에는 붙이지 않는다", () => {
     render(<MessageList messages={roomMessages} automationRoom onSuggestion={vi.fn()} />);
 
     expect(
-      screen.getByRole("button", { name: "우산 챙기라고 할 일에 추가해줘" }),
+      screen.getByRole("button", { name: "우산 챙기기: 입력창에 채우기" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "감시 알림 안의 제안" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "채팅 답변 안의 제안" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "감시 알림 안의 제안: 입력창에 채우기" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "채팅 답변 안의 제안: 입력창에 채우기" }),
+    ).toBeNull();
   });
 
-  it("보낼 함수(onSuggestion)를 받지 않은 대화에서는 [제안] 버튼을 그리지 않는다", () => {
+  it("보낼 함수(onSuggestion)를 받지 않은 대화에서는 제안 버튼을 그리지 않는다", () => {
     render(<MessageList messages={roomMessages} automationRoom />);
-    expect(screen.queryByRole("button", { name: "우산 챙기라고 할 일에 추가해줘" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "우산 챙기기: 입력창에 채우기" })).toBeNull();
   });
 
-  it("다른 대화에서는 예약 작업 결과라도 [제안] 버튼과 '예약 작업 결과' 표시를 그리지 않는다", () => {
+  it("다른 대화에서는 예약 작업 결과라도 제안 버튼과 '예약 작업 결과' 표시를 그리지 않는다", () => {
     render(<MessageList messages={roomMessages} onSuggestion={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: "우산 챙기라고 할 일에 추가해줘" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "우산 챙기기: 입력창에 채우기" })).toBeNull();
     expect(bubbles()[0]).not.toHaveTextContent("예약 작업 결과");
   });
 
@@ -161,13 +176,14 @@ describe("MessageList: '예약 작업' 대화방", () => {
     const orphan = message({
       id: 25,
       role: "assistant",
-      content: "[제안] 채팅 답변",
+      content: "채팅 답변",
+      suggestions: [{ title: "채팅 답변", proposed_user_message: "채팅 답변 해줘", reason: "" }],
       task_id: 32,
       created_at: "2026-11-16T23:02:00Z",
     });
     render(<MessageList messages={[orphan]} automationRoom onSuggestion={vi.fn()} />);
     expect(bubbles()[0]).not.toHaveTextContent("예약 작업 결과");
-    expect(screen.queryByRole("button", { name: "채팅 답변" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "채팅 답변: 입력창에 채우기" })).toBeNull();
   });
 
   it("감시 알림의 출처는 http·https만 새 탭 링크로, 그 밖은 글자로만 보여 준다", () => {

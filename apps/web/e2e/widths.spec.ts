@@ -1,7 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { loginToChat } from "./helpers";
 import { auditScreen } from "./width-audit";
-import { CHAT_ID, fakeChat, fakeTabs, LONG_SENTENCE, ROOM_ID } from "./width-fixtures";
+import { CHAT_ID, fakeChat, fakeTabs, LONG_SENTENCE, LONG_WORD, ROOM_ID } from "./width-fixtures";
 
 // 9단계 1번: 모든 화면을 360·390·768·1280px에서 점검한다(가로 스크롤, 화면 밖 요소, 넘친 글자,
 // 모바일 폭의 44px 버튼, 겹침, 넓은 화면의 최대 폭과 가운데 정렬).
@@ -111,7 +111,11 @@ async function checkSheet(page: Page, width: number) {
 async function checkRoom(page: Page, width: number) {
   await expect(page).toHaveURL(new RegExp(`/chat/${ROOM_ID}$`));
   const list = page.getByRole("list", { name: "메시지 목록" });
-  await expect(list.getByRole("button", { name: LONG_SENTENCE, exact: true })).toBeVisible();
+  // 6단계 보강: 제안 버튼(이름이 긴 단어)과 그 아래 긴 문장이 화면 안에서 줄을 바꾸는지 본다.
+  await expect(
+    list.getByRole("button", { name: `${LONG_WORD}: 입력창에 채우기`, exact: true }),
+  ).toBeVisible();
+  await expect(list.getByText(LONG_SENTENCE, { exact: true }).first()).toBeVisible();
   await auditScreen(page, "room", width);
   // 감시 알림 아래의 출처 링크(긴 URL 포함)도 화면 안에서 줄을 바꾸는지 본다.
   const sources = list.getByRole("list", { name: "출처" });

@@ -28,3 +28,5 @@ class Message(TimestampedTable):
     # 8단계 추가: 조건 감시 알림의 출처 링크(감시 도구 결과의 sources). 그 밖의 메시지는 null.
     # 본문의 "출처:" 줄을 파싱하지 않게 따로 둔다(요약 글은 외부 글의 영향을 받은 모델 출력이라 줄을 꾸밀 수 있다).
     sources: Mapped[list[str] | None] = mapped_column(JSONB)
+    # 6단계 보강: 예약 작업 답의 제안 [{title, proposed_user_message, reason}] (app/agent/replies.py). 그 밖은 null.
+    suggestions: Mapped[list[dict[str, str]] | None] = mapped_column(JSONB)

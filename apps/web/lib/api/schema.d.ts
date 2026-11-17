@@ -831,6 +831,8 @@ export interface components {
             origin: "chat" | "schedule" | "watch";
             /** Sources */
             sources: string[];
+            /** Suggestions */
+            suggestions?: components["schemas"]["SuggestionOut"][];
         };
         /**
          * MessageRole
@@ -895,6 +897,11 @@ export interface components {
             schedules: components["schemas"]["ScheduleOut"][];
             /** Max Active */
             max_active: number;
+            /**
+             * Budget Paused
+             * @default false
+             */
+            budget_paused: boolean;
         };
         /** ScheduleOut */
         ScheduleOut: {
@@ -956,6 +963,18 @@ export interface components {
          * @enum {string}
          */
         StepStatus: "running" | "waiting_approval" | "done" | "failed" | "rejected" | "expired" | "unknown";
+        /** SuggestionOut */
+        SuggestionOut: {
+            /** Title */
+            title: string;
+            /** Proposed User Message */
+            proposed_user_message: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
         /**
          * TaskCreated
          * @description 메시지 전송 응답(202). 화면은 이 task_id로 GET /api/tasks/{id}를 조회한다.
@@ -1170,6 +1189,11 @@ export interface components {
             watches: components["schemas"]["WatchOut"][];
             /** Max Active */
             max_active: number;
+            /**
+             * Budget Paused
+             * @default false
+             */
+            budget_paused: boolean;
         };
         /** WatchOut */
         WatchOut: {

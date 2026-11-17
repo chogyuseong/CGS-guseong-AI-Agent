@@ -245,6 +245,7 @@ origin이 chat이면 4개 toolset(read_tools, internal_tools, mail_tools, extern
   예외(6단계): 예약 작업 task는 사용자 메시지 없이(trigger_message_id null) assistant 답변만 있고, 감시 충족 알림은 task 없이(task_id null)
   '예약 작업' 대화방에 assistant 메시지로 남는다.
 - `watches.condition_type`·`condition_spec`·`last_known_met`(6단계 보강): number(서버 비교 {field, op, value}, 목록이면 개수) | text(판정 모델). last_result.status는 met | not_met | unknown(reason: tool_failed·judge_failed·value_missing). `app/automation/conditions.py`.
+- `messages.suggestions`(6단계 보강): 예약 작업 답의 제안 [{title, proposed_user_message, reason}]. 예약 task는 agent.run의 output_type에 `AutomationReply`(app/agent/replies.py)를 더해 실행한다. 화면은 누르면 입력창에 채운다(보내기는 사용자).
 - `automation_occurrences`(6단계 보강): 예약·감시 발생 한 건. (kind, source_id, scheduled_for) 유일, status started|skipped, skip_reason missed·expired·budget, task_id(예약). 보관 7일. `scheduled_jobs.timezone`(기본 Asia/Seoul).
 - `scheduled_jobs.last_task_id`(6단계 추가, FK SET NULL): 마지막 실행 task. `scheduled_jobs.kind`(6단계 보강): custom | briefing. 아침 브리핑은 사용자가 켤 때만 생긴다(`PUT /api/schedules/briefing`). 예전 `users.briefing_seeded_at`은 지웠다.
 - `messages.sources`(8단계 추가, JSONB, null 허용, 마이그레이션 `a45125a7f4d9`): 조건 감시 알림의 출처 링크. 그 밖의 메시지는 null.

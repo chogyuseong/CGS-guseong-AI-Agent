@@ -46,6 +46,8 @@ class ScheduleListOut(BaseModel):
 
     schedules: list[ScheduleOut]
     max_active: int
+    # 6단계 보강: 오늘 하루 비용 한도에 닿았다(자동 작업은 내일 서울 자정이 지나면 다시 돈다)
+    budget_paused: bool = False
 
 
 # unknown(6단계 보강): 조회·판정 실패, 값 없음(reason). tool_failed·judge_failed는 보강 전 기록에만 있다.
@@ -91,6 +93,8 @@ class WatchListOut(BaseModel):
 
     watches: list[WatchOut]
     max_active: int
+    # 6단계 보강: 오늘 하루 비용 한도에 닿았다(감시 확인은 paused_budget으로 건너뛴다)
+    budget_paused: bool = False
 
 
 class BriefingUpdate(BaseModel):

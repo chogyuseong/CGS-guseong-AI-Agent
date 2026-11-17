@@ -61,7 +61,7 @@ def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None 
         output_type=[str, DeferredToolRequests],
         model_settings=model_settings_for(settings),
         # 기억(memory_instruction)은 마지막에 둔다. 요청마다 DB에서 최근 30줄을 새로 읽는다(prompts.py).
-        # automation_instruction(6단계)은 예약·감시 task에만 "자동 실행, 조회만, 행동은 [제안] 줄로"를 붙인다.
+        # automation_instruction(6단계)은 예약·감시 task에만 "자동 실행, 조회만, 행동은 suggestions로"를 붙인다.
         instructions=[SYSTEM_PROMPT, current_date_instruction, automation_instruction, memory_instruction],
         capabilities=[
             ResolveModelId(build_model_resolver(settings)),

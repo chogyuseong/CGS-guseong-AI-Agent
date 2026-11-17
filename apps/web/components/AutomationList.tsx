@@ -19,6 +19,7 @@ export function AutomationList() {
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <Guide />
+      <BudgetPausedNotice />
       <FeedbackLine feedback={feedback} />
       <ScheduleSection report={setFeedback} />
       <WatchSection report={setFeedback} />
@@ -28,10 +29,27 @@ export function AutomationList() {
 
 const GUIDE_LINES = [
   "아침 브리핑은 직접 켜야 실행됩니다. 계정을 만들었다고 저절로 돌지 않습니다.",
-  "자동 작업은 조회만 합니다. 일정 등록처럼 무언가를 바꾸는 일은 결과에 [제안]으로 알려 드리고, 그 버튼을 눌러야 채팅으로 보내져 평소처럼 승인을 거칩니다.",
+  "자동 작업은 조회만 합니다. 일정 등록처럼 무언가를 바꾸는 일은 결과에 제안 버튼으로 알려 드립니다. 누르면 입력창에 문장이 채워지고, 직접 보내야 평소처럼 승인을 거칩니다.",
   "예약 작업 결과와 조건 감시 알림은 '예약 작업' 대화방에 남습니다.",
   "예약과 감시는 채팅에서 말로 만듭니다. 이 화면에서는 켜기·끄기와 삭제만 할 수 있습니다.",
 ];
+
+// 6단계 보강: 하루 비용 한도에 닿으면 서버가 budget_paused를 준다. 예약·감시는 건너뛰고 서울 자정이 지나면 다시 돈다.
+function BudgetPausedNotice() {
+  const schedules = useSchedules();
+  const watches = useWatches();
+  if (!schedules.data?.budget_paused && !watches.data?.budget_paused) return null;
+  return (
+    <p
+      role="status"
+      aria-label="비용 한도"
+      className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm"
+    >
+      오늘 비용 한도에 닿아 자동 작업이 쉬는 중입니다. 예약 실행과 감시 확인은 건너뛰고, 내일(서울
+      자정 이후) 다시 실행됩니다. 한도는 비용 화면에서 확인할 수 있습니다.
+    </p>
+  );
+}
 
 function Guide() {
   return (

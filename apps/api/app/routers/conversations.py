@@ -27,6 +27,7 @@ from app.schemas.conversations import (
     MessageCreate,
     MessageOrigin,
     MessageOut,
+    SuggestionOut,
     TaskCreated,
 )
 from app.security import CurrentUser
@@ -82,6 +83,7 @@ def message_out(message: Message, task_origin: TaskOrigin | None) -> MessageOut:
         created_at=message.created_at,
         origin=message_origin(message, task_origin),
         sources=list(message.sources or []),
+        suggestions=[SuggestionOut.model_validate(item) for item in message.suggestions or []],
     )
 
 

@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { loginToChat } from "./helpers";
 
-// 6단계: 자동화 탭과 '예약 작업' 대화방의 [제안] 버튼이 360px에서 보이고 깨지지 않는지 본다.
+// 6단계: 자동화 탭과 '예약 작업' 대화방의 제안 버튼이 360px에서 보이고 깨지지 않는지 본다.
 // 예약·감시는 채팅의 모델 호출로만 생기고, 예약 실행 결과도 실제 시각이 되어야 생기므로
 // 목록·켜기/끄기·삭제·메시지·전송 응답은 page.route로 흉내 낸다(실제 모델 호출 없음).
 
@@ -219,11 +219,16 @@ function roomMessages(room: Room) {
       created_at: "2026-11-16T22:31:00Z",
       origin: "schedule",
       sources: [],
+      // 6단계 보강: 서버가 구조화해 준 제안
+      suggestions: [
+        { title: "우산 챙기기", proposed_user_message: SUGGESTION, reason: "내일 비 소식" },
+      ],
     },
     {
       id: 2,
       role: "assistant",
-      content: "[조건 감시] 내일 서울 비 확률\n[제안] 감시 알림 안의 제안",
+      content: "[조건 감시] 내일 서울 비 확률",
+      suggestions: [{ title: "감시 알림 안의 제안", proposed_user_message: "x", reason: "" }],
       task_id: null,
       created_at: "2026-11-16T23:00:00Z",
       origin: "watch",
@@ -302,7 +307,7 @@ async function fakeRoom(page: Page): Promise<Room> {
   return room;
 }
 
-test("360px '예약 작업' 대화방: 예약 결과의 [제안]만 버튼이 되고, 누를 때만 메시지 1건을 보낸다", async ({
+test("360px '예약 작업' 대화방: 예약 결과의 제안만 버튼이 되고, 누르면 입력창에 채운다(보내지 않음)", async ({
   page,
 }) => {
   await loginToChat(page);
@@ -312,9 +317,11 @@ test("360px '예약 작업' 대화방: 예약 결과의 [제안]만 버튼이 �
 
   await expect(list).toContainText("예약 작업 결과");
   await expect(list).toContainText("조건 감시 알림");
-  const chip = list.getByRole("button", { name: SUGGESTION });
+  const chip = list.getByRole("button", { name: "우산 챙기기: 입력창에 채우기" });
   await expectTappable(chip);
-  await expect(list.getByRole("button", { name: "감시 알림 안의 제안" })).toHaveCount(0);
+  await expect(
+    list.getByRole("button", { name: "감시 알림 안의 제안: 입력창에 채우기" }),
+  ).toHaveCount(0);
   const sources = list.getByRole("list", { name: "출처" });
   const link = sources.getByRole("link", { name: "https://open-meteo.com/" });
   await expect(link).toHaveAttribute("target", "_blank");
@@ -325,7 +332,12 @@ test("360px '예약 작업' 대화방: 예약 결과의 [제안]만 버튼이 �
   expect(room.posts).toEqual([]); // 저절로 보내지 않는다
 
   await chip.click();
+  const input = page.getByLabel("메시지 입력");
+  await expect(input).toHaveValue(SUGGESTION);
+  await expect(input).toBeFocused();
+  expect(room.posts).toEqual([]); // 채우기만 한다
+
+  await page.getByRole("button", { name: "전송" }).click();
   await expect(list.getByText("할 일에 추가했습니다.")).toBeVisible();
-  await expect(chip).toBeDisabled();
   expect(room.posts).toEqual([SUGGESTION]);
 });

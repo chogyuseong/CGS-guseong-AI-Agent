@@ -180,7 +180,7 @@ async def test_automation_instruction_only_for_automatic_tasks(tool_deps: AgentD
     schedule = tool_context(replace(tool_deps, origin=TaskOrigin.SCHEDULE), "x")
 
     assert automation_instruction(chat) == ""
-    assert "[제안]" in automation_instruction(schedule)
+    assert "suggestions" in automation_instruction(schedule)
 
 
 # ---- 예약 작업 ----
@@ -520,7 +520,7 @@ async def test_watch_skipped_when_daily_budget_is_used_up(
 
     watch = await refreshed(db_session, Watch, watch.id)
     assert seen == []
-    assert watch.last_result is not None and watch.last_result["status"] == "skipped_budget"
+    assert watch.last_result is not None and watch.last_result["status"] == "paused_budget"
     assert watch.next_run_at == now + timedelta(minutes=60)
 
 

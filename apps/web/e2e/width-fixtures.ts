@@ -132,13 +132,14 @@ function chatMessages() {
 
 function roomMessages() {
   return [
-    message(
-      1,
-      "assistant",
-      `오늘 일정은 2개입니다. ${LONG_WORD}\n[제안] ${LONG_SENTENCE}\n[제안] 우산 챙기기 할 일에 추가해줘`,
-      ROOM_TASK,
-      "schedule",
-    ),
+    {
+      ...message(1, "assistant", `오늘 일정은 2개입니다. ${LONG_WORD}`, ROOM_TASK, "schedule"),
+      // 6단계 보강: 구조화된 제안(긴 문장이 360px에서 넘치지 않는지)
+      suggestions: [
+        { title: LONG_WORD, proposed_user_message: LONG_SENTENCE, reason: LONG_SENTENCE },
+        { title: "우산 챙기기", proposed_user_message: "우산 챙기기 할 일에 추가해줘", reason: "" },
+      ],
+    },
     message(2, "assistant", `[조건 감시] 내일 서울 비 확률\n${LONG_URL}`, null, "watch", [
       LONG_URL,
       "https://open-meteo.com/",
@@ -202,7 +203,7 @@ function schedule(id: number, title: string, active: boolean) {
       id: ROOM_TASK,
       conversation_id: ROOM_ID,
       status: "done",
-      final_answer: `${LONG_SENTENCE} ${LONG_WORD}\n[제안] 우산 챙기기`,
+      final_answer: `${LONG_SENTENCE} ${LONG_WORD}`,
       error: null,
       updated_at: AT,
     },

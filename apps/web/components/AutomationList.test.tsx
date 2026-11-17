@@ -72,7 +72,13 @@ const RAIN: Watch = {
   },
 };
 
-type FakeServer = { schedules: Schedule[]; watches: Watch[]; patches: number; deletes: number };
+type FakeServer = {
+  schedules: Schedule[];
+  watches: Watch[];
+  patches: number;
+  deletes: number;
+  budgetPaused?: boolean;
+};
 
 function ok(data: unknown, status = 200) {
   return { data, error: undefined, response: { status, ok: true } };
@@ -97,8 +103,16 @@ function serve(schedules: Schedule[], watches: Watch[]): FakeServer {
   };
   getMock.mockImplementation(async (path: string) =>
     path === "/api/schedules"
-      ? ok({ schedules: server.schedules, max_active: 10 })
-      : ok({ watches: server.watches, max_active: 10 }),
+      ? ok({
+          schedules: server.schedules,
+          max_active: 10,
+          budget_paused: server.budgetPaused ?? false,
+        })
+      : ok({
+          watches: server.watches,
+          max_active: 10,
+          budget_paused: server.budgetPaused ?? false,
+        }),
   );
   patchMock.mockImplementation(async (path: string, options: Options) => {
     server.patches += 1;
@@ -213,6 +227,16 @@ describe("자동화 목록", () => {
     expect(item).not.toHaveTextContent("조건에 맞지 않음");
   });
 
+  it("하루 비용 한도에 닿았으면 자동 작업이 쉬는 중이라고 알린다(6단계 보강)", async () => {
+    const server = serve([BRIEFING], [RAIN]);
+    server.budgetPaused = true;
+    renderList();
+
+    expect(await screen.findByRole("status", { name: "비용 한도" })).toHaveTextContent(
+      "오늘 비용 한도에 닿아 자동 작업이 쉬는 중입니다",
+    );
+  });
+
   it("빈 상태: 채팅에서 만드는 예시 문장과 조회만 한다는 안내", async () => {
     serve([], []);
     renderList();
@@ -222,7 +246,7 @@ describe("자동화 목록", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/내일 서울에 비 올 확률이 60% 넘으면 알려줘/)).toBeInTheDocument();
     expect(document.body).toHaveTextContent("자동 작업은 조회만 합니다");
-    expect(document.body).toHaveTextContent("[제안]");
+    expect(document.body).toHaveTextContent("제안 버튼");
   });
 });
 

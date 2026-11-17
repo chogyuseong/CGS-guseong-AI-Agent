@@ -63,6 +63,7 @@ from app.agent.history import (
     pending_tool_call_ids,
 )
 from app.agent.plans import PlanDraft
+from app.agent.replies import AutomationReply
 from app.agent.results import not_executed_output
 from app.agent.toolsets import label_for, preview_for, toolsets_for
 from app.config import Settings
@@ -139,6 +140,7 @@ class Outcome:
     error: str | None = None
     new_messages: list[ModelMessage] = field(default_factory=list)
     deferred: DeferredToolRequests | None = None
+    suggestions: list[dict[str, str]] | None = None  # 6단계 보강: 예약 작업 답의 제안(replies.AutomationReply)
 
 
 @dataclass
@@ -245,9 +247,20 @@ async def record_run_finish(
 # ---- agent.run ----
 
 
-def outcome_of(output: str | DeferredToolRequests, new_messages: list[ModelMessage]) -> Outcome:
+def output_type_for(origin: TaskOrigin) -> Any:
+    """6단계 보강: 예약 작업은 구조화된 답(AutomationReply)도 받는다. 채팅은 그대로 글(str)."""
+    if origin == TaskOrigin.SCHEDULE:
+        return [str, AutomationReply, DeferredToolRequests]
+    return [str, DeferredToolRequests]
+
+
+def outcome_of(output: object, new_messages: list[ModelMessage]) -> Outcome:
+    if isinstance(output, AutomationReply):
+        return Outcome(
+            TaskStatus.DONE, final_answer=output.text, new_messages=new_messages, suggestions=output.suggestion_rows()
+        )
     if not isinstance(output, DeferredToolRequests):
-        return Outcome(TaskStatus.DONE, final_answer=output, new_messages=new_messages)
+        return Outcome(TaskStatus.DONE, final_answer=str(output), new_messages=new_messages)
     if output.calls:
         # 승인이 아닌 "외부 실행 대기"(CallDeferred)는 이 앱에 없다. 생기면 실패로 끝낸다.
         logger.error("처리할 수 없는 지연 호출: %s", [c.tool_name for c in output.calls])
@@ -277,6 +290,7 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
                 message_history=history,
                 deferred_tool_results=run_input.deferred_results,
                 toolsets=toolsets_for(info.origin),
+                output_type=output_type_for(info.origin),
                 usage_limits=build_usage_limits(services.settings),
                 usage=run_input.usage,
             )
@@ -424,7 +438,11 @@ async def save_outcome(
             reply = (reply or "") + await completed_external_note(session, info.id)
         session.add(
             Message(
-                conversation_id=info.conversation_id, role=MessageRole.ASSISTANT, content=reply or "", task_id=info.id
+                conversation_id=info.conversation_id,
+                role=MessageRole.ASSISTANT,
+                content=reply or "",
+                task_id=info.id,
+                suggestions=outcome.suggestions if outcome.status in ANSWERED_STATUSES else None,
             )
         )
     conversation = await session.get_one(Conversation, info.conversation_id)

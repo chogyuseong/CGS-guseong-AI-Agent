@@ -180,7 +180,7 @@ OCCURRENCE_WATCH = "watch"
 OCCURRENCE_STARTED = "started"
 OCCURRENCE_SKIPPED = "skipped"
 SKIP_MISSED = "missed"  # 유예 시간보다 오래 놓쳤다(서버가 꺼져 있었다)
-OCCURRENCE_SKIP_REASONS = {"expired": "expired", "skipped_budget": "budget"}
+OCCURRENCE_SKIP_REASONS = {"expired": "expired", "paused_budget": "budget"}
 
 
 @dataclass(frozen=True)
@@ -322,7 +322,7 @@ async def claim_watch_run(services: RunServices, watch_id: int, run_at: datetime
         if watch.expires_at <= now:
             watch.is_active, skip = False, "expired"
         elif await daily_cost_exceeded(session, watch.user_id, services.settings):
-            skip = "skipped_budget"
+            skip = "paused_budget"  # 6단계 보강: 화면에 "오늘은 쉬는 중"으로 보인다
         add_occurrence(session, watch, run_at, skip=OCCURRENCE_SKIP_REASONS.get(skip or ""), task_id=None)
         if skip is not None:
             watch.last_result = {"status": skip, "checked_at": now.isoformat()}

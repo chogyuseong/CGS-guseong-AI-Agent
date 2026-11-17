@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from app.automation.rules import AUTOMATION_CONVERSATION_TITLE
 from app.models.enums import MessageRole
@@ -48,6 +48,12 @@ class MessageCreate(BaseModel):
     client_request_id: uuid.UUID
 
 
+class SuggestionOut(BaseModel):
+    title: str
+    proposed_user_message: str
+    reason: str = ""
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +68,8 @@ class MessageOut(BaseModel):
     # 조건 감시 알림이 근거로 삼은 출처 링크(감시 도구 결과의 sources). 그 밖의 메시지는 빈 목록.
     # 외부 서비스가 준 주소이므로 화면은 http·https만 링크로 만든다.
     sources: list[str]
+    # 6단계 보강: 예약 작업 답의 제안. 누르면 입력창에 proposed_user_message를 채운다(보내기는 사용자). 없으면 빈 목록.
+    suggestions: list[SuggestionOut] = Field(default_factory=list)
 
 
 class TaskCreated(BaseModel):

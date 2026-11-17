@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef } from "react";
 import type { Message } from "@/lib/chat";
-import { parseSuggestions, suggestionMessageIds } from "@/lib/suggestions";
+import { suggestionMessageIds } from "@/lib/suggestions";
 import { cn } from "@/lib/utils";
 import { PendingTask } from "./PendingTask";
 import { SourceLinks } from "./SourceLinks";
@@ -14,11 +14,11 @@ type MessageListProps = {
   // 서버 응답을 기다리는 동안 미리 보여 줄 내 메시지. ?는 없어도 된다는 뜻(Optional).
   pendingText?: string;
   // '예약 작업' 대화방이면 true(6단계). 자동으로 생긴 메시지(서버 origin이 schedule·watch)에 출처를 표시하고
-  // 예약 작업 결과에 [제안] 버튼을 붙일 수 있다.
+  // 예약 작업 결과에 제안 버튼을 붙일 수 있다.
   automationRoom?: boolean;
-  // [제안] 문장을 이 대화에 일반 메시지로 보낸다. 없으면 버튼을 그리지 않는다.
-  onSuggestion?: (text: string) => Promise<unknown>;
-  // 입력창에서 보내는 중이면 true([제안] 버튼도 막는다).
+  // 제안 문장을 입력창에 채운다(보내지 않는다, 6단계 보강). 없으면 버튼을 그리지 않는다.
+  onSuggestion?: (text: string) => void;
+  // 입력창에서 보내는 중이면 true(제안 버튼도 막는다).
   sending?: boolean;
   // 내 메시지 없이 시작해 아직 답변이 없는 task(예약 작업 실행 중). 목록 끝에 진행 상황을 붙인다.
   openTaskIds?: number[];
@@ -82,7 +82,7 @@ function automaticOriginText(message: Message): string | null {
 type BubbleProps = {
   message: Message;
   origin: string | null;
-  // 있으면 본문의 [제안] 줄을 버튼으로 붙인다.
+  // 있으면 서버가 준 제안(message.suggestions)을 버튼으로 붙인다.
   suggestion?: SuggestionProps;
 };
 
@@ -103,8 +103,8 @@ function MessageBubble({ message, origin, suggestion }: BubbleProps) {
         {message.content}
         {suggestion?.onSuggestion && (
           <SuggestionChips
-            suggestions={parseSuggestions(message.content)}
-            onSend={suggestion.onSuggestion}
+            suggestions={message.suggestions ?? []}
+            onPick={suggestion.onSuggestion}
             disabled={suggestion.sending}
           />
         )}

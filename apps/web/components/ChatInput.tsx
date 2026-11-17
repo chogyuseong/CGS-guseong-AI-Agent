@@ -4,7 +4,7 @@
 "use client";
 
 import { Mic, SendHorizontal, Square } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { joinTranscript, useSpeechInput } from "@/lib/speech";
 
@@ -13,14 +13,18 @@ type ChatInputProps = {
   // 실패하면 예외를 던지고, 그때는 입력한 내용을 지우지 않는다.
   onSend: (text: string) => Promise<unknown> | unknown;
   pending: boolean;
+  // 6단계 보강: 예약 작업 제안을 고르면 이 문장을 입력창에 채운다(보내지 않는다). id가 바뀔 때마다 채운다.
+  prefill?: Prefill | null;
 };
+
+export type Prefill = { id: number; text: string };
 
 const MAX_LENGTH = 4000;
 
 // 채팅 입력창. 글자 16px(text-base): 아이폰 사파리는 16px 미만 입력칸을 누르면 화면을 확대한다.
 // 전송 중에는 입력과 버튼을 막아 같은 요청이 두 번 가지 않게 한다.
 // 마이크 버튼: 말한 문장을 입력창 끝에 붙이기만 한다. 보내기는 사용자가 읽고 고친 뒤 직접 한다.
-export function ChatInput({ onSend, pending }: ChatInputProps) {
+export function ChatInput({ onSend, pending, prefill = null }: ChatInputProps) {
   // useState: 컴포넌트가 기억하는 값과 그 값을 바꾸는 함수. (폼 객체의 cleaned_data를 화면이 직접 들고 있는 느낌)
   const [text, setText] = useState("");
   const trimmed = text.trim();
@@ -28,6 +32,14 @@ export function ChatInput({ onSend, pending }: ChatInputProps) {
     setText((current) => joinTranscript(current, spoken, MAX_LENGTH)),
   );
   const { cancel } = speech;
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 제안을 고르면 입력창을 그 문장으로 바꾸고 포커스한다. 사용자가 읽고 고친 뒤 직접 보낸다.
+  useEffect(() => {
+    if (prefill === null) return;
+    setText(prefill.text.slice(0, MAX_LENGTH));
+    inputRef.current?.focus();
+  }, [prefill]);
 
   // 전송 중이 되면 듣기를 취소한다. 보낸 뒤 늦게 온 결과가 비워진 입력창에 들어가지 않게.
   useEffect(() => {
@@ -60,6 +72,7 @@ export function ChatInput({ onSend, pending }: ChatInputProps) {
           메시지 입력
         </label>
         <textarea
+          ref={inputRef}
           id="chat-input"
           rows={1}
           value={text}
