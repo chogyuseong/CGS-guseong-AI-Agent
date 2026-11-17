@@ -29,7 +29,7 @@ resume_task 흐름 (마지막 승인 결정 → resume_task 워크플로):
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx
@@ -43,7 +43,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent import approvals
 from app.agent.agent import MyAgent
-from app.agent.budget import build_usage_limits, calculate_cost, daily_cost_exceeded
+from app.agent.budget import (
+    UNPRICED_MESSAGE,
+    DailyBudgetExceededError,
+    UnpricedModelError,
+    build_usage_limits,
+    calculate_cost,
+    daily_cost_exceeded,
+)
 from app.agent.deps import AgentDeps
 from app.agent.durable import current_workflow_id, durable_step
 from app.agent.guard import GuardAgent, GuardReview, check_action
@@ -225,6 +232,13 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
             return outcome_of(result.output, captured[len(history) :])
         except UsageLimitExceeded:
             return Outcome(TaskStatus.BUDGET_EXCEEDED, error=TASK_BUDGET_MESSAGE, new_messages=captured[len(history) :])
+        except DailyBudgetExceededError:
+            # 다음 모델 호출의 예상 비용을 잡으면 오늘 한도를 넘는다. 그 호출은 보내지 않았다.
+            new = captured[len(history) :]
+            return Outcome(TaskStatus.BUDGET_EXCEEDED, error=DAILY_BUDGET_MESSAGE, new_messages=new)
+        except UnpricedModelError:
+            logger.error("task %s: 가격표에 없는 모델이라 부르지 않음", info.id)
+            return Outcome(TaskStatus.FAILED, error=UNPRICED_MESSAGE, new_messages=captured[len(history) :])
         except UnexpectedModelBehavior:
             logger.warning("task %s: 모델 응답 이상으로 실패", info.id, exc_info=True)
             return Outcome(TaskStatus.FAILED, error=MODEL_BEHAVIOR_MESSAGE, new_messages=captured[len(history) :])
@@ -248,8 +262,12 @@ async def prepare_requests(
     for call in deferred.approvals:
         args = call.args_as_dict()
         summary = await preview_for(deps, call.tool_name, args)
+        scope = replace(
+            deps.budget_scope, key_prefix=f"guard:{info.id}:{call.tool_call_id}", purpose=UsagePurpose.GUARD
+        )
         review = await check_action(
             services.guard,
+            scope,
             request_text=info.request_text or "",
             tool_name=call.tool_name,
             tool_input=args,

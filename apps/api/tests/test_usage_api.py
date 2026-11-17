@@ -14,7 +14,7 @@ from app.agent.budget import seoul_day_start
 from app.config import Settings
 from app.models import UsageLog, User
 from app.models.enums import UsagePurpose
-from tests.conftest import UserFactory
+from tests.conftest import UserFactory, spent_today
 
 
 def log(user: User, purpose: UsagePurpose, cost: str, *, minutes_from_today: int, model: str = "claude-haiku-5-5"):
@@ -38,6 +38,9 @@ async def add_sample_logs(db_session: AsyncSession, me: User, other: User) -> No
             log(me, UsagePurpose.AGENT, "0.200000", minutes_from_today=-30, model="claude-sonnet-5-5"),
             log(me, UsagePurpose.EVAL, "0.050000", minutes_from_today=-60 * 24 * 2),
             log(other, UsagePurpose.AGENT, "0.900000", minutes_from_today=10),  # 남의 사용량은 섞이지 않는다
+            # 하루 한도 원장(1단계 보강). 오늘 기록과 같은 금액이 정산돼 있다.
+            spent_today(me.id, Decimal("0.011")),
+            spent_today(other.id, Decimal("0.9")),
         ]
     )
     await db_session.commit()
@@ -88,6 +91,7 @@ async def test_today_remaining_is_zero_when_limit_exceeded(
 ) -> None:
     test_settings.daily_cost_limit_usd = Decimal("0.05")
     db_session.add(log(logged_in_user, UsagePurpose.WATCH, "0.070000", minutes_from_today=5))
+    db_session.add(spent_today(logged_in_user.id, Decimal("0.07")))
     await db_session.commit()
 
     today = (await client.get("/api/usage", params={"days": 1})).json()["today"]
@@ -101,3 +105,21 @@ async def test_usage_days_must_be_in_range(client: httpx.AsyncClient, logged_in_
     assert (await client.get("/api/usage", params={"days": 91})).status_code == 422
     default = (await client.get("/api/usage")).json()
     assert len(default["days"]) == 14
+
+
+async def test_today_remaining_counts_pending_reservations(
+    client: httpx.AsyncClient, db_session: AsyncSession, logged_in_user: User, test_settings: Settings
+) -> None:
+    """남은 한도는 서버가 막는 기준(원장: 정산된 비용 + 미정산 예약)과 같다. 오늘 비용은 기록된 실제 비용이다."""
+    test_settings.daily_cost_limit_usd = Decimal("1.0")
+    db_session.add(log(logged_in_user, UsagePurpose.AGENT, "0.010000", minutes_from_today=5))
+    day = spent_today(logged_in_user.id, Decimal("0.01"))
+    day.reserved_usd = Decimal("0.2")
+    db_session.add(day)
+    await db_session.commit()
+
+    today = (await client.get("/api/usage", params={"days": 1})).json()["today"]
+
+    assert today["cost_usd"] == 0.01
+    assert today["remaining_usd"] == 0.79
+    assert today["exceeded"] is False

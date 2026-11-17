@@ -8,15 +8,20 @@ Django의 request 객체처럼, 도구 함수가 "누가, 어떤 작업에서" �
   키는 SecretStr이라 로그에 찍히지 않는다.
 - http: 외부 API를 부르는 httpx 클라이언트(4단계). 앱이 시작할 때 하나 만들어 연결을 재사용하고, 테스트는
   가짜 전송(MockTransport)을 쓰는 클라이언트로 바꿔 끼운다. 호출 규칙(타임아웃, 재시도, 오류 문장)은 app/tools/http.py.
+- budget_scope: 모델 호출마다 예산을 잡을 때 쓰는 범위(1단계 보강, app/agent/budget.py). 키는 task:{id}.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models.enums import TaskOrigin
+from app.models.enums import TaskOrigin, UsagePurpose
+
+if TYPE_CHECKING:
+    from app.agent.budget import BudgetScope
 
 
 @dataclass(frozen=True)
@@ -27,3 +32,17 @@ class AgentDeps:
     db: async_sessionmaker[AsyncSession]
     settings: Settings
     http: httpx.AsyncClient
+
+    @property
+    def budget_scope(self) -> "BudgetScope":
+        # budget가 prompts→deps를 거쳐 이 모듈을 불러오므로, 순환을 피하려고 여기서 불러온다.
+        from app.agent.budget import BudgetScope
+
+        return BudgetScope(
+            user_id=self.user_id,
+            task_id=self.task_id or None,
+            key_prefix=f"task:{self.task_id}",
+            purpose=UsagePurpose.AGENT,
+            db=self.db,
+            settings=self.settings,
+        )

@@ -2,6 +2,7 @@
 
 from app.models.automation import ScheduledJob, Watch
 from app.models.base import Base
+from app.models.budget import BudgetReservation, DailyBudget
 from app.models.chat import Conversation, Message
 from app.models.integration import Connection, PushSubscription
 from app.models.personal import Memory, Note, Todo
@@ -11,8 +12,10 @@ from app.models.user import User, UserSession
 __all__ = [
     "Approval",
     "Base",
+    "BudgetReservation",
     "Connection",
     "Conversation",
+    "DailyBudget",
     "GuardCheck",
     "Memory",
     "Message",

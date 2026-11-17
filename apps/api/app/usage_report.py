@@ -1,7 +1,9 @@
-"""비용 화면(9단계 2번)의 합계 계산. usage_logs만 읽는다.
+"""비용 화면(9단계 2번)의 합계 계산. 합계는 usage_logs, 오늘 남은 한도는 하루 원장(daily_budgets)을 읽는다.
 
-- 날짜는 Asia/Seoul 기준이다. 하루 비용 상한 검사(app/agent/budget.py의 seoul_day_start, cost_today)와 같은 0시 경계를
-  쓰므로 화면의 "오늘 비용"과 서버가 상한을 검사할 때의 금액이 같다.
+- 날짜는 Asia/Seoul 기준이다(app/agent/budget.py와 같은 0시 경계).
+- 1단계 보강: 서버는 원장(정산된 비용 + 아직 정산 안 된 예약)으로 한도를 막으므로,
+  "남은 한도"·"초과"도 원장으로 보여 준다.
+  결과를 모르는 호출의 예약은 풀리지 않아 "오늘 비용"(기록된 실제 비용)보다 많이 잡힐 수 있다.
 - 모든 조회에 user_id 조건을 건다.
 """
 
@@ -14,7 +16,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import QueryableAttribute
 
-from app.agent.budget import COST_PLACES, cost_today, seoul_day_start
+from app.agent.budget import COST_PLACES, committed_today, cost_today, seoul_day_start
 from app.config import Settings
 from app.models import UsageLog
 from app.models.enums import UsagePurpose
@@ -73,13 +75,14 @@ def seoul_date_of_row() -> ColumnElement[Any]:
 
 async def today_out(session: AsyncSession, user_id: int, settings: Settings, today: date) -> UsageTodayOut:
     spent = await cost_today(session, user_id)
+    committed = await committed_today(session, user_id)
     limit = settings.daily_cost_limit_usd
     return UsageTodayOut(
         date=today,
         cost_usd=money(spent),
         limit_usd=money(limit),
-        remaining_usd=money(max(limit - spent, Decimal(0))),
-        exceeded=spent >= limit,
+        remaining_usd=money(max(limit - committed, Decimal(0))),
+        exceeded=committed >= limit,
     )
 
 

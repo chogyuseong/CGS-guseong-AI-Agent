@@ -20,6 +20,7 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities import ResolveModelId
 from pydantic_ai.usage import RunUsage
 
+from app.agent.budget import BudgetCapability, BudgetScope
 from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.config import Settings
 from app.models.enums import VerdictKind
@@ -43,7 +44,8 @@ class GuardVerdict(BaseModel):
     reason: str = Field(min_length=1, max_length=300)
 
 
-type GuardAgent = Agent[None, GuardVerdict]
+# deps는 예산 범위(BudgetScope) 하나. 감시 호출도 같은 하루 원장에 예약·정산한다(1단계 보강).
+type GuardAgent = Agent[BudgetScope, GuardVerdict]
 
 
 @dataclass(frozen=True)
@@ -61,10 +63,11 @@ def build_guard_agent(settings: Settings) -> GuardAgent:
     return Agent(
         settings.agent_model_guard,
         name="myagent-guard",
+        deps_type=BudgetScope,
         output_type=GuardVerdict,
         instructions=GUARD_INSTRUCTIONS,
         model_settings=model_settings_for(settings),
-        capabilities=[ResolveModelId(build_model_resolver(settings))],
+        capabilities=[ResolveModelId(build_model_resolver(settings)), BudgetCapability()],
     )
 
 
@@ -80,13 +83,19 @@ def build_guard_prompt(*, request_text: str, tool_name: str, tool_input: dict[st
 
 
 async def check_action(
-    guard: GuardAgent, *, request_text: str, tool_name: str, tool_input: dict[str, Any], preview: str
+    guard: GuardAgent,
+    scope: BudgetScope,
+    *,
+    request_text: str,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    preview: str,
 ) -> GuardReview:
-    """제안된 행동 하나를 검사한다. 어떤 예외도 밖으로 내지 않고 unsure로 바꾼다."""
+    """제안된 행동 하나를 검사한다. 어떤 예외도(하루 한도 초과 포함) 밖으로 내지 않고 unsure로 바꾼다."""
     prompt = build_guard_prompt(request_text=request_text, tool_name=tool_name, tool_input=tool_input, preview=preview)
     try:
         # message_history를 넘기지 않는다: 감시 에이전트는 이 요청 하나만 본다.
-        result = await guard.run(prompt)
+        result = await guard.run(prompt, deps=scope)
     except Exception:
         logger.warning("감시 에이전트 실패: tool=%s", tool_name, exc_info=True)
         return GuardReview(VerdictKind.UNSURE, FAILURE_REASON, model=model_label(guard), usage=None)

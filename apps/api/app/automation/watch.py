@@ -18,6 +18,7 @@ from pydantic_ai import Agent
 from pydantic_ai.capabilities import ResolveModelId
 from pydantic_ai.usage import RunUsage
 
+from app.agent.budget import BudgetCapability, BudgetScope
 from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.agent.results import ToolResult
 from app.automation import rules
@@ -41,7 +42,8 @@ class WatchVerdict(BaseModel):
     summary: str = Field(max_length=300)
 
 
-type WatchAgent = Agent[None, WatchVerdict]
+# deps는 예산 범위(BudgetScope). 판정 호출도 같은 하루 원장에 예약·정산한다(1단계 보강).
+type WatchAgent = Agent[BudgetScope, WatchVerdict]
 
 
 @dataclass(frozen=True)
@@ -60,10 +62,11 @@ def build_watch_agent(settings: Settings) -> WatchAgent:
     return Agent(
         settings.agent_model_fast,
         name="myagent-watch",
+        deps_type=BudgetScope,
         output_type=WatchVerdict,
         instructions=WATCH_INSTRUCTIONS,
         model_settings=model_settings_for(settings),
-        capabilities=[ResolveModelId(build_model_resolver(settings))],
+        capabilities=[ResolveModelId(build_model_resolver(settings)), BudgetCapability()],
     )
 
 
@@ -83,10 +86,10 @@ def model_label(agent: WatchAgent) -> str:
     return (name or "unknown")[:100]
 
 
-async def judge(agent: WatchAgent, prompt: str) -> WatchReview:
-    """조건 충족 여부를 판정한다. 어떤 예외도 밖으로 내지 않고 met=false로 바꾼다."""
+async def judge(agent: WatchAgent, prompt: str, scope: BudgetScope) -> WatchReview:
+    """조건 충족 여부를 판정한다. 어떤 예외도(하루 한도 초과 포함) 밖으로 내지 않고 판정 실패(judged=False)로 바꾼다."""
     try:
-        result = await agent.run(prompt)
+        result = await agent.run(prompt, deps=scope)
     except Exception:
         logger.warning("감시 판정 실패", exc_info=True)
         return WatchReview(met=False, summary="", judged=False, model=model_label(agent), usage=None)

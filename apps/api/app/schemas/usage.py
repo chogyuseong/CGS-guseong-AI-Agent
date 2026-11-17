@@ -36,7 +36,7 @@ class UsageTodayOut(BaseModel):
     date: date
     cost_usd: float
     limit_usd: float  # DAILY_COST_LIMIT_USD
-    remaining_usd: float  # 한도 - 오늘 비용, 0 아래로 내려가지 않음
+    remaining_usd: float  # 한도 - (정산된 비용 + 아직 정산 안 된 예약), 0 아래로 내려가지 않음
     exceeded: bool  # True면 새 작업·예약 실행·감시가 모델을 부르지 않는다
 
 

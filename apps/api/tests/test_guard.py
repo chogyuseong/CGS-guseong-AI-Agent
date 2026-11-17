@@ -1,13 +1,16 @@
 """감시 에이전트 테스트 (SPEC 테스트 11). 감시 에이전트가 받는 입력은 네 가지뿐이고 도구 결과는 들어가지 않는다."""
 
 import httpx
+import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.agent import MyAgent
+from app.agent.budget import BudgetScope
 from app.agent.guard import GuardAgent, check_action
+from app.config import Settings
 from app.models import GuardCheck, Todo, UsageLog, User
 from app.models.enums import UsagePurpose, VerdictKind
 from tests.fake_tools import FakeExternalCounter
@@ -71,23 +74,42 @@ async def test_guard_usage_is_logged_with_guard_purpose(
     assert check.model == "guard-scripted"
 
 
-async def test_guard_failure_becomes_unsure(guard: GuardAgent) -> None:
+async def test_guard_failure_becomes_unsure(guard: GuardAgent, guard_scope: BudgetScope) -> None:
     def broken(messages: list, info: AgentInfo):
         raise RuntimeError("감시 모델 장애")
 
-    with guard.override(model=FunctionModel(broken)):
-        review = await check_action(guard, request_text="요청", tool_name="t", tool_input={}, preview="미리보기")
+    with guard.override(model=FunctionModel(broken, model_name="guard-scripted")):
+        review = await check_action(
+            guard, guard_scope, request_text="요청", tool_name="t", tool_input={}, preview="미리보기"
+        )
 
     assert review.verdict == VerdictKind.UNSURE
     assert review.reason
     assert review.usage is None
 
 
-async def test_guard_bad_output_becomes_unsure(guard: GuardAgent) -> None:
+async def test_guard_bad_output_becomes_unsure(guard: GuardAgent, guard_scope: BudgetScope) -> None:
     def nonsense(messages: list, info: AgentInfo) -> ModelResponse:
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"verdict": "maybe"})])
 
-    with guard.override(model=FunctionModel(nonsense)):
-        review = await check_action(guard, request_text="요청", tool_name="t", tool_input={}, preview="미리보기")
+    with guard.override(model=FunctionModel(nonsense, model_name="guard-scripted")):
+        review = await check_action(
+            guard, guard_scope, request_text="요청", tool_name="t", tool_input={}, preview="미리보기"
+        )
 
     assert review.verdict == VerdictKind.UNSURE
+
+
+@pytest.fixture
+def guard_scope(
+    logged_in_user: User, session_factory: async_sessionmaker[AsyncSession], test_settings: Settings
+) -> BudgetScope:
+    """감시 에이전트를 직접 부를 때 쓰는 예산 범위(1단계 보강)."""
+    return BudgetScope(
+        user_id=logged_in_user.id,
+        task_id=None,
+        key_prefix="guard-test",
+        purpose=UsagePurpose.GUARD,
+        db=session_factory,
+        settings=test_settings,
+    )

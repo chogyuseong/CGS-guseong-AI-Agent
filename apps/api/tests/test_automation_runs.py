@@ -57,7 +57,7 @@ from app.models.enums import (
 )
 from app.push import PushNotifier
 from app.users import create_user_if_missing
-from tests.conftest import tool_context
+from tests.conftest import spent_today, tool_context
 from tests.fake_push import FakePushSender
 from tests.fake_tools import FakeExternalCounter, fake_external
 from tests.model_scripts import call, scripted, text
@@ -312,16 +312,7 @@ async def test_schedule_skips_model_when_daily_budget_is_used_up(
     logged_in_user: User,
     test_settings: Settings,
 ) -> None:
-    db_session.add(
-        UsageLog(
-            user_id=logged_in_user.id,
-            purpose=UsagePurpose.AGENT,
-            model="x",
-            input_tokens=0,
-            output_tokens=0,
-            cost_usd=Decimal(test_settings.daily_cost_limit_usd),
-        )
-    )
+    db_session.add(spent_today(logged_in_user.id, Decimal(test_settings.daily_cost_limit_usd)))
     now = datetime.now(UTC)
     await add_job(db_session, logged_in_user, now - timedelta(minutes=1))
     model = scripted(text("요약"))
@@ -526,16 +517,7 @@ async def test_watch_skipped_when_daily_budget_is_used_up(
     logged_in_user: User,
     test_settings: Settings,
 ) -> None:
-    db_session.add(
-        UsageLog(
-            user_id=logged_in_user.id,
-            purpose=UsagePurpose.AGENT,
-            model="x",
-            input_tokens=0,
-            output_tokens=0,
-            cost_usd=Decimal(test_settings.daily_cost_limit_usd),
-        )
-    )
+    db_session.add(spent_today(logged_in_user.id, Decimal(test_settings.daily_cost_limit_usd)))
     now = datetime.now(UTC)
     watch = await add_watch(db_session, logged_in_user, now)
     seen: list[list[ModelMessage]] = []

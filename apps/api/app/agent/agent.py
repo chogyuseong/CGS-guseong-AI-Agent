@@ -33,6 +33,7 @@ from pydantic_ai.durable_exec.dbos import DBOSDurability
 from pydantic_ai.models import Model
 from pydantic_ai.tools import DeferredToolRequests
 
+from app.agent.budget import BudgetCapability
 from app.agent.deps import AgentDeps
 from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.agent.prompts import (
@@ -64,6 +65,7 @@ def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None 
         instructions=[SYSTEM_PROMPT, current_date_instruction, automation_instruction, memory_instruction],
         capabilities=[
             ResolveModelId(build_model_resolver(settings)),
+            BudgetCapability(),
             StepTracking(),
             DBOSDurability(models=extra_models, parallel_execution_mode="sequential"),
         ],

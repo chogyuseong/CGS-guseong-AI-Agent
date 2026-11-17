@@ -17,14 +17,15 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.settings import ModelSettings
 
+from app.agent.budget import MAX_OUTPUT_TOKENS
 from app.config import Settings
 
 ANTHROPIC_PREFIX = "anthropic:"
 
 
 def model_settings_for(settings: Settings) -> ModelSettings:
-    """세 에이전트(메인, 감시, 감시 판정)가 함께 쓰는 호출 설정. 호출 한 번의 제한 시간을 건다."""
-    return ModelSettings(timeout=settings.model_call_timeout_seconds)
+    """세 에이전트(메인, 감시, 감시 판정)가 함께 쓰는 호출 설정. 제한 시간과 출력 상한(예산 예상의 기준)."""
+    return ModelSettings(timeout=settings.model_call_timeout_seconds, max_tokens=MAX_OUTPUT_TOKENS)
 
 
 def build_model_resolver(settings: Settings) -> Callable[[ModelResolutionContext[Any], str], Model | None]:

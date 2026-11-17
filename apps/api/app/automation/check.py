@@ -40,7 +40,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent import approvals, runner
-from app.agent.budget import calculate_cost, daily_cost_exceeded
+from app.agent.budget import BudgetScope, calculate_cost, daily_cost_exceeded
 from app.agent.deps import AgentDeps
 from app.agent.durable import durable_step
 from app.agent.results import ToolResult
@@ -291,11 +291,21 @@ async def execute_watch_tool(services: RunServices, job: WatchJob) -> ToolResult
     return await run_watch_tool(deps, job.tool_name, job.tool_input)
 
 
-async def judge_watch(agent: WatchAgent, job: WatchJob, result: ToolResult, now: datetime) -> WatchReview:
+async def judge_watch(
+    services: RunServices, agent: WatchAgent, job: WatchJob, result: ToolResult, now: datetime
+) -> WatchReview:
     prompt = build_watch_prompt(
         description=job.description, condition_text=job.condition_text, checked_at=now, result=result
     )
-    return await judge(agent, prompt)
+    scope = BudgetScope(
+        user_id=job.user_id,
+        task_id=None,
+        key_prefix=f"watch:{job.id}:{now.isoformat()}",
+        purpose=UsagePurpose.WATCH,
+        db=services.session_factory,
+        settings=services.settings,
+    )
+    return await judge(agent, prompt, scope)
 
 
 def watch_status(result: ToolResult, review: WatchReview | None) -> str:
@@ -398,7 +408,7 @@ async def run_watch(services: AutomationServices, watch_id: int, run_at: datetim
     result = await durable_step("watch_tool", execute_watch_tool, run, job)
     review = None
     if result.ok:
-        review = await durable_step("watch_verdict", judge_watch, services.watch_agent, job, result, now)
+        review = await durable_step("watch_verdict", judge_watch, run, services.watch_agent, job, result, now)
     conversation_id = await durable_step("finish_watch", finish_watch, run.session_factory, job, result, review, now)
     if conversation_id is not None:
         await durable_step("notify_watch", send_watch_push, run, job.user_id, conversation_id)

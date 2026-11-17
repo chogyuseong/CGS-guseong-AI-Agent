@@ -58,3 +58,11 @@ class UsagePurpose(StrEnum):
     GUARD = "guard"
     WATCH = "watch"
     EVAL = "eval"
+
+
+class ReservationStatus(StrEnum):
+    """모델 호출 한 번의 예산 예약 상태(1단계 보강, BUILD_SPEC 6.2)."""
+
+    RESERVED = "reserved"  # 호출 전 예상 비용을 잡아 둠
+    SETTLED = "settled"  # 응답을 받아 실제 비용으로 정산함
+    UNKNOWN = "unknown"  # 호출 결과를 모름(오류·시간 초과). 청구됐을 수 있어 예약액을 풀지 않는다

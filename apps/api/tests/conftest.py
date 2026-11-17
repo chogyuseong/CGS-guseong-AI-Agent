@@ -33,6 +33,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionm
 from sqlalchemy.pool import NullPool
 
 from app.agent.agent import MyAgent
+from app.agent.budget import seoul_today
 from app.agent.deps import AgentDeps
 from app.agent.guard import GuardAgent
 from app.agent.results import ToolResult
@@ -68,10 +70,10 @@ from app.agent.toolsets import (
 from app.agent.workflows import DBOS_SYSTEM_SCHEMA, WorkflowLauncher, automation_services_from_state
 from app.automation.check import AutomationServices
 from app.automation.watch import WatchAgent
-from app.config import REPO_ROOT, Settings
+from app.config import MODEL_PRICES, REPO_ROOT, ModelPrice, Settings
 from app.db import get_session
 from app.main import create_app
-from app.models import Conversation, Task, User
+from app.models import Conversation, DailyBudget, Task, User
 from app.models.enums import TaskOrigin, TaskStatus
 from app.security import hash_password
 from tests.db_guard import check_test_database
@@ -377,6 +379,42 @@ async def committed_app(
         async with engine.begin() as connection:
             await connection.execute(text("TRUNCATE users CASCADE"))
         await engine.dispose()
+
+
+@pytest.fixture
+async def make_committed_user(migrated_database_url: str) -> AsyncIterator[UserFactory]:
+    """실제로 커밋되는 사용자(동시성 테스트용). 끝나면 users를 TRUNCATE ... CASCADE로 비운다."""
+    engine = create_async_engine(migrated_database_url, poolclass=NullPool)
+
+    async def _make(email: str, password: str) -> User:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            user = User(email=email, password_hash=hash_password(password))
+            session.add(user)
+            await session.commit()
+            return user
+
+    try:
+        yield _make
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text("TRUNCATE users CASCADE"))
+        await engine.dispose()
+
+
+def spent_today(user_id: int, amount: Decimal) -> DailyBudget:
+    """오늘(서울) 이미 amount만큼 쓴 원장 행. 하루 한도 테스트에서 db_session.add()로 넣는다."""
+    return DailyBudget(user_id=user_id, local_date=seoul_today(), spent_usd=amount, reserved_usd=Decimal(0))
+
+
+# 1단계 보강: 모델 호출마다 가격표로 예산을 잡으므로(가격 없는 모델은 부르지 않음) 가짜 모델에도 가격을 준다.
+TEST_MODEL_PRICE = ModelPrice(input_per_mtok=Decimal("1"), output_per_mtok=Decimal("5"))
+TEST_MODEL_NAMES = ("scripted", "guard-scripted", "watch-scripted", "watch-broken", "test", "function")
+
+
+@pytest.fixture(autouse=True)
+def test_model_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in TEST_MODEL_NAMES:
+        monkeypatch.setitem(MODEL_PRICES, name, TEST_MODEL_PRICE)
 
 
 @pytest.fixture

@@ -517,3 +517,9 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 화면은 전송마다 `crypto.randomUUID()`를 만들고 네트워크 오류(fetch 예외)일 때만 같은 id로 최대 3번 보낸다. 서버가 답한 오류는 다시 보내지 않는다.
 - 2026-11-17 task 저장과 워크플로 등록 사이에 서버가 죽으면 task가 queued로 남고, 시작 때 `restart_orphaned_tasks`가 이어서 시작한다(기존). outbox는 3단계 보강에서 다룬다.- 2026-11-17 FAST→SMART 자동 전환(SelectModel, 도구 호출 4번 초과)을 뺐다. BUILD_SPEC 6.1이 "도구 호출 횟수만으로 SMART로 자동 전환하지 않는다"고 정한다. 메인·감시·감시 판정 에이전트는 각자 설정된 모델 하나만 쓴다. `AGENT_MODEL_SMART` 설정은 남겨 둔다(명세 환경변수 목록, 나중 정책용).
 - 2026-11-17 `MODEL_CALL_TIMEOUT_SECONDS`(기본 60초)를 세 에이전트의 `model_settings.timeout`으로 건다(Pydantic AI 2.68 ModelSettings.timeout).
+- 2026-11-17 하루 비용 상한을 모델 호출마다 예약·정산한다(`daily_budgets` 사용자·서울 날짜 원장, `budget_reservations` 호출별 예약). 예약 때 원장 행을 `SELECT ... FOR UPDATE`로 잠가 동시 호출이 남은 한도를 함께 보지 못하게 한다. 한도 판단은 원장(spent + reserved)으로만 하고, usage_logs는 비용 화면용 기록으로 둔다. 비용 화면의 "남은 한도"·"초과"도 원장 기준이다.
+- 2026-11-17 예약은 Pydantic AI 2.68 capability의 `wrap_model_request`에서 한다. 이 훅은 DBOS 모델 단계 밖에서 돌아 복구 때 다시 실행되므로, 예약 키를 `범위:지금까지의 메시지 수`(메인 `task:{id}`, 감시 `guard:{task}:{tool_call_id}`, 판정 `watch:{watch_id}:{확인 시각}`)로 정해 같은 호출이면 같은 키가 되게 했다. 같은 키는 다시 예약하지 않고, 정산된 키는 다시 정산하지 않는다.
+- 2026-11-17 예상 비용 = (직렬화한 메시지 글자 수 + 4,000) 입력 토큰 + 출력 상한 4,096 토큰. 출력 상한은 세 에이전트의 `model_settings.max_tokens`로도 걸어 예상이 실제 상한과 같다. 한국어는 글자 하나가 토큰 하나 안팎이라 글자 수를 그대로 토큰으로 본다(넉넉한 쪽).
+- 2026-11-17 호출이 오류·시간 초과로 끝나면 예약을 `unknown`으로 두고 금액을 풀지 않는다(청구됐을 수 있음, BUILD_SPEC 6.2). 그날 한도에 계속 잡힌다. 정리 작업은 아직 없다(날짜가 바뀌면 새 원장 행).
+- 2026-11-17 가격표(`MODEL_PRICES`)에 없는 모델은 예약 단계에서 `UnpricedModelError`로 막고 부르지 않는다(task는 failed, "가격이 등록되지 않은 모델"). 테스트의 가짜 모델에는 conftest가 가격을 넣는다.
+- 2026-11-17 감시 에이전트·감시 판정 에이전트도 같은 원장에 예약한다(deps를 `BudgetScope`로 바꿈). 한도를 넘으면 감시는 unsure, 판정은 judged=False(조건 미충족으로 보지 않음)로 끝난다.

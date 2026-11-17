@@ -10,6 +10,7 @@ from app.agent.budget import calculate_cost
 from app.config import Settings
 from app.models import UsageLog, User
 from app.models.enums import UsagePurpose
+from tests.conftest import spent_today
 from tests.model_scripts import call, scripted, text
 from tests.test_agent_run import send
 
@@ -51,16 +52,8 @@ async def test_daily_cost_limit_exceeded_before_calling_model(
     test_settings: Settings,
 ) -> None:
     test_settings.daily_cost_limit_usd = Decimal("1.0")
-    db_session.add(
-        UsageLog(
-            user_id=logged_in_user.id,
-            purpose=UsagePurpose.AGENT,
-            model="claude-sonnet-5-5",
-            input_tokens=100_000,
-            output_tokens=80_000,
-            cost_usd=Decimal("1.0"),
-        )
-    )
+    # 하루 한도는 원장(daily_budgets)으로만 판단한다(1단계 보강).
+    db_session.add(spent_today(logged_in_user.id, Decimal("1.0")))
     await db_session.commit()
     model = scripted(text("이 답변은 나오면 안 된다"))
 
@@ -107,5 +100,5 @@ def test_calculate_cost_uses_model_prices() -> None:
     # Haiku 5.5: 프롬프트 10만 토큰 이하는 $0.10/$0.50, 넘으면 $0.50/$2.50
     assert calculate_cost("claude-haiku-5-5", 100_000, 10_000) == Decimal("0.015000")
     assert calculate_cost("claude-haiku-5-5", 200_000, 10_000) == Decimal("0.125000")
-    # 가격표에 없는 모델(테스트용 가짜 모델 등)은 0으로 기록한다
-    assert calculate_cost("scripted", 1000, 1000) == Decimal("0")
+    # 가격표에 없는 모델은 기록용 계산에서 0이다. 그런 모델은 예약 단계에서 막혀 실제로 불리지 않는다.
+    assert calculate_cost("unregistered-model", 1000, 1000) == Decimal("0")
