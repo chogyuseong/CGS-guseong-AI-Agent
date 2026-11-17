@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # apps/api/app/config.py 기준으로 세 단계 위가 저장소 루트다.
@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     daily_cost_limit_usd: Decimal = Decimal("1.0")
     task_max_requests: int = 12
     task_max_tokens: int = 60000
+    # 5단계 보강: 보관 기간(BUILD_SPEC 5.2, docs/DATA_POLICY.md).
+    # 끝난 작업의 모델 기록·단계 입력/출력·DBOS 기록 / 실행 영수증
+    execution_retention_days: int = Field(default=7, ge=1)
+    receipt_retention_days: int = Field(default=90, ge=1)
     # 모델 호출 한 번의 제한 시간(초). 넘으면 그 호출은 실패로 끝난다(1단계 보강, BUILD_SPEC 6.1).
     model_call_timeout_seconds: float = 60.0
 

@@ -15,9 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent import outbox
 from app.agent.outbox import run_workflow_id
 from app.agent.workflows import WorkflowLauncher
+from app.automation.retention import IN_PROGRESS_STATUSES
 from app.db import DbSession
 from app.models import AgentRun, Conversation, Message, OutboxEvent, Task
-from app.models.enums import MessageRole, TaskOrigin, TaskStatus
+from app.models.enums import MessageRole, TaskOrigin
 from app.rate_limit import SlidingWindowRateLimiter
 from app.schemas.conversations import (
     DEFAULT_CONVERSATION_TITLE,
@@ -84,14 +85,8 @@ def message_out(message: Message, task_origin: TaskOrigin | None) -> MessageOut:
     )
 
 
-# 5단계 보강: 끝나지 않은 작업이 있으면 대화를 지우지 않는다(실행 중인 워크플로 기록을 지워 복구를 망가뜨리지 않게).
-IN_PROGRESS_STATUSES = (
-    TaskStatus.QUEUED,
-    TaskStatus.RUNNING,
-    TaskStatus.WAITING_APPROVAL,
-    TaskStatus.CANCEL_REQUESTED,
-    TaskStatus.RECONCILING,
-)
+# 5단계 보강: 끝나지 않은 작업(IN_PROGRESS_STATUSES)이 있으면 대화를 지우지 않는다
+# (실행 중인 워크플로 기록을 지워 복구를 망가뜨리지 않게).
 DELETE_BUSY = "진행 중인 작업이 있어 대화를 지울 수 없습니다. 작업을 취소하거나 끝난 뒤 다시 시도해 주세요."
 
 
@@ -107,7 +102,7 @@ async def conversation_workflow_ids(session: AsyncSession, conversation_id: int)
 async def forget_workflows(workflow_ids: list[str]) -> None:
     """DBOS 시스템 테이블의 워크플로 기록(입력의 사용자 메시지, 단계 결과의 모델 기록)을 지운다.
 
-    실패해도 대화 삭제는 이미 끝났다. 남은 기록은 보관 기간 정리(automation/retention.py)가 다시 지운다.
+    실패해도 대화 삭제는 이미 끝났다. 남은 기록은 보관 기간 정리(app/automation/retention.py)가 다시 지운다.
     """
     if not workflow_ids:
         return

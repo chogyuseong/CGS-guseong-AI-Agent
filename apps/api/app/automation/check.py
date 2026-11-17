@@ -45,7 +45,7 @@ from app.agent.deps import AgentDeps
 from app.agent.durable import durable_step
 from app.agent.results import ToolResult
 from app.agent.runner import RunServices
-from app.automation import rules, store
+from app.automation import retention, rules, store
 from app.automation.watch import WatchAgent, WatchReview, build_watch_prompt, judge
 from app.automation.watchable import run_watch_tool
 from app.models import Approval, Message, ScheduledJob, Step, Task, UsageLog, Watch
@@ -109,6 +109,10 @@ async def run_check(services: AutomationServices, now: datetime) -> CheckReport:
         await services.launcher.start_schedule(job_id, run_at, now)
     for watch_id, run_at in due.watches:
         await services.launcher.start_watch(watch_id, run_at, now)
+    # 5단계 보강: 한 시간에 한 번 보관 기간이 지난 실행 기록을 정리한다(retention.py).
+    if now.minute == retention.RETENTION_MINUTE:
+        pruned = await retention.prune_expired_records(factory, services.run.settings, now)
+        logger.info("보관 기간 정리: %s", pruned)
     report = CheckReport(briefings, expired, watches_expired, len(due.schedules), len(due.watches))
     if any((briefings, expired, watches_expired, due.schedules, due.watches)):
         logger.info("자동화 검사: %s", report)

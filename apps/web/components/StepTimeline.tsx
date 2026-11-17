@@ -88,6 +88,13 @@ function StepRow({ step }: { step: Step }) {
 // 그 밖의 출력은 지금처럼 JSON으로 보여 준다.
 function StepDetail({ step }: { step: Step }) {
   const external = readExternalOutput(step.output);
+  if (isPruned(step)) {
+    return (
+      <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+        보관 기간이 지나 입력과 출력을 지웠습니다. 단계 이름과 결과 상태만 남습니다.
+      </p>
+    );
+  }
   return (
     <div className="flex min-w-0 flex-col gap-2 border-t px-3 py-2 text-xs">
       <JsonBlock title="입력" value={step.input} />
@@ -101,6 +108,13 @@ function StepDetail({ step }: { step: Step }) {
       )}
     </div>
   );
+}
+
+// 5단계 보강: 서버의 보관 기간 정리(app/automation/retention.py)는 끝난 단계의 입력을 {}, 출력을 null로 비운다.
+function isPruned(step: Step): boolean {
+  // 실행을 마친 단계(done·failed·unknown)는 항상 출력이 있다. 거절·만료 단계는 원래 출력이 없어 제외한다.
+  const executed = step.status === "done" || step.status === "failed" || step.status === "unknown";
+  return executed && step.output === null && Object.keys(step.input ?? {}).length === 0;
 }
 
 // unknown: "무엇이든 올 수 있지만 확인 전에는 마음대로 쓰지 못하는 값" 타입. (Python의 object에 가깝다)

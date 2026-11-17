@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 5단계 보강 진행 중(2026-11-17). (1) 기억 원문 인용 검증, (2) 대화 삭제 끝. 다음은 (3) 실행 기록 보관 기간·정리.
+현재 단계: BUILD_SPEC 기준 5단계 보강 진행 중(2026-11-17). (1) 기억 원문 인용 검증, (2) 대화 삭제, (3) 보관 기간 정리 끝. 다음은 (4) docs/DATA_POLICY.md·데이터 보관 안내.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -100,7 +100,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] "외부 도구를 썼으면 저장 금지"(MEMORY_BLOCKING_TOOLS) 제거(BUILD_SPEC 5.4가 금지)
 - [x] 활성 기억 최대 200개, 한 줄 300자 — 이미 있었음(tests/test_memories.py)
 - [x] 대화 삭제(DELETE /conversations/{id})와 관련 기록 정리 — tests/test_conversation_delete.py, e2e/conversation-delete.spec.ts
-- [ ] 실행 기록 보관 기간(EXECUTION_RETENTION_DAYS 7, RECEIPT_RETENTION_DAYS 90)과 정리
+- [x] 실행 기록 보관 기간(EXECUTION_RETENTION_DAYS 7, RECEIPT_RETENTION_DAYS 90)과 정리 — app/automation/retention.py, tests/test_retention.py
 - [ ] docs/DATA_POLICY.md(저장소별 보관·삭제 범위, 백업 지연)
 
 ### 6단계 — 예약과 감시

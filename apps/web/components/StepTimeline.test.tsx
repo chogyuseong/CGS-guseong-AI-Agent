@@ -117,6 +117,15 @@ describe("StepTimeline", () => {
     expect(screen.queryByText(/"title": "우유 사기"/)).not.toBeInTheDocument();
   });
 
+  it("보관 기간이 지나 입력·출력을 지운 끝난 단계는 지웠다고 알린다(5단계 보강)", () => {
+    render(<StepTimeline steps={[makeStep({ input: {}, output: null })]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /할 일 추가: 우유 사기/ }));
+
+    expect(screen.getByText(/보관 기간이 지나 입력과 출력을 지웠습니다/)).toBeInTheDocument();
+    expect(screen.queryByText("입력")).not.toBeInTheDocument();
+  });
+
   it("외부 콘텐츠 결과는 JSON 덩어리 대신 외부 내용임을 밝히고 내용을 항목별로 보여 준다", () => {
     render(<StepTimeline steps={[placesStep()]} />);
     fireEvent.click(screen.getByRole("button", { name: /장소 찾는 중/ }));
