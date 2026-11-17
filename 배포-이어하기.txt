@@ -1,5 +1,5 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-17 (BUILD_SPEC 기준 4단계 보강 진행 중: (1)~(4) 완료)
+마지막 갱신 2026-11-17 (BUILD_SPEC 기준 4단계 보강까지 마친 상태, 다음은 5단계 보강)
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
@@ -39,23 +39,25 @@
                      task_needs_review 문구
                      (5) 완료: 로그·기록 민감 정보 검사, 앱 로그 예외 메시지 가리기(누출 1건 발견·수정)
                      4단계 이후로 넘긴 것: 일정 도구 재조회·ETag·안정적인 event ID(4단계), DBOS·기록 보관(5·7단계)
-  4단계 보강   진행  (1) 완료: 일정 생성에 operation마다 고정된 event id, 409 중복은 내용이 같을 때만 성공 연결,
+  4단계 보강   완료  (1) 완료: 일정 생성에 operation마다 고정된 event id, 409 중복은 내용이 같을 때만 성공 연결,
                      시간 초과 뒤 같은 id로 재조회
                      (2) 완료: 수정·삭제 If-Match(ETag), 바뀌었으면 stale → 모델이 다시 요청해 재승인, 참석자·반복 시리즈 거부,
                      시간 초과 뒤 재조회
                      (3) 완료: OAuth 시작 POST(화면은 버튼), state를 DB에 로그인 세션·10분·한 번 사용으로, 해제 시 대기 계획
                      무효화, 토큰 갱신 잠금
                      (4) 완료: draft_message(INTERNAL, 초안만, 화면에 받는 사람·본문·복사 버튼)
-                     남은 것: (5) 데이터 전송 등급·도구 체크리스트·출처 없는 영업시간·가격 금지
+                     (5) 완료: 데이터 전송 등급(data_policy.py), 메일 읽은 뒤·일정 제목 든 공개 검색 차단, 도구 체크리스트,
+                     출처 없는 영업시간·가격·주차·조용함 금지 프롬프트
+                     사용자 확인 남음: 실제 Google 계정으로 테스트 일정 생성·수정·삭제(Google 콘솔 설정 후)
   5~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC, 4단계 보강 (3) 끝): API pytest 487개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
-웹(4단계 보강 (4) 끝): Biome 0건, tsc, Vitest 277개, Playwright 37개((3) 끝 기준).
+검사(2026-11-17, 두 번째 PC, 4단계 보강 끝): API pytest 498개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
+웹: Biome 0건, tsc, Vitest 277개, Playwright 37개.
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 4단계 보강 (5)부터 이어서 진행해라"
-(4단계: 일정 생성 안정적인 event ID·재조회, 수정·삭제 ETag 조건부 요청, draft_message, OAuth POST·state DB, 데이터 전송 등급.
- 실제 Google 계정 변경은 사용자 확인 후. 중간 단위마다 커밋·push)
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 5단계 보강을 진행해라"
+(5단계: 기억 원문 인용 검증, MEMORY_BLOCKING_TOOLS 제거, 기억 한도, 대화 삭제, 보관 기간 정리, docs/DATA_POLICY.md.
+ 중간 단위마다 커밋·push)
 
 
 ========================================

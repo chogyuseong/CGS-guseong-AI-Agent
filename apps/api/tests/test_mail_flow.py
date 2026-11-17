@@ -17,6 +17,7 @@ import httpx
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent import data_policy
 from app.agent.agent import MyAgent
 from app.agent.deps import AgentDeps
 from app.agent.guard import GuardAgent, build_guard_prompt
@@ -208,7 +209,9 @@ def test_no_mail_write_tools_exist() -> None:
     """보내기·답장·삭제·라벨 변경·읽음 표시 도구는 없다(명세 7단계 6번, 절대 원칙 2)."""
     every_tool = {name for toolsets in TOOLSETS_BY_ORIGIN.values() for toolset in toolsets for name in toolset.tools}
     mail_like = {name for name in every_tool if "mail" in name or "draft" in name}
-    assert mail_like == {"list_mail", "read_mail"}
+    assert mail_like == {"list_mail", "read_mail", "draft_message"}
+    # 4단계 보강 draft_message는 Gmail 초안(메일함 쓰기)이 아니라 앱 안에서 글만 돌려주는 도구다(외부 서비스 없음).
+    assert data_policy.TOOL_POLICIES["draft_message"].service is None
 
 
 async def test_watch_cannot_run_mail_tools(tool_deps: AgentDeps, fake_http: FakeHttp) -> None:

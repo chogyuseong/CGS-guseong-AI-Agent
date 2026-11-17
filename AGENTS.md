@@ -108,6 +108,9 @@
 
 ## 도구 규약
 설치된 `add-agent-tool` 스킬은 Django판 기준이다. 이 저장소에서는 아래 규약을 따른다.
+순서는 BUILD_SPEC 17절 체크리스트다(4단계 보강): 가치·범위 한 문장 → 공식 API·권한 확인 → 입력·출력 스키마 → 위험 등급
+→ 데이터 전송 등급·대상(아래 9) → 타임아웃·재시도 → EXTERNAL이면 실행 계획·승인·중복 방지·영수증 → 로그·복구·보관
+→ 정상·실패·권한·중복·불명 테스트 → 모바일 표시·출처·오류 문구 → 실제 API 최소 검증 → 문서(docs/TOOLS.md)와 등록부 갱신.
 
 1. **등급부터 정한다.** READ(조회만) / INTERNAL(앱 안에서만 바뀌고 되돌릴 수 있음) / EXTERNAL(앱 밖에 흔적).
    FORBIDDEN(결제, 전화, 발송, 비밀번호)이면 만들지 않는다.
@@ -145,6 +148,10 @@
    가짜 모델은 `scripted(...).model()`이나 `registered(함수)`로 만든다(워크플로 안에서는 DBOS에 등록된 모델만 끼울 수 있다).
 8. **복구(3단계)**: 도구 실행은 DBOS 단계가 아니다. 복구 때 같은 tool_call_id가 다시 오면 StepTracking이 기록된 결과를 재생하고,
    실행 도중 끊긴 INTERNAL·EXTERNAL 호출은 다시 실행하지 않는다. 그래서 도구 한 번의 DB 쓰기는 한 트랜잭션으로 짧게 끝낸다.
+9. **데이터 전송 등급(4단계 보강)**: `app/agent/data_policy.py`의 `TOOL_POLICIES`에 도구를 등록한다(보내는 곳, 받을 수 있는 등급
+   public/user_private/mail_private, 결과 등급, 타임아웃, 재시도, 중복 방지, 보관, 표시). secret은 어떤 도구도 받지 않는다.
+   빠진 도구는 tests/test_data_policy.py가 잡는다. public만 받는 외부 도구는 같은 작업에서 메일을 읽었거나 일정 제목이 인자에
+   들어 있으면 StepTracking이 실행하지 않는다(failed, data_policy).
 
 ## 에이전트 코드 지도 (apps/api/app/agent)
 - `workflows.py` DBOS 워크플로(run_task, resume_task), 워크플로 ID, 시작기(app.state.launcher), DBOS 시작·복구

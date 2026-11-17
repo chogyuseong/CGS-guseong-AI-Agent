@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 4단계 보강 진행 중(2026-11-17). (1) 일정 생성 중복 방지, (2) 수정·삭제 ETag·정책, (3) OAuth, (4) draft_message 끝. 다음은 (5) 데이터 전송 등급.
+현재 단계: BUILD_SPEC 기준 4단계 보강 완료(2026-11-17, 실제 Google 계정 확인은 사용자 몫으로 남음). 다음은 5단계 보강(기억과 데이터 삭제).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -13,24 +13,22 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - 2단계 보강(2026-11-17): 실행 계획(action_plans)·operations·execution_receipts, 인자 정규화·해시 고정,
   실행기 DB 검사 전부(executor.begin_execution), 저장된 인자로만 실행(override_args), 영수증 기준 완료,
   재시작과 무관한 가짜 외부 서비스(tests/fake_service.py), 승인 카드(대상·계정·실행 유효 시간·AI 검토 문구·실행 결과)
+- 4단계 보강(2026-11-17): 일정 생성 고정 event id·409·재조회, 수정·삭제 ETag·재승인·참석자/반복 거부, OAuth POST·state DB·
+  해제 시 계획 무효화·갱신 잠금, draft_message(초안 카드), 데이터 전송 등급·공개 검색 차단, 도구 체크리스트
 - 3단계 보강(2026-11-17): 끊긴 외부 작업 결과 재조회(reconcile)·needs_review, 장애 지점 5곳 결과 표(docs/FAULTS.md),
   취소와 실행 경합, outbox(실행·재개 시작 요청), 푸시 notification_key·notifications, 앱 로그 예외 메시지 가리기
 
-실제 검증한 항목(2026-11-17, 두 번째 PC, 3단계 보강 끝):
-- API pytest 461개(`uv run python -m pytest`), ruff·pyright 0건, 새 마이그레이션 2개(cf5e41f0db2e outbox_events,
-  8eb7c0c4f511 notifications) 업·다운·업과 alembic check 차이 없음
-- 웹은 이번 단계에 코드 변경이 없다(OpenAPI 타입 다시 만들어도 차이 없음). 웹 검사는 2단계 보강 끝 기준
-  (Biome 0건, tsc, Vitest 269개, Playwright 37개)
-- 3단계 완료 증거(BUILD_SPEC 13절)와 해당 테스트:
-  - 장애 지점별 외부 효과와 DB 상태 표: docs/FAULTS.md, tests/test_faults.py, test_fake_service(지점 5)
-  - 불명 결과를 성공/실패로 단정하지 않음: test_faults::test_failed_lookup_keeps_unknown_and_needs_review
-  - 성공 operation 재요청은 영수증 재사용: test_faults::test_crash_after_receipt_reuses_receipt,
-    test_executor::test_succeeded_operation_returns_saved_receipt
-  - 푸시 실패가 작업을 실패시키지 않음: test_notifications::test_failed_delivery_is_recorded_and_task_still_waits,
-    test_push::test_expired_subscription_is_deleted_and_failure_does_not_break_task
-  - 민감 정보 없는 푸시: test_push::test_push_body_never_contains_message_content, test_notifications(기록에 본문 없음)
-  - 취소 경합: tests/test_cancel_race.py / outbox 재처리: tests/test_outbox.py / 로그·기록: tests/test_sensitive_records.py
-- 2단계 이전 완료 증거의 테스트는 그대로 통과(위 전체 실행에 포함)
+실제 검증한 항목(2026-11-17, 두 번째 PC, 4단계 보강 끝):
+- API pytest 498개(`uv run python -m pytest`), ruff·pyright 0건, 새 마이그레이션 f4bbe5621c5e(oauth_states) 업·다운·업과 check 차이 없음
+- 웹 Biome 0건, tsc, Vitest 277개, Playwright 37개(4단계 (3) 끝, 실제 API 서버 + Chrome 360px)
+- 4단계 완료 증거(BUILD_SPEC 13절)와 해당 테스트(가짜 Google 응답):
+  - 승인 후 테스트 일정 생성: test_gcal_create::test_create_sends_stable_id_and_records_it, test_calendar_flow
+  - 승인 대기 중 대상 변경 시 재승인: test_gcal_change::test_stale_update_asks_for_new_approval
+  - 타임아웃 후 결과 확인: test_gcal_create::test_timeout_then_found_is_success, test_timeout_then_missing_is_not_executed
+  - 참석자 있는 일정 변경 거부: test_gcal_change::test_events_with_attendees_or_series_are_refused
+  - 출처 없는 영업시간·가격을 만들지 않음: 시스템 프롬프트 규칙(test_data_policy::test_prompt_forbids_unsourced_place_details).
+    실제 모델 행동은 8단계 eval에서 잰다(이번에는 실제 모델을 부르지 않음)
+- 실제 Google 계정으로 확인: 하지 않음(Google 콘솔 설정·연결이 남아 있고, 실제 계정 변경은 사용자 확인 후에만)
 
 미실행 항목과 이유:
 - 실제 프로세스 강제 종료 복구: 이번에도 하지 않음. 장애 지점은 그 지점의 DB·외부 상태를 만들어 재개 워크플로를
@@ -47,7 +45,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 4단계 보강(아래 차이 목록의 4단계). 남긴 것: AgentReply(6단계로), 대상 버전 ETag·안정적인 event ID와
+다음 시작 지점: 5단계 보강(아래 차이 목록의 5단계). 남긴 것: AgentReply(6단계로), 대상 버전 ETag·안정적인 event ID와
 일정 도구 재조회(4단계), DBOS 워크플로 입력·단계 결과·message_history에 남는 사용자 글(5·7단계)
 관련 커밋: (이 파일을 커밋한 커밋)
 
@@ -94,8 +92,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] 참석자 있는 일정 수정·삭제 거부, 반복 일정 시리즈 변경 제외 — tests/test_gcal_change.py
 - [x] draft_message 도구(INTERNAL, 초안만, 복사 버튼) — tests/test_drafts.py, components/DraftCard.test.tsx
 - [x] OAuth: 시작을 POST로, state를 DB에 세션·만료·단일 사용으로, 연결 해제 시 대기 중 계획 무효화 — tests/test_google_connection.py, e2e/connections.spec.ts
-- [ ] 도구 정의에 데이터 전송 등급(public/user_private/mail_private/secret)과 정책
-- [ ] TOOL 규약을 BUILD_SPEC 17절 체크리스트로
+- [x] 도구 정의에 데이터 전송 등급(public/user_private/mail_private/secret)과 정책 — app/agent/data_policy.py, tests/test_data_policy.py
+- [x] TOOL 규약을 BUILD_SPEC 17절 체크리스트로 — AGENTS.md 도구 규약
 
 ### 5단계 — 기억과 데이터 삭제
 - [ ] memories에 source_message_id, source_quote. 원문에 실제로 있는지 서버 검사
