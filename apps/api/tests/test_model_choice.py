@@ -36,8 +36,10 @@ def test_model_call_timeout_is_applied_to_every_agent(test_settings: Settings) -
     test_settings.model_call_timeout_seconds = 42.0
 
     for agent in (build_agent(test_settings), build_guard_agent(test_settings), build_watch_agent(test_settings)):
-        assert agent.model_settings is not None
-        assert agent.model_settings.get("timeout") == 42.0
+        # model_settings는 dict 또는 함수일 수 있다. 이 앱은 dict(ModelSettings)로 넘긴다.
+        model_settings = agent.model_settings
+        assert isinstance(model_settings, dict)
+        assert model_settings.get("timeout") == 42.0
 
 
 def test_default_model_call_timeout(test_settings: Settings) -> None:
