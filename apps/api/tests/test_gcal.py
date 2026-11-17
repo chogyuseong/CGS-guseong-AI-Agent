@@ -310,6 +310,7 @@ async def test_update_event_with_only_start_keeps_duration_check(
     tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession
 ) -> None:
     await connect_google(tool_deps)
+    fake_http.route("GET", f"{EVENTS}/evt0meeting001", fixture_response("google_event_meeting.json"))
     await approve_directly(
         db_session,
         tool_deps,
@@ -317,7 +318,6 @@ async def test_update_event_with_only_start_keeps_duration_check(
         "call-update",
         {"event_id": "evt0meeting001", "start": "2026-11-20T10:30"},
     )
-    fake_http.route("GET", f"{EVENTS}/evt0meeting001", fixture_response("google_event_meeting.json"))
     fake_http.route("PATCH", f"{EVENTS}/evt0meeting001", fixture_response("google_event_meeting.json"))
     context = tool_context(tool_deps, "update_event", "call-update")
 
@@ -332,6 +332,7 @@ async def test_update_event_with_only_start_keeps_duration_check(
 
 async def test_delete_event_after_approval(tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession) -> None:
     await connect_google(tool_deps)
+    fake_http.route("GET", f"{EVENTS}/evt0meeting001", fixture_response("google_event_meeting.json"))
     await approve_directly(db_session, tool_deps, "delete_event", "call-delete", {"event_id": "evt0meeting001"})
     fake_http.route("DELETE", f"{EVENTS}/evt0meeting001", httpx.Response(204))
 
@@ -346,6 +347,7 @@ async def test_delete_missing_event(
     tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession, status: int
 ) -> None:
     await connect_google(tool_deps)
+    fake_http.route("GET", f"{EVENTS}/gone", fixture_response("google_error_404.json", status=status))
     await approve_directly(db_session, tool_deps, "delete_event", "call-missing", {"event_id": "gone"})
     fake_http.route("DELETE", f"{EVENTS}/gone", fixture_response("google_error_404.json", status=status))
 

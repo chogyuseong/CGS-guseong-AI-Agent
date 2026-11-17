@@ -307,9 +307,10 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
 async def draft_for(services: RunServices, info: TaskInfo, tool_name: str, args: dict[str, Any]) -> PlanDraft:
     """서버가 인자를 다시 검증·정규화하고 실행 계획 값을 확정한다(2단계 보강). 실패하면 PlanRejectedError."""
     async with services.session_factory() as session:
-        return await plans.draft_plan(
+        draft = await plans.draft_plan(
             session, user_id=info.user_id, toolsets=toolsets_for(info.origin), tool_name=tool_name, args=args
         )
+    return await plans.with_target_version(deps_for(services, info), draft)
 
 
 async def prepare_requests(

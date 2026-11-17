@@ -49,6 +49,7 @@ from app.models.enums import ApprovalStatus, OperationStatus, StepStatus, TaskSt
 logger = logging.getLogger(__name__)
 
 NOT_APPROVED_MESSAGE = "승인 기록이 없는 외부 도구 실행을 막았습니다."
+TARGET_CHANGED = "target_changed"
 IN_PROGRESS = (OperationStatus.EXECUTING, OperationStatus.UNKNOWN, OperationStatus.RECONCILING)
 ALREADY_RUNNING_MESSAGE = "이 외부 작업은 이미 실행 중이거나 결과 확인이 필요합니다. 다시 실행하지 않았습니다."
 CLOSED_MESSAGE = "이 외부 작업은 이미 끝났거나 실행할 수 없는 상태라 다시 실행하지 않았습니다."
@@ -60,6 +61,7 @@ class Execution:
 
     operation_pk: int
     operation_id: uuid.UUID
+    target_version: str | None = None  # 계획에 고정한 대상 버전(일정 ETag). 도구가 조건부 요청에 쓴다
 
 
 @dataclass(frozen=True)
@@ -186,7 +188,9 @@ async def begin_execution(ctx: RunContext[AgentDeps], args: dict[str, Any]) -> E
         row.operation.started_at = now
         row.step.status = StepStatus.RUNNING
         await session.commit()
-        return Execution(operation_pk=row.operation.id, operation_id=row.plan.operation_id)
+        return Execution(
+            operation_pk=row.operation.id, operation_id=row.plan.operation_id, target_version=row.plan.target_version
+        )
 
 
 def close_operation(operation: Operation, status: OperationStatus, error_code: str | None, now: datetime) -> None:
@@ -203,6 +207,13 @@ OPERATION_STATUS_OF = {
     ToolStatus.FAILED: OperationStatus.FAILED,
     ToolStatus.UNKNOWN: OperationStatus.UNKNOWN,
 }
+
+
+def operation_status_for(result: ToolResult) -> OperationStatus:
+    """대상이 승인 뒤 바뀌어 실행하지 않은 결과(target_changed)는 stale(다시 승인 필요)이다."""
+    if result.error_code == TARGET_CHANGED:
+        return OperationStatus.STALE
+    return OPERATION_STATUS_OF[result.status]
 
 
 def new_receipt(operation: Operation, provider: str, resource_id: str | None, result: ToolResult) -> ExecutionReceipt:
@@ -232,7 +243,7 @@ async def finish_execution(
             session.add(receipt)
             await session.flush()
             extra["receipt_id"] = str(receipt.id)
-        close_operation(operation, OPERATION_STATUS_OF[result.status], result.error_code, now)
+        close_operation(operation, operation_status_for(result), result.error_code, now)
         await session.commit()
     finished = result.model_copy(update=extra)
     if finished.status == ToolStatus.UNKNOWN:

@@ -123,6 +123,7 @@ def plan_row(step: Step, user_id: int, round_: int, request: ApprovalRequest, no
         tool_version=draft.tool_version,
         connection_id=draft.connection_id,
         target_resource_id=draft.target_resource_id,
+        target_version=draft.target_version,
         canonical_args=draft.canonical_args,
         args_hash=draft.args_hash,
         preview=request.summary,

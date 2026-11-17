@@ -52,6 +52,13 @@ EXTERNAL_TEXT_LIMIT = 40
 EVENT_ID_PREFIX = "ma"
 DUPLICATE_STATUS = 409
 SERVICE_KEY = "google"
+PRECONDITION_FAILED = 412
+STALE_MESSAGE = (
+    "승인한 뒤 다른 곳에서 일정이 바뀌어 실행하지 않았습니다. 바뀐 일정을 다시 확인하고 새로 승인받아야 합니다."
+)
+TARGET_UNKNOWN_MESSAGE = (
+    "승인할 때 일정 정보를 확인하지 못해 실행하지 않았습니다. 일정을 다시 조회해 새로 요청해 주세요."
+)
 ID_CONFLICT_MESSAGE = "같은 번호의 다른 일정이 이미 있어 새로 만들지 않았습니다. 캘린더를 확인해 주세요."
 NOT_FOUND_MESSAGE = "해당 일정을 찾지 못했습니다. 이미 삭제되었을 수 있습니다."
 FORBIDDEN_MESSAGE = (
@@ -80,12 +87,16 @@ def translate(error: ExternalApiError) -> ExternalApiError:
     return error
 
 
-async def calendar_request(deps: AgentDeps, method: str, event_id: str = "", **kwargs: Any) -> Any:
-    """캘린더 API를 부른다. 401이면 토큰을 갱신해 한 번만 다시 보낸다."""
+async def calendar_request(
+    deps: AgentDeps, method: str, event_id: str = "", *, if_match: str | None = None, **kwargs: Any
+) -> Any:
+    """캘린더 API를 부른다. 401이면 토큰을 갱신해 한 번만 다시 보낸다. if_match는 조건부 수정·삭제(ETag)."""
     url = f"{EVENTS_URL}/{quote(event_id, safe='')}" if event_id else EVENTS_URL
     for attempt in range(2):
         token = await google_auth.access_token(deps, force_refresh=attempt > 0)
         headers = {"Authorization": f"Bearer {token}"}
+        if if_match:
+            headers["If-Match"] = if_match
         try:
             return await http.request_json(deps.http, SERVICE, method, url, headers=headers, **kwargs)
         except ExternalApiError as error:
@@ -342,8 +353,8 @@ async def preview_create_event(deps: AgentDeps, args: dict[str, Any]) -> str:
 # ---- EXTERNAL: update_event ----
 
 
-async def patch_body(deps: AgentDeps, event_id: str, changes: dict[str, str | None]) -> dict[str, Any]:
-    """바꿀 칸만 담는다. 시작이나 끝 하나만 바꿔도 기존 값과 합쳐 순서를 확인한다."""
+def patch_body(current: dict[str, Any], changes: dict[str, str | None]) -> dict[str, Any]:
+    """바꿀 칸만 담는다. 시작이나 끝 하나만 바꿔도 지금 일정의 값과 합쳐 순서를 확인한다."""
     body: dict[str, Any] = {
         key: changes[name]
         for key, name in (("summary", "title"), ("location", "location"), ("description", "description"))
@@ -351,7 +362,6 @@ async def patch_body(deps: AgentDeps, event_id: str, changes: dict[str, str | No
     }
     start, end = changes.get("start"), changes.get("end")
     if start or end:
-        current = (await get_event(deps, event_id)) if not (start and end) else {}
         new_start = start or local_minute((current.get("start") or {}).get("dateTime"))
         new_end = end or local_minute((current.get("end") or {}).get("dateTime"))
         check_range(new_start, new_end)
@@ -359,6 +369,73 @@ async def patch_body(deps: AgentDeps, event_id: str, changes: dict[str, str | No
     if not body:
         raise ExternalApiError("바꿀 내용이 없습니다.")
     return body
+
+
+# ---- 4단계 보강: 기존 일정을 바꾸기 전 검사(대상 버전, 참석자, 반복 시리즈) ----
+
+
+def policy_refusal(event: dict[str, Any], action: str) -> ToolResult | None:
+    """참석자가 있는 일정·남이 만든 초대·반복 일정 시리즈 원본은 바꾸지 않는다(BUILD_SPEC 7.3)."""
+    others = [a for a in event.get("attendees") or [] if isinstance(a, dict) and not a.get("self")]
+    organizer = event.get("organizer")
+    invited = isinstance(organizer, dict) and not organizer.get("self")
+    if others or invited:
+        return ToolResult.failure(
+            f"참석자가 있는 일정은 {action}하지 않습니다. 캘린더에서 직접 바꿔 주세요.", error_code="has_attendees"
+        )
+    if event.get("recurrence"):
+        return ToolResult.failure(
+            f"반복 일정 전체는 {action}하지 않습니다. 한 번의 일정만 골라 다시 요청해 주세요.",
+            error_code="recurring_series",
+        )
+    return None
+
+
+def policy_warning(event: dict[str, Any], action: str) -> str:
+    """승인 카드에 붙일 경고(실행하면 거부될 일정)."""
+    refusal = policy_refusal(event, action)
+    if refusal is None:
+        return ""
+    if refusal.error_code == "has_attendees":
+        return f" (참석자가 있는 일정이라 승인해도 {action}하지 않습니다.)"
+    return f" (반복 일정 전체라 승인해도 {action}하지 않습니다.)"
+
+
+def stale_result() -> ToolResult:
+    return ToolResult.failure(STALE_MESSAGE, error_code="target_changed")
+
+
+def write_error(error: ExternalApiError) -> ToolResult:
+    """412(If-Match 불일치)는 대상이 바뀐 것(stale), 나머지는 보통 오류."""
+    return stale_result() if error.status == PRECONDITION_FAILED else ToolResult.from_api_error(error)
+
+
+async def checked_target(
+    deps: AgentDeps, event_id: str, version: str | None, action: str
+) -> dict[str, Any] | ToolResult:
+    """지금 일정을 읽어 정책과 버전을 확인한다. 바꿔도 되면 그 일정, 아니면 실행하지 않을 이유."""
+    try:
+        current = await get_event(deps, event_id)
+    except ExternalApiError as error:
+        return ToolResult.from_api_error(error)
+    refusal = policy_refusal(current, action)
+    if refusal is not None:
+        return refusal
+    if version is None:
+        return ToolResult.failure(TARGET_UNKNOWN_MESSAGE, error_code="target_unknown")
+    if current.get("etag") != version:
+        return stale_result()
+    return current
+
+
+async def current_etag(deps: AgentDeps, event_id: str) -> str | None:
+    """계획을 만들 때 고정할 대상 버전. 일정을 읽지 못하면 None."""
+    try:
+        event = await get_event(deps, event_id)
+    except ExternalApiError:
+        return None
+    etag = event.get("etag")
+    return str(etag) if etag else None
 
 
 async def update_event(
@@ -375,11 +452,14 @@ async def update_event(
     started = await begin_execution(ctx, {"event_id": event_id, **changes})
     if isinstance(started, ToolResult):
         return started
+    current = await checked_target(ctx.deps, event_id, started.target_version, "수정")
+    if isinstance(current, ToolResult):
+        return await finished(ctx.deps, started, current)
     try:
-        body = await patch_body(ctx.deps, event_id, changes)
-        event = await calendar_request(ctx.deps, "PATCH", event_id, json=body)
+        body = patch_body(current, changes)
+        event = await calendar_request(ctx.deps, "PATCH", event_id, if_match=started.target_version, json=body)
     except ExternalApiError as error:
-        return await finished(ctx.deps, started, ToolResult.from_api_error(error))
+        return await finished(ctx.deps, started, write_error(error))
     return await finished(ctx.deps, started, saved_result(event), event_id)
 
 
@@ -413,7 +493,7 @@ async def preview_update_event(deps: AgentDeps, args: dict[str, Any]) -> str:
     event_id = clip(args.get("event_id"), 40)
     try:
         before: dict[str, Any] | None = await get_event(deps, str(args.get("event_id")))
-        head = f"{describe_event(before)} 일정을 수정합니다."
+        head = f"{describe_event(before)} 일정을 수정합니다.{policy_warning(before, '수정')}"
     except ExternalApiError as error:
         before, head = None, f"일정(ID {event_id})을 수정합니다. 일정 정보를 불러오지 못했습니다: {error.message}"
     return f"{head} {describe_changes(before, args)}."
@@ -427,12 +507,52 @@ async def delete_event(ctx: RunContext[AgentDeps], event_id: EventId) -> ToolRes
     started = await begin_execution(ctx, {"event_id": event_id})
     if isinstance(started, ToolResult):
         return started
+    current = await checked_target(ctx.deps, event_id, started.target_version, "삭제")
+    if isinstance(current, ToolResult):
+        return await finished(ctx.deps, started, current)
     try:
-        await calendar_request(ctx.deps, "DELETE", event_id)
+        await calendar_request(ctx.deps, "DELETE", event_id, if_match=started.target_version)
     except ExternalApiError as error:
-        return await finished(ctx.deps, started, ToolResult.from_api_error(error))
-    result = ToolResult.success({"deleted_id": event_id, "deleted_from": "Google 캘린더"})
-    return await finished(ctx.deps, started, result, event_id)
+        return await finished(ctx.deps, started, write_error(error))
+    return await finished(ctx.deps, started, deleted_result(event_id), event_id)
+
+
+def deleted_result(event_id: str) -> ToolResult:
+    return ToolResult.success({"deleted_id": event_id, "deleted_from": "Google 캘린더"})
+
+
+async def reconcile_delete(deps: AgentDeps, ref: PlanRef) -> ReconcileOutcome:
+    """시간 초과 뒤 확인: 일정이 없어졌으면(404·410·취소됨) 삭제된 것, 그대로 있으면 실행되지 않은 것."""
+    event_id = ref.target_resource_id or str(ref.canonical_args.get("event_id"))
+    try:
+        event = await calendar_request(deps, "GET", event_id)
+    except ExternalApiError as error:
+        if error.status in (404, 410):
+            return ReconcileOutcome("done", event_id, deleted_result(event_id).data, SERVICE_KEY)
+        raise
+    if isinstance(event, dict) and event.get("status") == "cancelled":
+        return ReconcileOutcome("done", event_id, deleted_result(event_id).data, SERVICE_KEY)
+    return ReconcileOutcome("not_done")
+
+
+def has_requested_changes(event: dict[str, Any], args: dict[str, Any]) -> bool:
+    for key, name in (("summary", "title"), ("location", "location"), ("description", "description")):
+        if args.get(name) and event.get(key) != args[name]:
+            return False
+    for name in ("start", "end"):
+        value = (event.get(name) or {}).get("dateTime")
+        if args.get(name) and (not value or seoul_time(value) != parse_local(args[name]).replace(tzinfo=SEOUL)):
+            return False
+    return True
+
+
+async def reconcile_update(deps: AgentDeps, ref: PlanRef) -> ReconcileOutcome:
+    """시간 초과 뒤 확인: 요청한 칸이 모두 그 값이면 반영된 것. 아니면 판단할 수 없어 unknown(덮어쓰지 않음)."""
+    event_id = ref.target_resource_id or str(ref.canonical_args.get("event_id"))
+    event = await calendar_request(deps, "GET", event_id)
+    if isinstance(event, dict) and has_requested_changes(event, ref.canonical_args):
+        return ReconcileOutcome("done", event_id, saved_result(event).data, SERVICE_KEY)
+    return ReconcileOutcome("unknown")
 
 
 async def preview_delete_event(deps: AgentDeps, args: dict[str, Any]) -> str:
@@ -442,7 +562,7 @@ async def preview_delete_event(deps: AgentDeps, args: dict[str, Any]) -> str:
     except ExternalApiError as error:
         event_id = clip(args.get("event_id"), 40)
         return f"일정(ID {event_id})을 기본 캘린더에서 삭제합니다. 일정 정보를 불러오지 못했습니다: {error.message}"
-    return f"{describe_event(event)} 일정을 기본 캘린더에서 삭제합니다."
+    return f"{describe_event(event)} 일정을 기본 캘린더에서 삭제합니다.{policy_warning(event, '삭제')}"
 
 
 # ---- 타임라인 문구 ----
@@ -460,11 +580,22 @@ SPECS = {
     "create_event": ExternalToolSpec(
         "2", provider=google_auth.PROVIDER, target_label=CALENDAR_TARGET, reconcile=reconcile_create
     ),
+    # 4단계 보강: If-Match(ETag) 조건부 요청·참석자/반복 일정 거부로 요청 모양이 바뀌었다(1 → 2).
     "update_event": ExternalToolSpec(
-        "1", provider=google_auth.PROVIDER, target_arg="event_id", target_label=CALENDAR_TARGET
+        "2",
+        provider=google_auth.PROVIDER,
+        target_arg="event_id",
+        target_label=CALENDAR_TARGET,
+        reconcile=reconcile_update,
+        target_version=current_etag,
     ),
     "delete_event": ExternalToolSpec(
-        "1", provider=google_auth.PROVIDER, target_arg="event_id", target_label=CALENDAR_TARGET
+        "2",
+        provider=google_auth.PROVIDER,
+        target_arg="event_id",
+        target_label=CALENDAR_TARGET,
+        reconcile=reconcile_delete,
+        target_version=current_etag,
     ),
 }
 PREVIEWS = {

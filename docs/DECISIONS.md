@@ -566,3 +566,6 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 ### 4단계 보강
 - 2026-11-17 일정 생성은 operation마다 고정된 event id `ma` + operation_id 16진수(34자)를 보낸다. 공식 문서(events/insert, 2026-11-17 확인): id는 base32hex(a-v, 0-9) 5~1024자, 캘린더 안에서 유일, 같은 id가 있으면 insert가 성공하지 않는다. 16진수는 base32hex의 부분집합이다. create_event 규격 버전을 1 → 2로 올렸다(요청 모양이 바뀜, 그 전 계획은 plan_outdated로 다시 승인).
 - 2026-11-17 409(같은 id가 이미 있음)이면 그 id의 일정을 읽어 제목·시작·끝(서울 시각)·장소가 계획과 같고 취소되지 않았을 때만 성공으로 연결한다. 다르면 failed(id_conflict). 쓰기가 시간 초과면 같은 id로 조회해(reconcile_create) 있으면 성공, 404·410이면 실행 안 됨, 조회 실패면 unknown.
+- 2026-11-17 일정 수정·삭제: 계획을 만들 때 일정 etag를 target_version으로 고정한다(ExternalToolSpec.target_version, plans.with_target_version). 실행 때 지금 일정을 다시 읽어 etag가 다르면 보내지 않고, 같아도 `If-Match`로 보낸다. 412면 같다. 둘 다 failed(target_changed)이고 operation은 stale. 모델은 "바뀐 일정을 다시 확인하고 새로 승인받아야 한다"를 받아 다시 요청하므로 새 계획·새 승인이 된다(BUILD_SPEC 3.5 재조회·재승인). 계획 때 일정을 읽지 못했으면(target_version 없음) 보지 못한 일정을 바꾸지 않고 target_unknown. 규격 버전 1 → 2.
+- 2026-11-17 참석자가 있는 일정(나 아닌 attendee가 있거나 organizer가 내가 아님)과 반복 일정 시리즈 원본(recurrence 칸이 있음)은 수정·삭제하지 않는다(has_attendees, recurring_series). list_events는 singleEvents=true라 반복 일정의 한 회차는 바꿀 수 있다. 승인 카드 문장에 "승인해도 …하지 않습니다"를 붙인다.
+- 2026-11-17 시간 초과 뒤 재조회: 삭제는 일정이 없어졌으면(404·410·취소됨) 완료, 그대로 있으면 실행 안 됨. 수정은 요청한 칸이 모두 그 값이면 완료, 아니면 판단할 수 없어 unknown(덮어쓰기 재시도를 하지 않는다).

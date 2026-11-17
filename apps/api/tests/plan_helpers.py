@@ -28,6 +28,7 @@ async def approve_directly(
 ) -> int:
     """승인된 실행 계획을 만들고 승인 id를 돌려준다. task는 다시 running(재개 워크플로가 잡은 상태)으로 둔다."""
     draft = await plans.draft_plan(session, user_id=deps.user_id, toolsets=toolsets, tool_name=tool_name, args=args)
+    draft = await plans.with_target_version(deps, draft)
     request = approvals.ApprovalRequest(
         tool_call_id=call_id,
         plan=draft,

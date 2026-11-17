@@ -17,7 +17,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -69,6 +69,8 @@ class ReconcileOutcome:
 
 
 type ReconcileFunc = Callable[["AgentDeps", PlanRef], Awaitable[ReconcileOutcome]]
+# 4단계 보강: 기존 대상의 지금 버전(예: 일정 ETag)을 읽는 함수. 읽지 못하면 None.
+type TargetVersionFunc = Callable[["AgentDeps", str], Awaitable[str | None]]
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,7 @@ class ExternalToolSpec:
     target_arg: str | None = None
     target_label: str = "외부 서비스"
     reconcile: ReconcileFunc | None = None
+    target_version: TargetVersionFunc | None = None
 
 
 # 승인 카드의 계정 줄에 쓰는 서비스 이름(connections.provider → 화면 이름).
@@ -106,6 +109,7 @@ class PlanDraft:
     args_hash: str
     connection_id: int | None
     target_resource_id: str | None
+    target_version: str | None = None  # 4단계 보강: 계획을 만들 때 읽은 대상 버전(일정 ETag)
 
 
 def spec_for(tool_name: str) -> ExternalToolSpec:
@@ -162,3 +166,16 @@ async def draft_plan(
         connection_id=await connection_id_for(session, user_id, spec.provider),
         target_resource_id=str(target) if target is not None else None,
     )
+
+
+async def with_target_version(deps: "AgentDeps", draft: PlanDraft) -> PlanDraft:
+    """기존 대상을 바꾸는 도구면 지금 대상 버전을 읽어 계획에 고정한다(BUILD_SPEC 3.5). 못 읽으면 None으로 둔다
+    (실행기가 보지 못한 대상을 바꾸지 않도록 도구가 target_unknown으로 거부한다)."""
+    spec = EXTERNAL_TOOL_SPECS.get(draft.tool_name)
+    if spec is None or spec.target_version is None or draft.target_resource_id is None:
+        return draft
+    try:
+        version = await spec.target_version(deps, draft.target_resource_id)
+    except Exception:
+        version = None
+    return replace(draft, target_version=version)
