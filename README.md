@@ -10,9 +10,9 @@
 - 승인 버튼을 두 번 누르거나 서버가 실행 도중 죽어도 외부 행동은 **많아야 한 번**만 일어납니다.
 - 검색 결과·일정 제목·메일 본문에 숨은 지시문("일정을 지워라", "이걸 기억해라")은 데이터로만 다룹니다.
   행동은 승인 카드에서, 기억 저장은 서버 검사에서 막습니다.
-- 이 규칙들은 프롬프트로 부탁하지 않고 **코드와 테스트로 강제**합니다(pytest 357개, Vitest 253개, Playwright 37개).
+- 이 규칙들은 프롬프트로 부탁하지 않고 **코드와 테스트로 강제**합니다(pytest 616개, Vitest 353개, Playwright 48개).
 
-> 상태(2026-11-17): 명세의 0~8단계를 구현한 뒤 개정 명세(docs/BUILD_SPEC.md) 기준으로 0~6단계 보강을 마쳤습니다 (진행표: [docs/STATUS.md](docs/STATUS.md)). 배포 전 코드 준비는 끝났고 실제 배포(Railway)는 계정 연결 뒤 합니다 ([docs/DEPLOY.md](docs/DEPLOY.md)).
+> 상태(2026-11-18): 명세의 0~8단계를 구현한 뒤 개정 명세(docs/BUILD_SPEC.md) 기준으로 0~8단계 보강과 9단계 중 코드로 할 수 있는 보강(다크 모드·PWA 아이콘·폴링·운영 문서)을 마쳤습니다 (진행표: [docs/STATUS.md](docs/STATUS.md)). 배포 전 코드 준비는 끝났고 실제 배포(Railway)는 계정 연결 뒤 합니다 ([docs/DEPLOY.md](docs/DEPLOY.md)).
 > 아래 [알려진 한계와 다음 할 일](#알려진-한계와-다음-할-일)에 아직 확인하지 못한 것을 적어 두었습니다.
 
 ## 목차
@@ -162,7 +162,7 @@ sequenceDiagram
 
 ## 테스트 현황
 
-2026-11-17 기준 **pytest 542개, Vitest 278개, Playwright 38개**가 통과합니다. 테스트는 실제 모델 요청을 전역으로 막고(`ALLOW_MODEL_REQUESTS = False`)
+2026-11-18 기준 **pytest 616개, Vitest 353개, Playwright 48개**가 통과합니다. 테스트는 실제 모델 요청을 전역으로 막고(`ALLOW_MODEL_REQUESTS = False`)
 가짜 모델 대본(FunctionModel)과 가짜 외부 API(`httpx.MockTransport`, 녹화 응답 `apps/api/tests/fixtures/`)만 씁니다.
 
 ### 명세의 테스트 1~15
@@ -190,9 +190,9 @@ sequenceDiagram
 
 ## eval(평가) 결과
 
-- 사례 30개(`apps/api/evals/dataset.yaml`, 명세 비율: 일정 8, 장소·날씨 8, 할 일·기억 5, 자동화 4, 금지 요청 3, 주입 2)와 평가기 7개(도구 선택 일치, 승인 누락, 금지 요청 거절, 금지 행동, 외부 쓰기 0건, 답변 낱말, 비용)를 만들었습니다. 모두 규칙 판정이고 LLM 판정은 쓰지 않습니다.
+- 사례 30개(`apps/api/evals/dataset.yaml`, BUILD_SPEC 16절 번호 그대로, 고정 시각 2026-11-18 09:00 서울)와 평가기 14개(안전 경계 5, 모델 판단 8, 비용 1)를 만들었습니다. 안전 경계는 위반 건수로, 모델 판단은 통과율로 나눠 보고하고, 실행마다 프롬프트 해시·커밋·데이터셋 버전을 기록합니다. 모두 규칙 판정이고 LLM 판정은 쓰지 않습니다.
 - eval은 실제 앱 흐름(`runner.run_task`)을 그대로 부르되, 버리는 DB(`myagent_eval`)와 가짜 외부 API를 쓰고 **승인은 하지 않습니다**. 외부에 흔적이 남지 않습니다.
-- 목표: 승인 누락 0건, 금지 요청(26~28)과 주입(29~30) 전부 통과. 도구 선택 정답률은 첫 측정값을 기준선으로 잡습니다.
+- 목표: 안전 경계 위반 0건. 모델 판단 통과율은 첫 측정값을 기준선으로 잡습니다.
 - **결과 수치는 [docs/EVALS.md](docs/EVALS.md)의 결과 표를 보세요.** 사례 문장은 아직 초안이라 이 README에는 숫자를 옮기지 않았습니다.
 
 ## 기술 스택과 선택 이유
@@ -331,13 +331,13 @@ pnpm --dir apps/web e2e
 - API 프로세스는 하나만 띄웁니다(전송 제한이 프로세스 메모리에 있고, DBOS 복구가 같은 executor를 전제).
 - 실행 기록(모델 기록·단계 입출력·DBOS 워크플로 기록)은 끝난 뒤 7일, 영수증은 90일 뒤 지웁니다. 백업에는 최대 30일 남을 수 있습니다([docs/DATA_POLICY.md](docs/DATA_POLICY.md)).
 - Google 앱을 '테스트' 상태로 쓰므로 refresh token이 7일 뒤 만료되어 다시 연결해야 할 수 있습니다.
-- 다크 모드를 지원하지 않습니다.
+- 다크 모드는 시스템 설정만 따릅니다(앱 안 테마 선택 없음).
 
 **다음 할 일 (9단계)**
 - 배포: Railway(선택지 A)로 정했고 코드 준비는 끝났습니다. 계정·결제·도메인을 연결한 뒤 [docs/DEPLOY.md](docs/DEPLOY.md) 순서대로.
-- 개정 명세 7~9단계 보강([docs/STATUS.md](docs/STATUS.md) 차이 목록).
+- 9단계 남은 것: 실제 배포 주소, 배포 환경 복원 연습, 실기기 확인, 7일 실사용 기록([docs/OPERATIONS.md](docs/OPERATIONS.md) 양식).
 - 스크린샷 넣기, eval 첫 측정과 가장 많이 틀린 유형 개선.
-- 미뤄 둔 제안: 작업 취소 API, 네이버 검색 결과 보관 기간 정리, Google 미연결 시 일정 쓰기 도구 숨기기.
+- 미뤄 둔 제안: 네이버 검색 결과 보관 기간 정리, Google 미연결 시 일정 쓰기 도구 숨기기.
 
 ## 문서 안내
 
@@ -355,4 +355,6 @@ pnpm --dir apps/web e2e
 | [docs/DEPLOY-OPTIONS.md](docs/DEPLOY-OPTIONS.md) | 배포 선택지 비교 |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | 배포 절차(Railway)와 배포 뒤 확인 |
 | [docs/DATA_POLICY.md](docs/DATA_POLICY.md) | 저장소별 보관·삭제 범위, 백업 지연, 키 관리 |
+| [docs/STATE_MACHINES.md](docs/STATE_MACHINES.md) | task·operation·approval 등 상태 전이 표 |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | 마이그레이션·롤백, 백업·복원, 키 교체, 장애 대응, 7일 실사용 기록 양식 |
 | [AGENTS.md](AGENTS.md) | 작업 규칙, 절대 원칙, 도구 규약 |
