@@ -27,12 +27,19 @@ class ExternalApiError(Exception):
     """외부 API 실패. 메시지는 사용자에게 그대로 보여 줘도 되는 한국어 문장이다.
 
     status: 응답을 받았을 때의 HTTP 상태 코드(도구가 401·404를 따로 처리하는 데 쓴다).
+    code: 오류 종류(1단계 보강). timeout, network, server_error, rate_limited, unauthorized, rejected, bad_response.
+    outcome_unknown: 쓰기 요청(GET 외)이 응답 없이 끝났다(시간 초과, 연결 끊김, 5xx). 상대 서버에 반영됐을 수 있어
+        실패가 아니라 "결과 불명"으로 다룬다(ToolResult.unknown).
     """
 
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(
+        self, message: str, status: int | None = None, *, code: str = "rejected", outcome_unknown: bool = False
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.status = status
+        self.code = code
+        self.outcome_unknown = outcome_unknown
 
 
 def build_http_client() -> httpx.AsyncClient:
@@ -60,24 +67,25 @@ async def request_json(
 ) -> Any:
     """요청을 보내고 JSON을 돌려준다. 본문이 없는 성공 응답(예: 삭제 204)은 {}."""
     attempts = READ_ATTEMPTS if method == "GET" else 1
-    message = ""
+    message, code = "", "network"
     for _ in range(attempts):
         try:
             response = await http.request(
                 method, url, params=params, headers=headers, json=json, data=data, timeout=TIMEOUT_SECONDS
             )
         except httpx.TimeoutException:
-            message = transport_message(service, method, timed_out=True)
+            message, code = transport_message(service, method, timed_out=True), "timeout"
             continue
         except httpx.HTTPError:
-            message = transport_message(service, method, timed_out=False)
+            message, code = transport_message(service, method, timed_out=False), "network"
             continue
         if response.status_code >= 500:
             message = f"{service} 서버에 일시적인 문제가 있습니다(상태 {response.status_code})."
+            code = "server_error"
             continue
         return read_response(service, response)
-    logger.warning("외부 API 실패: service=%s method=%s reason=%s", service, method, message)
-    raise ExternalApiError(message)
+    logger.warning("외부 API 실패: service=%s method=%s reason=%s", service, method, code)
+    raise ExternalApiError(message, code=code, outcome_unknown=method != "GET")
 
 
 def transport_message(service: str, method: str, *, timed_out: bool) -> str:
@@ -95,9 +103,13 @@ def transport_message(service: str, method: str, *, timed_out: bool) -> str:
 def read_response(service: str, response: httpx.Response) -> Any:
     status = response.status_code
     if status == 429 or is_rate_limited(response):
-        raise ExternalApiError(f"{service} 호출 한도를 넘었습니다. 잠시 후 다시 시도해 주세요.", status)
+        raise ExternalApiError(
+            f"{service} 호출 한도를 넘었습니다. 잠시 후 다시 시도해 주세요.", status, code="rate_limited"
+        )
     if status in (401, 403):
-        raise ExternalApiError(f"{service} 인증에 실패했습니다. API 키와 사용 설정을 확인해 주세요.", status)
+        raise ExternalApiError(
+            f"{service} 인증에 실패했습니다. API 키와 사용 설정을 확인해 주세요.", status, code="unauthorized"
+        )
     if status >= 400:
         logger.warning("외부 API 요청 거부: service=%s status=%s", service, status)
         raise ExternalApiError(f"{service} 요청이 거부되었습니다(상태 {status}).", status)
@@ -106,7 +118,7 @@ def read_response(service: str, response: httpx.Response) -> Any:
     try:
         return response.json()
     except ValueError as error:
-        raise ExternalApiError(f"{service} 응답을 해석하지 못했습니다.") from error
+        raise ExternalApiError(f"{service} 응답을 해석하지 못했습니다.", status, code="bad_response") from error
 
 
 def is_rate_limited(response: httpx.Response) -> bool:

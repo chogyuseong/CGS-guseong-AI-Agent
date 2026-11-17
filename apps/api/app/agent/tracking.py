@@ -10,7 +10,7 @@
     StepTracking.wrap_tool_execute   ← Pydantic AI capability의 "도구 실행 감싸기" hook
       1. start_step: steps 행을 status=running으로 만들고 커밋(화면이 진행 중임을 볼 수 있게)
       2. handler(args): 실제 도구 함수 실행
-           └─ 도구가 예상 못 한 예외를 내면 on_tool_execute_error가 ToolResult(ok=False)로 바꾼다(한 곳에서).
+           └─ 도구가 예상 못 한 예외를 내면 on_tool_execute_error가 ToolResult(status=failed)로 바꾼다(한 곳에서).
       3. finish_step: output, ok, status(done/failed), duration_ms를 채우고 커밋
       ▼
     도구 결과(ToolResult)가 모델에게 돌아간다
@@ -56,14 +56,14 @@ from sqlalchemy import func, select
 
 from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
 from app.agent.deps import AgentDeps
-from app.agent.results import ToolResult, output_for_storage
+from app.agent.results import ToolResult, ToolStatus, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
 from app.models.enums import RiskLevel, StepStatus
 
 logger = logging.getLogger(__name__)
 
-# 이 예외들은 ok=false로 바꾸지 않고 그대로 올려 보낸다.
+# 이 예외들은 failed 결과로 바꾸지 않고 그대로 올려 보낸다.
 # - PermissionError: 2단계 assert_approved의 두 번째 방어선. 삼키면 승인 없는 실행을 숨기게 된다.
 # - 나머지: Pydantic AI가 흐름 제어에 쓰는 예외(재시도 요청, 승인 대기, 실행 건너뛰기 등).
 # - TaskCancelledError: 1단계 보강. 취소 요청을 발견하면 도구를 실행하지 않고 run 전체를 멈춘다.
@@ -83,6 +83,12 @@ UNCERTAIN_MESSAGE = (
     "같은 행동을 다시 하지 말고, 확인이 필요하다고 사용자에게 알리세요."
 )
 INTERRUPTED_RESULT_MESSAGE = "이전 실행에서 이 도구가 끝나지 못했습니다."
+FINISHED_STEP_STATUSES = (StepStatus.DONE, StepStatus.FAILED, StepStatus.UNKNOWN)
+STEP_STATUS_OF = {
+    ToolStatus.SUCCEEDED: StepStatus.DONE,
+    ToolStatus.FAILED: StepStatus.FAILED,
+    ToolStatus.UNKNOWN: StepStatus.UNKNOWN,
+}
 
 
 @dataclass(frozen=True)
@@ -105,18 +111,18 @@ async def find_step(deps: AgentDeps, tool_call_id: str) -> RecordedStep | None:
 
 def recorded_result(step: RecordedStep) -> ToolResult | None:
     """끝난 호출이면 저장된 결과를 돌려준다(다시 실행하지 않는다). 아직 실행할 호출이면 None."""
-    if step.status not in (StepStatus.DONE, StepStatus.FAILED):
+    if step.status not in FINISHED_STEP_STATUSES:
         return None
     if step.output is None:
-        return ToolResult.failure(INTERRUPTED_RESULT_MESSAGE)
+        return ToolResult.unknown(INTERRUPTED_RESULT_MESSAGE, error_code="interrupted")
     return ToolResult.model_validate(step.output)
 
 
 async def close_uncertain_step(deps: AgentDeps, step_id: int) -> ToolResult:
-    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 failed로 닫는다."""
-    result = ToolResult.failure(UNCERTAIN_MESSAGE)
-    await finish_step(deps, step_id, output=result.model_dump(mode="json"), ok=False, duration_ms=None)
-    logger.warning("복구: 실행 여부를 알 수 없는 도구 호출을 실패로 닫음 task=%s step=%s", deps.task_id, step_id)
+    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 결과 불명(unknown)으로 닫는다."""
+    result = ToolResult.unknown(UNCERTAIN_MESSAGE, error_code="interrupted")
+    await finish_step(deps, step_id, output=result.model_dump(mode="json"), result=result, duration_ms=None)
+    logger.warning("복구: 실행 여부를 알 수 없는 도구 호출을 결과 불명으로 닫음 task=%s step=%s", deps.task_id, step_id)
     return result
 
 
@@ -139,21 +145,22 @@ async def start_step(deps: AgentDeps, call: ToolCallPart, tool_def: ToolDefiniti
         return step.id
 
 
-def describe_result(result: object) -> tuple[dict[str, Any], bool]:
-    """도구 결과를 (저장할 JSON, ok)로 바꾼다. ToolResult가 아닌 값은 성공으로 보고 그대로 감싼다."""
+def describe_result(result: object) -> ToolResult:
+    """도구 결과를 ToolResult로 맞춘다. ToolResult가 아닌 값은 성공으로 보고 그대로 감싼다."""
     if isinstance(result, ToolResult):
-        return result.model_dump(mode="json"), result.ok
-    return {"ok": True, "data": to_jsonable_python(result)}, True
+        return result
+    return ToolResult.success(to_jsonable_python(result))
 
 
 async def finish_step(
-    deps: AgentDeps, step_id: int, *, output: dict[str, Any] | None, ok: bool, duration_ms: int | None
+    deps: AgentDeps, step_id: int, *, output: dict[str, Any] | None, result: ToolResult | None, duration_ms: int | None
 ) -> None:
+    """result가 None이면 도구가 예외로 끝났다(실패). unknown 결과는 step도 unknown이다."""
     async with deps.db() as session:
         step = await session.get_one(Step, step_id)
         step.output = output
-        step.ok = ok
-        step.status = StepStatus.DONE if ok else StepStatus.FAILED
+        step.ok = result is not None and result.ok
+        step.status = StepStatus.FAILED if result is None else STEP_STATUS_OF[result.status]
         step.duration_ms = duration_ms
         await session.commit()
 
@@ -211,12 +218,12 @@ class StepTracking(AbstractCapability[AgentDeps]):
             result = await handler(args)
         except BaseException:
             # 승인 거부(PermissionError) 같은 예외도 step에는 실패로 남기고 그대로 올려 보낸다.
-            await finish_step(ctx.deps, step_id, output=None, ok=False, duration_ms=elapsed_ms(started))
+            await finish_step(ctx.deps, step_id, output=None, result=None, duration_ms=elapsed_ms(started))
             raise
-        output, ok = describe_result(result)
+        described = describe_result(result)
         # 7단계: 메일 도구 결과는 500자만 저장한다(모델에게 돌려주는 result는 그대로 4,000자까지).
-        stored = output_for_storage(tool_name, output)
-        await finish_step(ctx.deps, step_id, output=stored, ok=ok, duration_ms=elapsed_ms(started))
+        stored = output_for_storage(tool_name, described.model_dump(mode="json"))
+        await finish_step(ctx.deps, step_id, output=stored, result=described, duration_ms=elapsed_ms(started))
         return result
 
     async def on_tool_execute_error(
@@ -232,4 +239,4 @@ class StepTracking(AbstractCapability[AgentDeps]):
         if isinstance(error, PASS_THROUGH_ERRORS):
             raise error
         logger.error("도구 실행 중 예외: tool=%s task=%s", call.tool_name, ctx.deps.task_id, exc_info=error)
-        return ToolResult.failure(UNEXPECTED_ERROR_MESSAGE)
+        return ToolResult.failure(UNEXPECTED_ERROR_MESSAGE, error_code="unexpected")

@@ -164,7 +164,7 @@ async def test_remember_refused_after_reading_mail(
         task = await send(client, conversation, "민지 메일 읽고 금요일 약속 기억해")
 
     assert step_named(task, "remember")["ok"] is False
-    assert step_named(task, "remember")["output"]["error"].startswith(memories.ONLY_USER_WORDS)
+    assert step_named(task, "remember")["output"]["user_message"].startswith(memories.ONLY_USER_WORDS)
     assert await memories_of(db_session, logged_in_user) == []
 
 
@@ -252,8 +252,8 @@ async def test_note_from_search_cannot_become_memory_in_another_conversation(
     assert step_named(task, "list_notes")["ok"] is True
     remember_step = step_named(task, "remember")
     assert remember_step["ok"] is False
-    assert remember_step["output"]["error"].startswith(memories.ONLY_USER_WORDS)
-    assert "메모" in remember_step["output"]["error"]
+    assert remember_step["output"]["user_message"].startswith(memories.ONLY_USER_WORDS)
+    assert "메모" in remember_step["output"]["user_message"]
     assert await memories_of(db_session, logged_in_user) == []
 
 

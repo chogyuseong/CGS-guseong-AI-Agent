@@ -174,7 +174,7 @@ async def list_mail(
         listed = await gmail_get(ctx.deps, params=list_params(query, label, max_results))
         messages = [await gmail_get(ctx.deps, mid, metadata) for mid in message_ids(listed, max_results)]
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     views = [summary_view(m) for m in messages if isinstance(m, dict)]
     content: dict[str, Any] = {"query": query, "label": label, "messages": views}
     if not views:
@@ -191,7 +191,7 @@ async def read_mail(ctx: RunContext[AgentDeps], message_id: MessageId) -> ToolRe
     try:
         message = await gmail_get(ctx.deps, message_id, {"format": "full"})
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     if not isinstance(message, dict):
         return ToolResult.failure("Gmail 응답을 해석하지 못했습니다.")
     return ToolResult.external(message_view(message))

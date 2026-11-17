@@ -6,9 +6,9 @@ BUILD_SPEC 1.3 "버전 선택 규칙"에 따라, 실제로 설치해 테스트�
 
 ## 확인한 날짜와 결과
 
-- 2026-11-17, 두 번째 PC(Windows 11)에서 새로 설치한 뒤 확인했다.
-  - API: pytest 371개 통과, ruff·ruff format·pyright 0건, `alembic check` 차이 없음
-  - 웹: Biome 0건, tsc 통과, Vitest 253개, Playwright 37개 통과
+- 2026-11-17, 두 번째 PC(Windows 11)에서 새로 설치한 뒤 확인했다(1단계 보강 끝 기준).
+  - API: pytest 400개 통과, ruff·ruff format·pyright 0건, `alembic check` 차이 없음
+  - 웹: Biome 0건, tsc 통과, Vitest 263개, Playwright 37개 통과
 
 ## 도구
 

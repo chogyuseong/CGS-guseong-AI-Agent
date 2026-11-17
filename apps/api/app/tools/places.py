@@ -109,7 +109,7 @@ async def search_places(
             params.update(x=center.longitude, y=center.latitude, radius=radius_m)
         documents = await keyword_search(ctx.deps, query, **params)
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     places = [place_view(d) for d in documents[:size]]
     content: dict[str, Any] = {"query": query, "near": near, "radius_m": radius_m if near else None, "places": places}
     if not places:

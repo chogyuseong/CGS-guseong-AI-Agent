@@ -854,7 +854,7 @@ export interface components {
          * StepStatus
          * @enum {string}
          */
-        StepStatus: "running" | "waiting_approval" | "done" | "failed" | "rejected" | "expired";
+        StepStatus: "running" | "waiting_approval" | "done" | "failed" | "rejected" | "expired" | "unknown";
         /**
          * TaskCreated
          * @description 메시지 전송 응답(202). 화면은 이 task_id로 GET /api/tasks/{id}를 조회한다.

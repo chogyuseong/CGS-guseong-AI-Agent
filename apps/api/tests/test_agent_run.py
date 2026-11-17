@@ -91,7 +91,7 @@ async def test_add_todo_creates_step_todo_usage_and_answer(
     assert step["label"] == "할 일에 '우유 사기' 추가하는 중"
     assert step["order"] == 1
     assert step["duration_ms"] is not None
-    assert step["output"]["ok"] is True
+    assert step["output"]["status"] == "succeeded"
     todos = (await db_session.scalars(select(Todo).where(Todo.user_id == logged_in_user.id))).all()
     assert [t.title for t in todos] == ["우유 사기"]
     usage_rows = (await db_session.scalars(select(UsageLog).where(UsageLog.task_id == task["id"]))).all()
@@ -152,7 +152,7 @@ async def test_unexpected_tool_exception_becomes_failed_result(
     step = task["steps"][0]
     assert step["ok"] is False
     assert step["status"] == "failed"
-    assert "DB가 갑자기 끊김" not in step["output"]["error"]  # 내부 오류 내용은 모델과 화면에 보내지 않는다
+    assert "DB가 갑자기 끊김" not in step["output"]["user_message"]  # 내부 오류 내용은 모델과 화면에 보내지 않는다
 
 
 async def test_schedule_task_gets_read_tools_only(

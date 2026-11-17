@@ -92,7 +92,7 @@ async def test_remember_refused_after_external_content_tool_in_same_task(
     assert step_named(task, "web_search")["output"]["data"]["notice"] == EXTERNAL_NOTICE
     step = step_named(task, "remember")
     assert step["ok"] is False
-    assert step["output"]["error"].startswith(memories.ONLY_USER_WORDS)
+    assert step["output"]["user_message"].startswith(memories.ONLY_USER_WORDS)
     assert await memories_of(db_session, logged_in_user) == []
 
 
@@ -443,8 +443,8 @@ async def test_interrupted_remember_is_not_executed_again(
 
     assert await count(db_session, Memory, Memory.user_id == logged_in_user.id) == 0
     await db_session.refresh(step)
-    assert step.status == StepStatus.FAILED
-    assert step.output is not None and step.output["error"] == UNCERTAIN_MESSAGE
+    assert step.status == StepStatus.UNKNOWN  # 실행했는지 모른다(실패와 구분)
+    assert step.output is not None and step.output["user_message"] == UNCERTAIN_MESSAGE
 
 
 # ---- 동적 지시문: 최근 30줄, 지시가 아닌 사실로 감싸기, 삭제하면 다음 run에서 빠짐 ----

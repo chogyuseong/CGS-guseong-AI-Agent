@@ -115,8 +115,9 @@
    - 인자는 `Annotated[타입, Field(제약, description=...)]`로 제약을 건다. 잘못된 인자는 Pydantic AI가 모델에게 돌려보낸다.
    - DB 작업은 도구 함수 밖의 작은 함수로 빼고, `async with ctx.deps.db() as session:`로 짧게 열고 커밋한다.
    - 모든 조회·수정에 `ctx.deps.user_id` 조건을 건다.
-3. **결과**: 항상 `ToolResult`(`app/agent/results.py`)를 돌려준다. 실패는 `ToolResult.failure("한국어 이유")`.
-   예외를 밖으로 던지지 않는다. 예상 못 한 예외는 `StepTracking.on_tool_execute_error`가 한 곳에서 ok=false로 바꾼다.
+3. **결과**: 항상 `ToolResult`(`app/agent/results.py`)를 돌려준다. status는 succeeded / failed / unknown(1단계 보강).
+   실패는 `ToolResult.failure("한국어 이유", error_code=...)`, 했는지 모르면 `ToolResult.unknown(...)`(실패와 구분, 자동 재시도 금지).
+   예외를 밖으로 던지지 않는다. 예상 못 한 예외는 `StepTracking.on_tool_execute_error`가 한 곳에서 status=failed로 바꾼다.
    유일한 예외: EXTERNAL 도구 첫 줄의 `await assert_approved(ctx)`(`app/agent/approvals.py`)가 던지는 `PermissionError`.
    EXTERNAL 도구는 `TOOL_PREVIEWS`에 `async def preview_도구(deps, args) -> str`(실행하지 않고 무엇을 할지 설명)도 등록한다.
    예시는 `tests/fake_tools.py`의 `fake_external`(테스트 전용, 운영 코드에 등록 금지).
@@ -126,7 +127,8 @@
 6. **외부 콘텐츠 도구**(검색 결과, 일정 제목, 메일 본문을 돌려주는 도구, 4단계부터)는 `ToolResult.external(content, sources)`로
    돌려준다(지시문 무시 안내로 감싸고 6,000자로 자름, 출처·조회 시각). 이름을 `results.EXTERNAL_CONTENT_TOOLS`에도 넣는다
    (5단계 remember 검사가 이 목록과 감싸기로 외부 글을 알아본다. `toolsets`에서도 다시 내보낸다).
-   외부 HTTP는 `app/tools/http.py`(`get_json`, `request_json`)로만 부르고 `ExternalApiError`를 `ToolResult.failure(error.message)`로 바꾼다.
+   외부 HTTP는 `app/tools/http.py`(`get_json`, `request_json`)로만 부르고 `ExternalApiError`를 `ToolResult.from_api_error(error)`로 바꾼다
+   (쓰기 요청이 시간 초과·연결 실패면 unknown, 조회 실패는 failed + retryable).
    키는 `ctx.deps.settings`, 클라이언트는 `ctx.deps.http`. 엔드포인트·한도는 `docs/TOOLS.md`에 적는다.
    preview에 외부 문자열을 넣을 때는 `gcal.quote_external`처럼 「」로 감싸고 40자로 자른다.
 7. **테스트**: FunctionModel 대본으로 도구 호출 → step 1개(ok, label) → DB 변화를 확인한다. 실제 모델·외부 API는 부르지 않는다.

@@ -3,6 +3,7 @@
 import {
   Ban,
   CircleCheck,
+  CircleHelp,
   CircleX,
   Hourglass,
   LoaderCircle,
@@ -19,7 +20,7 @@ type StatusView = { icon: LucideIcon; name: string; className: string; showName?
 
 // 단계 상태별 아이콘과 이름. Record<K, V>는 "K의 모든 값을 키로 갖는 사전" 타입이다.
 // (Python의 dict[StepStatus, ...]인데, 상태 하나라도 빠지면 tsc가 오류를 낸다)
-// 승인과 관련된 상태(승인 대기, 거절됨, 만료됨)는 아이콘만으로 구별하기 어려워 줄 끝에 글자도 붙인다(showName).
+// 승인과 관련된 상태(승인 대기, 거절됨, 만료됨)와 결과 불명은 아이콘만으로 구별하기 어려워 줄 끝에 글자도 붙인다(showName).
 const STATUS_ICONS: Record<Step["status"], StatusView> = {
   running: {
     icon: LoaderCircle,
@@ -36,6 +37,13 @@ const STATUS_ICONS: Record<Step["status"], StatusView> = {
   },
   rejected: { icon: Ban, name: "거절됨", className: "text-muted-foreground", showName: true },
   expired: { icon: TimerOff, name: "만료됨", className: "text-muted-foreground", showName: true },
+  // 1단계 보강: 실행했는지 모른다(실행 도중 서버 중단, 쓰기 요청 시간 초과). 실패와 다르므로 글자로도 알린다.
+  unknown: {
+    icon: CircleHelp,
+    name: "결과 확인 필요",
+    className: "text-amber-600",
+    showName: true,
+  },
 };
 
 // 도구 호출 단계 목록. 각 줄을 누르면 입력과 출력을 펼친다.

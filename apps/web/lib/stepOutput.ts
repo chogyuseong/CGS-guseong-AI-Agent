@@ -1,4 +1,5 @@
-// 작업 단계(step)의 출력 읽기. 출력은 서버의 ToolResult({ok, data, error, sources, fetched_at})다.
+// 작업 단계(step)의 출력 읽기. 출력은 서버의 ToolResult({status, data, error_code, user_message, sources, fetched_at, ...})다.
+// status는 succeeded / failed / unknown(실행했는지 모름)이다. 1단계 보강 전에 저장된 단계는 {ok, error} 모양일 수 있다.
 // 외부 콘텐츠 도구(검색, 장소, 날씨, 일정 조회)의 data는 {notice, content, truncated}로 감싸여 온다
 // (apps/api/app/agent/results.py의 ToolResult.external). notice는 모델에게 주는 안내라 화면에는 쓰지 않는다.
 

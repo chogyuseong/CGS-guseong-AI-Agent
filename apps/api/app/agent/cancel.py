@@ -16,6 +16,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.deps import AgentDeps
+from app.agent.results import not_executed_output
 from app.models import Approval, Conversation, Message, Step, Task
 from app.models.enums import ApprovalStatus, MessageRole, StepStatus, TaskStatus
 
@@ -83,7 +84,7 @@ async def close_for_cancel(session: AsyncSession, task: Task) -> None:
     await session.execute(
         update(Step)
         .where(Step.task_id == task.id, Step.status == StepStatus.WAITING_APPROVAL)
-        .values(status=StepStatus.FAILED, ok=False, output={"ok": False, "error": NOT_EXECUTED_ON_CANCEL})
+        .values(status=StepStatus.FAILED, ok=False, output=not_executed_output(NOT_EXECUTED_ON_CANCEL))
     )
     task.status = TaskStatus.CANCELLED
     task.error = CANCELLED_REPLY

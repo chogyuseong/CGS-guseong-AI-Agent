@@ -124,7 +124,7 @@ async def get_weather(ctx: RunContext[AgentDeps], place: PlaceName, date: Foreca
         forecast = await http.get_json(ctx.deps.http, SERVICE, FORECAST_URL, params=forecast_params(location, target))
         summary = summarize(location, target, forecast)
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     return ToolResult.external(summary, sources=[location.place_url, OPEN_METEO_SOURCE])
 
 

@@ -52,6 +52,8 @@ class StepStatus(StrEnum):
     REJECTED = "rejected"
     # 2단계 추가: 승인을 30분 안에 결정하지 않아 실행하지 않은 EXTERNAL 호출.
     EXPIRED = "expired"
+    # 1단계 보강: 실행했는지 모른다(실행 도중 서버 중단, 쓰기 요청 시간 초과). 실패와 구분한다.
+    UNKNOWN = "unknown"
 
 
 class ApprovalStatus(StrEnum):

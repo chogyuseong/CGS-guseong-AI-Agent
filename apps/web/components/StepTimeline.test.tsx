@@ -14,7 +14,7 @@ function makeStep(overrides: Partial<Step>): Step {
     status: "done",
     ok: true,
     input: { title: "우유 사기" },
-    output: { ok: true, data: { id: 7 } },
+    output: { status: "succeeded", data: { id: 7 } },
     duration_ms: 12,
     ...overrides,
   };
@@ -88,6 +88,17 @@ describe("StepTimeline", () => {
     const expired = screen.getByRole("button", { name: /일정 지우기/ });
     expect(within(waiting).getByText("승인 대기")).toBeVisible();
     expect(within(expired).getByText("만료됨")).toBeVisible();
+  });
+
+  it("실행했는지 모르는 단계(unknown)는 실패와 구분해 '결과 확인 필요'를 글자로 보여 준다", () => {
+    render(
+      <StepTimeline
+        steps={[makeStep({ status: "unknown", ok: false, label: "할 일 추가: 우유 사기" })]}
+      />,
+    );
+    const row = screen.getByRole("button", { name: /우유 사기/ });
+    expect(within(row).getByText("결과 확인 필요")).toBeVisible();
+    expect(within(row).queryByText("실패")).not.toBeInTheDocument();
   });
 
   it("단계를 누르면 입력과 출력을 펼치고, 다시 누르면 접는다", () => {

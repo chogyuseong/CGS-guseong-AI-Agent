@@ -297,9 +297,11 @@ async def test_interrupted_internal_call_is_not_executed_again(
 
     assert await count(db_session, Todo, Todo.user_id == logged_in_user.id) == 0
     await db_session.refresh(step)
-    assert step.status == StepStatus.FAILED
+    # 1단계 보강: 실행했는지 모르는 호출은 실패가 아니라 결과 불명(unknown)이다.
+    assert step.status == StepStatus.UNKNOWN
     assert step.ok is False
-    assert step.output is not None and step.output["error"] == UNCERTAIN_MESSAGE
+    assert step.output is not None and step.output["user_message"] == UNCERTAIN_MESSAGE
+    assert step.output["status"] == "unknown"
 
 
 async def test_interrupted_read_call_runs_again(
@@ -339,8 +341,8 @@ async def test_interrupted_external_call_is_not_executed_again(
     detail = (await client.get(f"/api/tasks/{task['id']}")).json()
     assert fake_external_counter.count == 0
     assert detail["status"] == "done"
-    assert detail["steps"][0]["status"] == "failed"
-    assert detail["steps"][0]["output"]["error"] == UNCERTAIN_MESSAGE
+    assert detail["steps"][0]["status"] == "unknown"  # 실행했는지 모른다(실패와 구분)
+    assert detail["steps"][0]["output"]["user_message"] == UNCERTAIN_MESSAGE
 
 
 # ---- 재개 직전 하루 비용 상한 ----
@@ -363,7 +365,7 @@ async def test_budget_exceeded_at_resume_closes_approved_step(
     assert detail["status"] == "budget_exceeded"
     assert detail["approvals"][0]["status"] == "approved"
     assert detail["steps"][0]["status"] == "failed"  # waiting_approval로 남지 않는다
-    assert detail["steps"][0]["output"]["error"] == runner.NOT_EXECUTED_MESSAGE
+    assert detail["steps"][0]["output"]["user_message"] == runner.NOT_EXECUTED_MESSAGE
 
 
 # ---- 단계들의 멱등성 ----

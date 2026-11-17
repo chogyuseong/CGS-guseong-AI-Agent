@@ -527,4 +527,9 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 취소된 승인에 승인·거절을 보내면 기존 규칙(이미 결정된 승인은 지금 상태를 200으로 돌려줌)대로 `cancelled`를 돌려줄 뿐 실행하지 않는다.
 - 2026-11-17 `agent_runs`(task별 회차: 1회차 run, 재개마다 resume)를 claim 단계에서 만들고 finish에서 결과 상태·요청 수·토큰을 채운다. `UNIQUE(task_id, workflow_id)`로 복구 때 다시 claim해도 한 행이다. 메시지 기록은 아직 tasks.message_history에 둔다.
 - 2026-11-17 화면: 진행 중 답변 자리에 "작업 취소" 버튼(대기·진행·승인 대기일 때만, 44px). cancel_requested면 "곧 멈춥니다" 문구.
-- 2026-11-17 화면: 전송 직후 "보내는 중" 말풍선과 다시 받은 같은 메시지가 잠깐 함께 보이던 문제를 고쳤다(e2e가 가끔 strict mode로 실패). 보내기 시작한 순간의 내 메시지 수를 기억해, 다시 받은 목록에서 그 수가 늘면 말풍선을 숨긴다.
+- 2026-11-17 화면: 전송 직후 "보내는 중" 말풍선과 다시 받은 같은 메시지가 잠깐 함께 보이던 문제를 고쳤다(e2e가 가끔 strict mode로 실패). 보내기 시작한 순간의 내 메시지 수를 기억해, 다시 받은 목록에서 그 수가 늘면 말풍선을 숨긴다.- 2026-11-17 ToolResult를 BUILD_SPEC 2.3 모양으로 바꿨다: status(succeeded/failed/unknown), data, error_code, user_message, retryable, operation_id, receipt_id, sources, fetched_at, truncated. `ok`·`error`는 예전 코드 호환용 읽기 전용 속성(직렬화하지 않음). 예전 모양({ok, error})으로 저장된 steps.output은 before 검증기로 읽는다(복구 재생).
+- 2026-11-17 `ExternalApiError`에 code(timeout·network·server_error·rate_limited·unauthorized·rejected·bad_response)와 outcome_unknown을 둔다. GET이 아닌 요청이 응답 없이 끝나면(시간 초과·연결 실패·5xx) 상대에 반영됐을 수 있어 `ToolResult.unknown`(재시도 금지), 조회 실패는 failed이고 timeout·network·server_error·rate_limited면 retryable=True.
+- 2026-11-17 실행 도중 서버가 멈춰 실행 여부를 모르는 INTERNAL·EXTERNAL 호출은 이제 failed가 아니라 unknown(step 상태 `unknown`, 화면 "결과 확인 필요")으로 닫는다. 확실히 실행하지 않은 단계(취소, 실행 전 작업 종료)는 failed + error_code `not_executed`로 구분한다.
+- 2026-11-17 시스템 프롬프트의 "ok가 false면" 줄을 status 기준으로 바꾸고 "unknown이면 같은 행동을 다시 하지 말고 확인을 부탁한다"를 더했다.
+- 2026-11-17 AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력은 6단계 보강으로 미룬다. 출력 형식을 바꾸면 모든 가짜 모델 대본과 eval이 함께 바뀌고, needs_clarification(waiting_input)의 쓸모는 실제 모델로 되묻기 품질을 봐야 판단할 수 있다. suggestions 구조화가 6단계 일이라 그때 한 번에 바꾼다. 1단계의 "결과 상태와 모델 설명 분리"는 task 상태를 서버가 정하고(모델 문장과 별개), 실패·취소·한도 초과 답변을 서버 고정 문구로 남기는 지금 구조와 ToolResult.status로 갖춘다.
+- 2026-11-17 화면: 전송 직후 "보내는 중" 판단 함수(pendingBubbleText)는 lib/chat.ts에 있다. onMutate 컨텍스트 방식을 시도했으나 치환 실수로 적용되지 않았고, ref 방식이 더 단순해 그대로 쓴다.

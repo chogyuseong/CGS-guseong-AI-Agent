@@ -361,7 +361,8 @@ def test_message_history_keeps_only_500_chars_of_mail() -> None:
 
     [returned] = [p for m in stored for p in m.parts if isinstance(p, ToolReturnPart)]
     content: Any = returned.content
-    assert len(json.dumps(content, ensure_ascii=False)) < 800
+    # 본문은 500자만 남는다(결과의 나머지 필드는 상태·출처 같은 짧은 메타데이터).
+    assert len(content["data"]["content"]) <= 500
     assert content["data"]["truncated"] is True
     assert returned.tool_call_id == "c1"  # 호출과 결과의 짝은 그대로
 

@@ -37,7 +37,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.results import MAIL_TOOLS, output_for_storage
+from app.agent.results import MAIL_TOOLS, ToolResult, output_for_storage
 from app.models import Task
 from app.models.enums import TaskStatus
 
@@ -106,7 +106,7 @@ def clip_mail_part(part: Any) -> Any:
         return part
     content = to_jsonable_python(part.content)
     if not isinstance(content, dict):
-        content = {"ok": True, "data": content}
+        content = ToolResult.success(content).model_dump(mode="json")
     return replace(part, content=output_for_storage(part.tool_name, content))
 
 

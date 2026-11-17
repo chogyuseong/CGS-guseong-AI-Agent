@@ -30,7 +30,6 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
 
 import httpx
 from pydantic_ai import capture_run_messages
@@ -62,6 +61,7 @@ from app.agent.history import (
     load_messages,
     pending_tool_call_ids,
 )
+from app.agent.results import not_executed_output
 from app.agent.toolsets import label_for, preview_for, toolsets_for
 from app.config import Settings
 from app.models import AgentRun, Conversation, Message, Step, Task, UsageLog
@@ -368,7 +368,7 @@ async def close_unexecuted_steps(session: AsyncSession, task_id: int) -> None:
     예: 재개 직전 하루 비용 상한에 걸려 budget_exceeded로 끝나면 승인된 호출은 실행되지 않는다.
     실행하지 않았다는 사실이 확실하므로 output.error에 그렇게 적는다(실행 여부를 모르는 경우와 구별).
     """
-    output: dict[str, Any] = {"ok": False, "error": NOT_EXECUTED_MESSAGE}
+    output = not_executed_output(NOT_EXECUTED_MESSAGE)
     await session.execute(
         update(Step)
         .where(Step.task_id == task_id, Step.status == StepStatus.WAITING_APPROVAL)

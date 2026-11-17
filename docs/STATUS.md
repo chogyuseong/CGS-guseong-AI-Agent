@@ -2,16 +2,18 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 0단계 보강 완료. 다음은 1단계 보강.
+현재 단계: BUILD_SPEC 기준 1단계 보강 완료(2026-11-17). 다음은 2단계 보강(승인 계획·영수증).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
 - 0단계 보강(2026-11-17): 서버 저장형 세션, 로그인 실패 속도 제한, APP_ENV, 테스트 DB 보호 확대, .gitattributes,
   docs/BUILD_SPEC.md·STATUS.md·VERSIONS.md
+- 1단계 보강(2026-11-17): client_request_id, SMART 전환 제거·호출 제한 시간, 호출별 예산 예약·정산,
+  task 상태 12개·취소 API·agent_runs, ToolResult 구조(succeeded/failed/unknown)
 
-실제 검증한 항목(2026-11-17, 두 번째 PC):
-- API pytest 371개, ruff·pyright 0건, alembic check 차이 없음
-- 웹 Biome 0건, tsc, Vitest 253개, Playwright 37개(실제 API 서버 + Chrome)
+실제 검증한 항목(2026-11-17, 두 번째 PC, 1단계 보강 끝):
+- API pytest 400개, ruff·pyright 0건, alembic check 차이 없음, 새 마이그레이션 업·다운·업 확인
+- 웹 Biome 0건, tsc, Vitest 263개, Playwright 37개(실제 API 서버 + Chrome)
 - 0단계 완료 증거와 해당 테스트:
   - health: tests/test_health.py
   - 인증·세션: tests/test_auth.py(로그인, 로그아웃 후 복사한 쿠키 거부, 세션 교체, 해시만 저장, 만료, 실패 제한)
@@ -32,7 +34,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 1단계 보강(아래 차이 목록의 1단계)
+다음 시작 지점: 2단계 보강(아래 차이 목록의 2단계). 1단계에서 남긴 것: AgentReply(6단계로)
 관련 커밋: (이 파일을 커밋한 커밋)
 
 ---
@@ -48,9 +50,9 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] 가격 미등록 모델은 호출 차단
 - [x] FAST→SMART 자동 전환 제거(BUILD_SPEC 6.1: 도구 호출 횟수만으로 전환 금지). `app/agent/model_choice.py`
 - [x] task 상태 12개, 취소 API `POST /tasks/{id}/cancel` — tests/test_cancel.py
-- [ ] ToolResult를 status(succeeded/failed/unknown)·error_code·retryable·operation_id·receipt_id·truncated 구조로
-- [ ] AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력
-- [ ] 내부 DB 변경(todo 등)의 호출 키 기반 중복 방지 확인
+- [x] ToolResult를 status(succeeded/failed/unknown)·error_code·retryable·operation_id·receipt_id·truncated 구조로 — tests/test_tool_result.py
+- [ ] (6단계로 옮김) AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력 — 이유는 DECISIONS 1단계 보강
+- [x] 내부 DB 변경(todo 등)의 중복 방지 확인 — test_client_request_id(재전송), test_workflows(복구 재생·끊긴 호출 미실행)
 - [x] MODEL_CALL_TIMEOUT_SECONDS
 
 ### 2단계 — 승인 계획

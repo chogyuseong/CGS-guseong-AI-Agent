@@ -31,7 +31,7 @@ from app import google_auth
 from app.agent.approvals import assert_approved
 from app.agent.deps import AgentDeps
 from app.agent.prompts import SEOUL
-from app.agent.results import ToolResult
+from app.agent.results import ToolResult, ToolStatus
 from app.tools import http
 from app.tools.http import ExternalApiError
 from app.tools.places import clip
@@ -214,7 +214,7 @@ async def list_events(ctx: RunContext[AgentDeps], date_from: DayText, date_to: D
         params = list_params(*check_days(date_from, date_to))
         data = await calendar_request(ctx.deps, "GET", params=params)
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     items = data.get("items") if isinstance(data, dict) else None
     events = [e for e in items or [] if isinstance(e, dict) and e.get("status") != "cancelled"]
     content: dict[str, Any] = {"date_from": date_from, "date_to": date_to, "events": [event_view(e) for e in events]}
@@ -229,7 +229,9 @@ async def list_events(ctx: RunContext[AgentDeps], date_from: DayText, date_to: D
 def saved_result(event: Any) -> ToolResult:
     view = event_view(event) if isinstance(event, dict) else {}
     link = str(event.get("htmlLink") or "") if isinstance(event, dict) else ""
-    return ToolResult(ok=True, data={**view, "saved_to": "Google 캘린더"}, sources=[link] if link else [])
+    return ToolResult(
+        status=ToolStatus.SUCCEEDED, data={**view, "saved_to": "Google 캘린더"}, sources=[link] if link else []
+    )
 
 
 async def create_event(
@@ -249,7 +251,7 @@ async def create_event(
         check_range(start, end)
         event = await calendar_request(ctx.deps, "POST", json=body)
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     return saved_result(event)
 
 
@@ -306,7 +308,7 @@ async def update_event(
         body = await patch_body(ctx.deps, event_id, changes)
         event = await calendar_request(ctx.deps, "PATCH", event_id, json=body)
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     return saved_result(event)
 
 
@@ -355,7 +357,7 @@ async def delete_event(ctx: RunContext[AgentDeps], event_id: EventId) -> ToolRes
     try:
         await calendar_request(ctx.deps, "DELETE", event_id)
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     return ToolResult.success({"deleted_id": event_id, "deleted_from": "Google 캘린더"})
 
 

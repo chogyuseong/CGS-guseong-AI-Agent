@@ -113,7 +113,7 @@ async def create_schedule(
                 now=now_utc(),
             )
         except AutomationError as error:
-            return ToolResult.failure(error.message)
+            return ToolResult.failure(error.message, error_code=error.code)
         await session.commit()
     return ToolResult.success({**schedule_view(job), "saved_to": "앱 예약 작업(자동화 화면)"})
 
@@ -131,7 +131,7 @@ async def delete_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> ToolR
         try:
             await store.delete_schedule(session, ctx.deps.user_id, schedule_id)
         except AutomationError as error:
-            return ToolResult.failure(error.message)
+            return ToolResult.failure(error.message, error_code=error.code)
         await session.commit()
     return ToolResult.success({"deleted_id": schedule_id})
 
@@ -160,7 +160,7 @@ async def create_watch(
         try:
             watch = await store.add_watch(session, ctx.deps.user_id, fields=fields, now=now_utc())
         except AutomationError as error:
-            return ToolResult.failure(error.message)
+            return ToolResult.failure(error.message, error_code=error.code)
         await session.commit()
     return ToolResult.success({**watch_view(watch), "saved_to": "앱 조건 감시(자동화 화면)"})
 
@@ -178,7 +178,7 @@ async def delete_watch(ctx: RunContext[AgentDeps], watch_id: int) -> ToolResult:
         try:
             await store.delete_watch(session, ctx.deps.user_id, watch_id)
         except AutomationError as error:
-            return ToolResult.failure(error.message)
+            return ToolResult.failure(error.message, error_code=error.code)
         await session.commit()
     return ToolResult.success({"deleted_id": watch_id})
 

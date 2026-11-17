@@ -66,7 +66,7 @@ async def web_search(ctx: RunContext[AgentDeps], query: SearchQuery, size: Searc
     try:
         items = [item_view(i) for i in await fetch_items(ctx.deps, query, size)][:size]
     except ExternalApiError as error:
-        return ToolResult.failure(error.message)
+        return ToolResult.from_api_error(error)
     content: dict[str, Any] = {"query": query, "items": items}
     if not items:
         content["message"] = f"'{query}' 웹 검색 결과가 없습니다. 검색어를 바꿔 볼 수 있습니다."

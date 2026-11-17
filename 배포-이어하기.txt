@@ -16,15 +16,16 @@
 
   0단계 보강   완료  서버 저장형 세션(sessions 테이블), 로그인 실패 제한(1분 5회),
                      APP_ENV, 테스트 DB 보호 확대, .gitattributes(LF), STATUS·VERSIONS 문서
-  1단계 보강   진행 중  완료: (1) client_request_id 중복 방지 (2) SMART 전환 제거·호출 제한 시간
-                     (3) 호출별 예산 예약·정산 (4) task 상태 12개·취소 API·실행 회차(agent_runs)
-                     남은 것: (5) ToolResult 구조(status succeeded/failed/unknown)와 답변 상태 분리
+  1단계 보강   완료  client_request_id 중복 방지, SMART 전환 제거·호출 제한 시간, 호출별 예산 예약·정산,
+                     task 상태 12개·취소 API·실행 회차(agent_runs), ToolResult(succeeded/failed/unknown)
+                     (AgentReply 구조화 출력은 6단계로 미룸. 이유는 docs/DECISIONS.md)
   2~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC, 1단계 (4)까지): API pytest 391개, ruff·pyright 0건, alembic check 차이 없음,
-웹 Biome 0건, tsc, Vitest 262개, Playwright 37개 통과.
+검사(2026-11-17, 두 번째 PC, 1단계 보강 끝): API pytest 400개, ruff·pyright 0건, alembic check 차이 없음,
+웹 Biome 0건, tsc, Vitest 263개, Playwright 37개 통과.
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 1단계 보강 (5)부터 진행해라"
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 2단계 보강을 진행해라"
+(2단계: 승인을 고정된 실행 계획(action_plans)에 묶고 operations·영수증·가짜 외부 서비스. 범위가 커서 Fable 권장)
 
 
 ========================================
@@ -190,11 +191,11 @@ PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 �
 
 잘 옮겨졌는지 확인:
 
-  pnpm api:test                    371개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:test                    400개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
   pnpm api:check                   ruff, pyright 문제 0건
   pnpm --dir apps/web lint
   pnpm --dir apps/web typecheck
-  pnpm --dir apps/web test         253개 통과
+  pnpm --dir apps/web test         263개 통과
   pnpm --dir apps/web e2e          37개 통과(API 서버가 8000에 떠 있어야 하고 3000은 비어 있어야 한다.
                                    먼저 다른 터미널에서 pnpm api)
 
