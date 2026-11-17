@@ -66,8 +66,16 @@ from app.agent.plans import PlanDraft
 from app.agent.results import not_executed_output
 from app.agent.toolsets import label_for, preview_for, toolsets_for
 from app.config import Settings
-from app.models import AgentRun, Conversation, Message, Step, Task, UsageLog
-from app.models.enums import MessageRole, RunKind, StepStatus, TaskOrigin, TaskStatus, UsagePurpose
+from app.models import ActionPlan, AgentRun, Conversation, Message, Operation, Step, Task, UsageLog
+from app.models.enums import (
+    MessageRole,
+    OperationStatus,
+    RunKind,
+    StepStatus,
+    TaskOrigin,
+    TaskStatus,
+    UsagePurpose,
+)
 from app.push import PushKind, PushNotifier
 
 logger = logging.getLogger(__name__)
@@ -84,6 +92,9 @@ TASK_DONE_NOTIFY_AFTER_SECONDS = 20.0
 FAILED_STATUSES = (TaskStatus.FAILED, TaskStatus.BUDGET_EXCEEDED)
 # finish가 결과를 저장할 수 있는 상태. 실행 중 취소 요청이 와도 끝난 결과는 저장한다.
 IN_PROGRESS = (TaskStatus.RUNNING, TaskStatus.CANCEL_REQUESTED)
+# 모델의 마지막 답을 그대로 답변으로 남기는 상태. needs_review도 답은 있다(확인 필요는 카드·푸시로 알린다).
+ANSWERED_STATUSES = (TaskStatus.DONE, TaskStatus.NEEDS_REVIEW)
+UNRESOLVED_OPERATIONS = (OperationStatus.UNKNOWN, OperationStatus.RECONCILING, OperationStatus.EXECUTING)
 
 
 @dataclass(frozen=True)
@@ -392,6 +403,9 @@ async def save_outcome(
     """task 상태·기록·사용량을 저장하고 커밋한다. 재개한 run이면 요청 수·토큰·기록을 앞선 run에 더한다."""
     task = await session.get_one(Task, info.id)
     responses = [m for m in outcome.new_messages if isinstance(m, ModelResponse)]
+    if outcome.status == TaskStatus.DONE and await has_unresolved_operation(session, info.id):
+        # 3단계 보강: 결과를 확인하지 못한 외부 작업이 있으면 done이라 하지 않는다(BUILD_SPEC 9.2).
+        outcome = replace(outcome, status=TaskStatus.NEEDS_REVIEW)
     task.status = outcome.status
     await record_run_finish(session, info.id, outcome.status, responses)
     task.final_answer = outcome.final_answer
@@ -404,7 +418,7 @@ async def save_outcome(
     if outcome.status != TaskStatus.WAITING_APPROVAL:
         # 승인 대기 중에는 답변을 남기지 않는다. 화면은 승인 카드를 보여 준다.
         await close_unexecuted_steps(session, info.id)
-        reply = outcome.final_answer if outcome.status == TaskStatus.DONE else outcome.error
+        reply = outcome.final_answer if outcome.status in ANSWERED_STATUSES else outcome.error
         session.add(
             Message(
                 conversation_id=info.conversation_id, role=MessageRole.ASSISTANT, content=reply or "", task_id=info.id
@@ -415,12 +429,25 @@ async def save_outcome(
     await session.commit()
 
 
+async def has_unresolved_operation(session: AsyncSession, task_id: int) -> bool:
+    """이 task에 결과를 확인하지 못한 외부 작업(unknown·reconciling·executing)이 있는가."""
+    found = await session.scalar(
+        select(Operation.id)
+        .join(ActionPlan, ActionPlan.id == Operation.plan_id)
+        .where(ActionPlan.task_id == task_id, Operation.status.in_(UNRESOLVED_OPERATIONS))
+        .limit(1)
+    )
+    return found is not None
+
+
 def push_kind_for(info: TaskInfo, status: TaskStatus, *, finished_at: float) -> PushKind | None:
     """명세의 푸시 규칙. 승인 필요·실패는 항상, 완료는 20초 넘게 걸렸거나 자동 작업일 때만."""
     if status == TaskStatus.WAITING_APPROVAL:
         return PushKind.APPROVAL_NEEDED
     if status in FAILED_STATUSES:
         return PushKind.TASK_FAILED
+    if status == TaskStatus.NEEDS_REVIEW:
+        return PushKind.TASK_NEEDS_REVIEW
     if status == TaskStatus.DONE:
         slow = finished_at - info.started_at > TASK_DONE_NOTIFY_AFTER_SECONDS
         return PushKind.TASK_DONE if slow or info.origin != TaskOrigin.CHAT else None

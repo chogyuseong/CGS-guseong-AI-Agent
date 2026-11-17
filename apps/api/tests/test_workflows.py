@@ -33,8 +33,16 @@ from app.agent.workflows import (
     start_resume_if_waiting,
 )
 from app.config import Settings
-from app.models import Approval, Conversation, Message, Step, Task, Todo, User
-from app.models.enums import ApprovalStatus, MessageRole, RiskLevel, StepStatus, TaskOrigin, TaskStatus
+from app.models import ActionPlan, Approval, Conversation, Message, Operation, Step, Task, Todo, User
+from app.models.enums import (
+    ApprovalStatus,
+    MessageRole,
+    OperationStatus,
+    RiskLevel,
+    StepStatus,
+    TaskOrigin,
+    TaskStatus,
+)
 from app.security import hash_password
 from tests.conftest import WaitingLauncher, login, make_client, message_body
 from tests.fake_tools import FakeExternalCounter
@@ -327,7 +335,8 @@ async def test_interrupted_external_call_is_not_executed_again(
     fake_external_counter: FakeExternalCounter,
 ) -> None:
     """at-most-once: 승인된 외부 도구가 실행 도중(begin_execution 통과, step running) 서버가 죽었다면
-    복구 때 다시 실행하지 않고 '실행 여부를 확인할 수 없음'으로 실패 처리한다."""
+    복구 때 다시 실행하지 않는다. 3단계 보강: 외부 서비스에 결과를 물어 처리 기록이 없으면 '실행되지 않음'으로 확정한다
+    (기록이 있거나 조회가 안 되는 경우는 tests/test_faults.py)."""
     model = scripted(call("fake_external", value=5), text("확인이 필요합니다."))
     with agent.override(model=model.model()):
         task = await send(client, conversation, "외부 도구 실행해줘")
@@ -335,14 +344,18 @@ async def test_interrupted_external_call_is_not_executed_again(
         # 승인 → 도구 첫 줄 통과(step running)까지 간 뒤 서버가 죽은 상태를 만든다.
         await db_session.execute(update(Approval).where(Approval.step_id == step_id).values(status="approved"))
         await db_session.execute(update(Step).where(Step.id == step_id).values(status=StepStatus.RUNNING))
+        plan_ids = select(ActionPlan.id).where(ActionPlan.step_id == step_id)
+        await db_session.execute(
+            update(Operation).where(Operation.plan_id.in_(plan_ids)).values(status=OperationStatus.EXECUTING)
+        )
         await db_session.commit()
         await start_resume_if_waiting(WaitingLauncher(), session_factory, task["id"])
 
     detail = (await client.get(f"/api/tasks/{task['id']}")).json()
     assert fake_external_counter.count == 0
     assert detail["status"] == "done"
-    assert detail["steps"][0]["status"] == "unknown"  # 실행했는지 모른다(실패와 구분)
-    assert detail["steps"][0]["output"]["user_message"] == UNCERTAIN_MESSAGE
+    assert detail["steps"][0]["status"] == "failed"  # 재조회로 실행되지 않았음을 확인했다
+    assert detail["steps"][0]["output"]["error_code"] == "not_executed"
 
 
 # ---- 재개 직전 하루 비용 상한 ----

@@ -26,8 +26,10 @@
     없음                         새 행(running)을 만들고 실행한다(보통의 첫 실행)
     done / failed(결과 있음)     실행하지 않고 저장된 결과(output)를 그대로 돌려준다(복구 재생)
     running, READ 도구           조회만 하므로 다시 실행한다
-    running, INTERNAL·EXTERNAL   지난 실행이 도중에 끊겼다. 실제로 반영됐는지 알 수 없으므로 다시 실행하지 않고
-                                 failed + "실행 여부를 확인할 수 없음"으로 닫는다(at-most-once, docs/SAFETY.md)
+    running, INTERNAL            지난 실행이 도중에 끊겼다. 반영됐는지 알 수 없으므로 다시 실행하지 않고
+                                 unknown + "실행 여부를 확인할 수 없음"으로 닫는다(at-most-once, docs/SAFETY.md)
+    running, EXTERNAL            다시 실행하지 않고 외부 서비스에 operation_id로 결과를 묻는다(3단계 보강,
+                                 executor.reconcile_step): 처리됨 → 영수증, 처리 기록 없음 → 실패, 모름 → unknown
     waiting_approval             승인된 EXTERNAL 호출의 첫 실행. 그대로 실행한다(executor.begin_execution이 검사)
 
 7단계(메일): list_mail·read_mail 결과는 output_for_storage로 앞 500자만 steps.output에 저장한다(명세 [보안]).
@@ -57,7 +59,7 @@ from sqlalchemy import func, select
 
 from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
 from app.agent.deps import AgentDeps
-from app.agent.executor import mark_interrupted
+from app.agent.executor import reconcile_step
 from app.agent.results import ToolResult, ToolStatus, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
@@ -124,12 +126,18 @@ def recorded_result(step: RecordedStep) -> ToolResult | None:
     return ToolResult.model_validate(step.output)
 
 
-async def close_uncertain_step(deps: AgentDeps, step_id: int) -> ToolResult:
-    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 결과 불명(unknown)으로 닫는다. operation도 unknown."""
-    result = ToolResult.unknown(UNCERTAIN_MESSAGE, error_code="interrupted")
-    await mark_interrupted(deps, step_id)
+async def close_uncertain_step(deps: AgentDeps, step_id: int, risk: RiskLevel) -> ToolResult:
+    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 닫는다.
+
+    EXTERNAL은 외부 서비스에 operation_id로 결과를 다시 물어 확정한다(3단계 보강: 영수증 / 실행 안 됨 / 결과 불명).
+    INTERNAL은 결과 불명(unknown)으로 닫는다.
+    """
+    if risk == RiskLevel.EXTERNAL:
+        result = await reconcile_step(deps, step_id)
+    else:
+        result = ToolResult.unknown(UNCERTAIN_MESSAGE, error_code="interrupted")
     await finish_step(deps, step_id, output=result.model_dump(mode="json"), result=result, duration_ms=None)
-    logger.warning("복구: 실행 여부를 알 수 없는 도구 호출을 결과 불명으로 닫음 task=%s step=%s", deps.task_id, step_id)
+    logger.warning("복구: 도중에 끊긴 도구 호출을 닫음 task=%s step=%s status=%s", deps.task_id, step_id, result.status)
     return result
 
 
@@ -215,7 +223,7 @@ class StepTracking(AbstractCapability[AgentDeps]):
             if replayed is not None:
                 return replayed  # 복구 재생: 이미 끝난 호출은 다시 실행하지 않는다
             if recorded.status == StepStatus.RUNNING and recorded.risk_level != RiskLevel.READ:
-                return await close_uncertain_step(ctx.deps, recorded.id)
+                return await close_uncertain_step(ctx.deps, recorded.id, recorded.risk_level)
             step_id = recorded.id
         return await self.run_and_record(ctx, call.tool_name, risk_level_of(tool_def), step_id, args, handler)
 

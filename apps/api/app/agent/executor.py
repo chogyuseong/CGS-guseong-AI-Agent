@@ -29,6 +29,7 @@ finish_execution은 결과에 따라 영수증을 남기고 operation을 succeed
 모델이 만든 문구는 권한 판단에 쓰지 않는다. 판단 근거는 DB의 계획·승인·operation·task·연결뿐이다.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -36,7 +37,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_core import to_jsonable_python
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import plans
@@ -44,6 +45,8 @@ from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult, ToolStatus
 from app.models import ActionPlan, Approval, ExecutionReceipt, Operation, Step, Task
 from app.models.enums import ApprovalStatus, OperationStatus, StepStatus, TaskStatus
+
+logger = logging.getLogger(__name__)
 
 NOT_APPROVED_MESSAGE = "승인 기록이 없는 외부 도구 실행을 막았습니다."
 IN_PROGRESS = (OperationStatus.EXECUTING, OperationStatus.UNKNOWN, OperationStatus.RECONCILING)
@@ -110,15 +113,15 @@ def check_authorized(row: PlanRow, tool_name: str | None, args: dict[str, Any]) 
         raise PermissionError(NOT_APPROVED_MESSAGE)
 
 
-async def receipt_result(session: AsyncSession, row: PlanRow) -> ToolResult:
-    receipt = await session.scalar(select(ExecutionReceipt).where(ExecutionReceipt.operation_id == row.operation.id))
+async def receipt_result(session: AsyncSession, operation_pk: int, operation_id: uuid.UUID) -> ToolResult:
+    receipt = await session.scalar(select(ExecutionReceipt).where(ExecutionReceipt.operation_id == operation_pk))
     if receipt is None:  # succeeded인데 영수증이 없으면 완료로 보지 않는다
         return ToolResult.unknown(ALREADY_RUNNING_MESSAGE, error_code="no_receipt")
     return ToolResult(
         status=ToolStatus.SUCCEEDED,
         data=receipt.summary.get("data"),
         sources=list(receipt.summary.get("sources") or []),
-        operation_id=str(row.plan.operation_id),
+        operation_id=str(operation_id),
         receipt_id=str(receipt.id),
     )
 
@@ -129,7 +132,7 @@ async def early_result(session: AsyncSession, row: PlanRow) -> ToolResult | None
     if status == OperationStatus.APPROVED:
         return None
     if status == OperationStatus.SUCCEEDED:
-        return await receipt_result(session, row)
+        return await receipt_result(session, row.operation.id, row.plan.operation_id)
     if status in IN_PROGRESS:
         return ToolResult.unknown(ALREADY_RUNNING_MESSAGE, error_code="already_executing")
     if status in (OperationStatus.PLANNED, OperationStatus.AWAITING_APPROVAL):
@@ -200,38 +203,128 @@ OPERATION_STATUS_OF = {
 }
 
 
+def new_receipt(operation: Operation, provider: str, resource_id: str | None, result: ToolResult) -> ExecutionReceipt:
+    return ExecutionReceipt(
+        operation_id=operation.id,
+        user_id=operation.user_id,
+        provider=provider,
+        external_resource_id=resource_id,
+        summary={"data": to_jsonable_python(result.data), "sources": result.sources},
+        confirmed_at=datetime.now(UTC),
+    )
+
+
 async def finish_execution(
     deps: AgentDeps, execution: Execution, result: ToolResult, *, provider: str, resource_id: str | None = None
 ) -> ToolResult:
-    """외부 호출 결과를 기록한다. 성공이면 영수증을 만들고 결과에 operation_id·receipt_id를 붙여 돌려준다."""
+    """외부 호출 결과를 기록한다. 성공이면 영수증을 만들고 결과에 operation_id·receipt_id를 붙여 돌려준다.
+
+    결과를 모르면(unknown: 시간 초과·연결 끊김) 실패로 단정하지 않고 바로 한 번 재조회한다(3단계 보강).
+    """
     now = datetime.now(UTC)
     extra: dict[str, Any] = {"operation_id": str(execution.operation_id)}
     async with deps.db() as session:
         operation = await session.get_one(Operation, execution.operation_pk, with_for_update=True)
         if result.status == ToolStatus.SUCCEEDED:
-            receipt = ExecutionReceipt(
-                operation_id=operation.id,
-                user_id=operation.user_id,
-                provider=provider,
-                external_resource_id=resource_id,
-                summary={"data": to_jsonable_python(result.data), "sources": result.sources},
-                confirmed_at=now,
-            )
+            receipt = new_receipt(operation, provider, resource_id, result)
             session.add(receipt)
             await session.flush()
             extra["receipt_id"] = str(receipt.id)
         close_operation(operation, OPERATION_STATUS_OF[result.status], result.error_code, now)
         await session.commit()
+    finished = result.model_copy(update=extra)
+    if finished.status == ToolStatus.UNKNOWN:
+        return await reconcile_operation(deps, execution.operation_pk, finished)
+    return finished
+
+
+# ---- 3. 결과 재조회 (3단계 보강, BUILD_SPEC 4.2·4.3) ----
+
+UNCERTAIN_MESSAGE = (
+    "외부 서비스에서 이 작업의 결과를 확인하지 못했습니다. "
+    "같은 행동을 다시 하지 말고, 확인이 필요하다고 사용자에게 알리세요."
+)
+NOT_EXECUTED_MESSAGE = "외부 서비스에 처리 기록이 없어 실행되지 않은 것으로 확인했습니다. 필요하면 다시 요청해 주세요."
+RECONCILABLE = (OperationStatus.EXECUTING, OperationStatus.UNKNOWN, OperationStatus.RECONCILING)
+
+
+async def start_reconcile(deps: AgentDeps, operation_pk: int) -> plans.PlanRef | ToolResult:
+    """재조회할 operation이면 reconciling으로 바꾸고 계획 값을, 아니면 돌려줄 결과를 준다."""
+    async with deps.db() as session:
+        row = (
+            await session.execute(
+                select(Operation, ActionPlan)
+                .join(ActionPlan, ActionPlan.id == Operation.plan_id)
+                .where(Operation.id == operation_pk, Operation.user_id == deps.user_id)
+                .with_for_update(of=[Operation])
+            )
+        ).one()
+        operation, plan = row[0], row[1]
+        if operation.status == OperationStatus.SUCCEEDED:
+            return await receipt_result(session, operation.id, plan.operation_id)
+        if operation.status not in RECONCILABLE:
+            return ToolResult.failure(CLOSED_MESSAGE, error_code="operation_closed")
+        operation.status = OperationStatus.RECONCILING
+        ref = plans.PlanRef(
+            plan.operation_id, plan.user_id, plan.tool_name, dict(plan.canonical_args), plan.target_resource_id
+        )
+        await session.commit()
+        return ref
+
+
+async def ask_external(deps: AgentDeps, ref: plans.PlanRef) -> plans.ReconcileOutcome:
+    """도구 규격의 재조회 함수를 부른다. 없거나 실패하면 unknown(성공·실패로 단정하지 않는다)."""
+    spec = plans.EXTERNAL_TOOL_SPECS.get(ref.tool_name)
+    if spec is None or spec.reconcile is None:
+        return plans.ReconcileOutcome("unknown")
+    try:
+        return await spec.reconcile(deps, ref)
+    except Exception:
+        logger.warning("재조회 실패: tool=%s operation=%s", ref.tool_name, ref.operation_id, exc_info=True)
+        return plans.ReconcileOutcome("unknown")
+
+
+async def reconcile_operation(
+    deps: AgentDeps, operation_pk: int, unknown_result: ToolResult | None = None
+) -> ToolResult:
+    """operation_id로 외부 결과를 다시 물어 확정한다.
+
+    처리 기록이 있으면 영수증(succeeded), 없다고 확인되면 failed(not_executed), 모르면 unknown(단정하지 않음).
+    """
+    started = await start_reconcile(deps, operation_pk)
+    if isinstance(started, ToolResult):
+        return started
+    outcome = await ask_external(deps, started)
+    now = datetime.now(UTC)
+    extra: dict[str, Any] = {"operation_id": str(started.operation_id)}
+    async with deps.db() as session:
+        operation = await session.get_one(Operation, operation_pk, with_for_update=True)
+        if outcome.result == "done":
+            result = ToolResult.success(to_jsonable_python(outcome.data))
+            provider = outcome.provider or started.tool_name
+            receipt = new_receipt(operation, provider, outcome.resource_id, result)
+            session.add(receipt)
+            await session.flush()
+            close_operation(operation, OperationStatus.SUCCEEDED, None, now)
+            extra["receipt_id"] = str(receipt.id)
+        elif outcome.result == "not_done":
+            result = ToolResult.failure(NOT_EXECUTED_MESSAGE, error_code="not_executed")
+            close_operation(operation, OperationStatus.FAILED, "not_executed", now)
+        else:
+            result = unknown_result or ToolResult.unknown(UNCERTAIN_MESSAGE, error_code="interrupted")
+            close_operation(operation, OperationStatus.UNKNOWN, result.error_code, now)
+        await session.commit()
     return result.model_copy(update=extra)
 
 
-async def mark_interrupted(deps: AgentDeps, step_id: int) -> None:
-    """실행 도중 끊긴 EXTERNAL 호출(step running)의 operation을 unknown으로 둔다(실패와 구분, 자동 재시도 금지)."""
+async def reconcile_step(deps: AgentDeps, step_id: int) -> ToolResult:
+    """실행 도중 끊긴 EXTERNAL 호출(step running)을 다시 실행하지 않고 결과를 확정한다(복구 때 StepTracking이 부름)."""
     async with deps.db() as session:
-        plan_ids = select(ActionPlan.id).where(ActionPlan.step_id == step_id, ActionPlan.user_id == deps.user_id)
-        await session.execute(
-            update(Operation)
-            .where(Operation.plan_id.in_(plan_ids), Operation.status == OperationStatus.EXECUTING)
-            .values(status=OperationStatus.UNKNOWN, error_code="interrupted")
+        operation_pk = await session.scalar(
+            select(Operation.id)
+            .join(ActionPlan, ActionPlan.id == Operation.plan_id)
+            .where(ActionPlan.step_id == step_id, ActionPlan.user_id == deps.user_id)
         )
-        await session.commit()
+    if operation_pk is None:  # 2단계 보강 전 승인(계획 없음)
+        return ToolResult.unknown(UNCERTAIN_MESSAGE, error_code="interrupted")
+    return await reconcile_operation(deps, operation_pk)

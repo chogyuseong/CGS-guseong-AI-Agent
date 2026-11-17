@@ -548,3 +548,8 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 가짜 외부 서비스(tests/fake_service.py)는 별도 프로세스가 아니라 SQLite 파일에 기록하는 HTTP 처리기를 httpx.MockTransport로 부른다. 요청마다 파일을 새로 열어, 앱·워크플로·서비스 객체를 다시 만들어도 기록이 남는다(같은 프로세스 메모리 카운터에 기대지 않음). 포트·네트워크를 쓰지 않아 테스트가 빠르고 서로 간섭하지 않는다. 같은 키 = 효과 1건, 같은 키에 다른 본문 = 409, GET으로 결과 조회(3단계 재조회용). 실제 프로세스 강제 종료 시험이 필요하면 3단계에서 별도 프로세스로 띄운다.
 - 2026-11-17 승인 카드 API(ApprovalOut)에 target(도구 규격의 target_label), account(연결이 필요한 도구면 계획 때 연결 상태 문장), execute_before, operation_status, receipt_confirmed를 더했다. 화면은 대상·계정 줄을 감시 배지보다 먼저 굵게, 감시 배지는 BUILD_SPEC 3.6 문구("AI 검토: 일치로 추정/요청과 다를 수 있음/확인 필요")로 바꿨다. 승인 뒤 줄은 영수증이 있을 때만 "실행 완료 · 외부 서비스에서 확인함", 성공인데 영수증이 없거나 unknown이면 "결과 확인 필요".
 - 2026-11-17 웹 타입 생성은 서버를 띄우지 않아도 된다: `create_app().openapi()`를 JSON 파일로 저장해 `openapi-typescript 파일 --output lib/api/schema.d.ts`로 만든다. 서버에서 받은 것과 같은 문서다.
+### 3단계 보강
+- 2026-11-17 끊긴 EXTERNAL 호출(step running)은 다시 보내지 않고 `ExternalToolSpec.reconcile`(operation_id로 외부 결과 조회)로 확정한다: 처리 기록 있음 → 영수증·succeeded, 없다고 확인 → failed(not_executed), 조회 실패·재조회 함수 없음 → unknown. 쓰기 요청이 시간 초과 등으로 unknown이면 finish_execution이 바로 한 번 재조회한다. 재조회 중에는 operation을 reconciling으로 둔다.
+- 2026-11-17 재조회 결과 404(처리 기록 없음)를 "실행되지 않음"으로 확정하는 것은 멱등성 키로 결과를 조회할 수 있는 서비스에서만 맞다. 그런 조회가 없는 도구는 reconcile을 두지 않아 unknown으로 남는다(Google 일정은 4단계에서 안정적인 event ID로 조회를 붙인다).
+- 2026-11-17 결과를 확인하지 못한 operation(unknown·reconciling·executing)이 남은 채 모델이 답을 마치면 task는 done이 아니라 needs_review다. 답변은 그대로 남기고, 푸시는 새 종류 `task_needs_review`("처리 결과 확인이 필요합니다", BUILD_SPEC 8.4 문구)로 보낸다.
+- 2026-11-17 장애 지점은 "그 지점에서 남는 DB·외부 상태"를 만들어 재개 워크플로를 실제로 돌려 재현한다(docs/FAULTS.md). 실제 프로세스 강제 종료는 워크플로 복구 절차(docs/DURABILITY-CHECK.md)로 이미 확인했고 이번에는 다시 하지 않았다.

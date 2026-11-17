@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 2단계 보강 완료(2026-11-17). 다음은 3단계 보강(장애 주입·복구·푸시).
+현재 단계: BUILD_SPEC 기준 3단계 보강 진행 중(2026-11-17). (1) 결과 재조회·장애 주입 끝, 다음은 (2) 취소와 실행 경합.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -72,8 +72,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   components/ApprovalCard.test.tsx. 계정은 "연결된 Google 계정"까지(주소는 4단계 OAuth 보강 때 저장)
 
 ### 3단계 — 장애 주입·복구·푸시
-- [ ] 장애 지점 5곳 주입 테스트와 결과 표
-- [ ] unknown/reconciling, 결과 재조회, 성공 operation 영수증 재사용
+- [x] 장애 지점 5곳 주입 테스트와 결과 표 — tests/test_faults.py, docs/FAULTS.md
+- [x] unknown/reconciling, 결과 재조회, 성공 operation 영수증 재사용 — executor.reconcile_operation (Google 일정은 4단계)
 - [ ] outbox(task 저장↔워크플로 등록, 승인↔재개, 예약 발생↔task) 또는 DBOS 트랜잭션 연계 확인
 - [ ] 취소와 실행 경합
 - [ ] 푸시: notify(user_id, kind, internal_url, notification_key), notifications 테이블, 404·410 구독 정리, 짧은 채팅 완료엔 푸시 안 함

@@ -38,6 +38,7 @@ class PushKind(StrEnum):
     APPROVAL_NEEDED = "approval_needed"
     TASK_DONE = "task_done"
     TASK_FAILED = "task_failed"
+    TASK_NEEDS_REVIEW = "task_needs_review"  # 3단계 보강: 외부 작업 결과를 확인하지 못함
     WATCH_MET = "watch_met"  # 6단계
     BRIEFING = "briefing"  # 6단계
 
@@ -48,6 +49,7 @@ PUSH_BODIES: dict[PushKind, str] = {
     PushKind.APPROVAL_NEEDED: "승인이 필요한 작업이 있습니다",
     PushKind.TASK_DONE: "맡기신 작업이 끝났습니다",
     PushKind.TASK_FAILED: "작업을 끝내지 못했습니다",
+    PushKind.TASK_NEEDS_REVIEW: "처리 결과 확인이 필요합니다",
     PushKind.WATCH_MET: "지켜보던 조건이 충족되었습니다",
     PushKind.BRIEFING: "오늘의 브리핑이 준비되었습니다",
 }

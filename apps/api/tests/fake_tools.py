@@ -18,7 +18,7 @@ from pydantic_ai import RunContext
 
 from app.agent.deps import AgentDeps
 from app.agent.executor import Execution, begin_execution, finish_execution
-from app.agent.plans import ExternalToolSpec
+from app.agent.plans import ExternalToolSpec, PlanRef, ReconcileOutcome
 from app.agent.results import ToolResult
 from tests.fake_service import FakeExternalService
 
@@ -41,9 +41,24 @@ class FakeServiceHolder:
 
 COUNTER = FakeExternalCounter()
 HOLDER = FakeServiceHolder()
-# 실행 계획 규격(2단계 보강). 연결이 필요 없고 기존 대상을 가리키지 않는다.
-FAKE_EXTERNAL_SPEC = ExternalToolSpec(version="1", target_label="가짜 외부 서비스")
 PROVIDER = "fake"
+
+
+async def reconcile_fake(deps: AgentDeps, ref: PlanRef) -> ReconcileOutcome:
+    """operation_id로 가짜 서비스에 결과를 묻는다(3단계 보강). 404면 처리 기록 없음, 조회 실패는 예외(→ unknown)."""
+    if HOLDER.service is None:
+        return ReconcileOutcome("unknown")
+    async with HOLDER.service.client() as client:
+        response = await client.get(f"/actions/{ref.operation_id}")
+    if response.status_code == 404:
+        return ReconcileOutcome("not_done")
+    response.raise_for_status()
+    found = response.json()
+    return ReconcileOutcome("done", resource_id=str(found["id"]), data={"value": found["value"]}, provider=PROVIDER)
+
+
+# 실행 계획 규격(2단계 보강). 연결이 필요 없고 기존 대상을 가리키지 않는다. 결과 재조회 함수가 있다(3단계).
+FAKE_EXTERNAL_SPEC = ExternalToolSpec(version="1", target_label="가짜 외부 서비스", reconcile=reconcile_fake)
 
 
 async def send_action(started: Execution, value: int) -> tuple[ToolResult, str | None]:

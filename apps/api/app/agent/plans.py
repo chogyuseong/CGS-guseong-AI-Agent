@@ -15,10 +15,11 @@
 
 import hashlib
 import json
-from collections.abc import Sequence
+import uuid
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 from pydantic_ai.toolsets import FunctionToolset
@@ -27,6 +28,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Connection
+
+if TYPE_CHECKING:
+    from app.agent.deps import AgentDeps
 
 # 계획을 만들 때 적용한 서버 정책의 버전. 검사 규칙(유효 시간, 허용 도구 등)을 바꾸면 올린다.
 POLICY_VERSION = "2026-11-17.stage2"
@@ -40,6 +44,34 @@ class PlanRejectedError(Exception):
 
 
 @dataclass(frozen=True)
+class PlanRef:
+    """재조회 함수에 넘기는 계획의 값(세션 밖에서도 쓸 수 있게 복사한 것)."""
+
+    operation_id: uuid.UUID
+    user_id: int
+    tool_name: str
+    canonical_args: dict[str, Any]
+    target_resource_id: str | None
+
+
+@dataclass(frozen=True)
+class ReconcileOutcome:
+    """외부 서비스에 operation_id로 물어본 결과(3단계 보강, BUILD_SPEC 4.2).
+
+    done: 처리 기록이 있다(resource_id·data로 영수증을 만든다) / not_done: 처리 기록이 없다고 확인했다
+    / unknown: 확인하지 못했다(조회 실패, 판단 불가). unknown이면 성공·실패로 단정하지 않는다.
+    """
+
+    result: Literal["done", "not_done", "unknown"]
+    resource_id: str | None = None
+    data: Any = None
+    provider: str | None = None  # 영수증에 적을 서비스 이름
+
+
+type ReconcileFunc = Callable[["AgentDeps", PlanRef], Awaitable[ReconcileOutcome]]
+
+
+@dataclass(frozen=True)
 class ExternalToolSpec:
     """EXTERNAL 도구의 서버 규격.
 
@@ -47,12 +79,14 @@ class ExternalToolSpec:
     provider: 실행에 필요한 연결(connections.provider). 없으면 None.
     target_arg: 기존 대상을 가리키는 인자 이름(예: update_event의 event_id). 새로 만드는 도구는 None.
     target_label: 승인 카드에 보일 "어디에 하는 일인지"(예: Google 캘린더(기본 캘린더)).
+    reconcile: operation_id로 외부 결과를 다시 묻는 함수(3단계 보강). 없으면 결과를 모를 때 unknown으로 남긴다.
     """
 
     version: str
     provider: str | None = None
     target_arg: str | None = None
     target_label: str = "외부 서비스"
+    reconcile: ReconcileFunc | None = None
 
 
 # 승인 카드의 계정 줄에 쓰는 서비스 이름(connections.provider → 화면 이름).
