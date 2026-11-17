@@ -254,6 +254,18 @@ def app(test_settings: Settings, session_factory: async_sessionmaker[AsyncSessio
 
 
 @pytest.fixture
+def push_on(test_settings: Settings) -> Settings:
+    """푸시를 켠다(tests/test_push.py, test_notifications.py).
+
+    VAPID 세 값을 채운다. 실제로 보내지는 않으므로 아무 문자열이면 된다.
+    """
+    test_settings.vapid_public_key = "test-public-key"
+    test_settings.vapid_private_key = SecretStr("test-private-key")
+    test_settings.vapid_subject = "mailto:test@example.com"
+    return test_settings
+
+
+@pytest.fixture
 def push_sender(app: FastAPI) -> FakePushSender:
     """앱이 쓰는 가짜 푸시 전송기. 보낸 본문을 기록한다."""
     return app.state.push_sender

@@ -1,4 +1,4 @@
-"""웹 푸시 알림. 밖에서는 PushNotifier.notify(user_id, kind, url) 하나만 쓴다(명세).
+"""웹 푸시 알림. 밖에서는 PushNotifier.notify(user_id, kind, internal_url, notification_key) 하나만 쓴다(명세 8.4).
 
 본문 규칙 (docs/SAFETY.md):
 - 본문은 kind별 고정 문구뿐이다. 요청 내용, 도구 결과, 일정 제목, 메일 내용, 개인정보는 넣지 않는다.
@@ -8,6 +8,8 @@
 - 발송 실패는 작업을 실패시키지 않는다(예외를 밖으로 내지 않는다).
   푸시 서버가 404·410(구독 만료)을 주면 그 구독을 지운다.
 - 로그에는 구독 id만 남긴다. endpoint(URL 안에 기기 토큰이 있다)와 키는 남기지 않는다.
+- 3단계 보강: 같은 (사용자, notification_key)는 한 번만 보낸다(notifications 테이블, 결과·기기 수 기록).
+  url은 앱 내부 경로만("/…"). 전달을 정확히 한 번 보장한다고 주장하지 않는다(푸시 서버·기기 사정).
 
 흐름:
     notify(user_id, "approval_needed", "/chat/7")
@@ -26,10 +28,12 @@ from typing import Any
 
 from pywebpush import WebPushException, webpush_async
 from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models import PushSubscription
+from app.models import Notification, PushSubscription
+from app.models.enums import NotificationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +55,14 @@ PUSH_BODIES: dict[PushKind, str] = {
     PushKind.TASK_FAILED: "작업을 끝내지 못했습니다",
     PushKind.TASK_NEEDS_REVIEW: "처리 결과 확인이 필요합니다",
     PushKind.WATCH_MET: "지켜보던 조건이 충족되었습니다",
-    PushKind.BRIEFING: "오늘의 브리핑이 준비되었습니다",
+    PushKind.BRIEFING: "브리핑이 준비되었습니다",
 }
 # 기기가 꺼져 있을 때 푸시 서버가 알림을 보관하는 시간(초). 승인은 30분 뒤 만료되므로 1시간이면 충분하다.
 PUSH_TTL_SECONDS = 3600
 PUSH_TIMEOUT_SECONDS = 10
 GONE_STATUSES = {404, 410}
+MAX_URL_LENGTH = 200
+MAX_KEY_LENGTH = 200
 
 
 class PushGoneError(Exception):
@@ -104,23 +110,73 @@ def push_enabled(settings: Settings) -> bool:
     return bool(settings.vapid_subject and settings.vapid_public_key and settings.vapid_private_key.get_secret_value())
 
 
+def is_internal_url(url: str) -> bool:
+    """앱 안의 경로("/chat/7")만 허용한다. 다른 사이트로 보내는 주소(https://…, //…, 역슬래시)는 거부한다."""
+    return (
+        url.startswith("/")
+        and not url.startswith("//")
+        and "\\" not in url
+        and "://" not in url
+        and len(url) <= MAX_URL_LENGTH
+    )
+
+
 @dataclass
 class PushNotifier:
     session_factory: async_sessionmaker[AsyncSession]
     settings: Settings
     sender: PushSender = field(default=send_with_pywebpush)
 
-    async def notify(self, user_id: int, kind: PushKind, url: str) -> int:
-        """사용자의 모든 구독에 고정 문구 푸시를 보내고 성공한 수를 돌려준다. 예외를 밖으로 내지 않는다."""
-        if not push_enabled(self.settings):
+    async def notify(self, user_id: int, kind: PushKind, internal_url: str, notification_key: str) -> int:
+        """고정 문구 푸시를 사용자의 모든 구독에 보내고 성공한 기기 수를 돌려준다. 예외를 밖으로 내지 않는다.
+
+        같은 (user, notification_key)는 한 번만 보낸다(복구로 같은 알림 단계가 다시 돌아도). 결과는 notifications에.
+        """
+        if not is_internal_url(internal_url):
+            logger.warning("앱 밖 주소라 푸시하지 않음: user=%s kind=%s", user_id, kind)
             return 0
+        key = notification_key[:MAX_KEY_LENGTH]
         try:
-            return await self.send_to_all(user_id, build_payload(kind, url))
+            if not await self.claim(user_id, kind, internal_url, key):
+                return 0
+            sent, status = await self.deliver(user_id, kind, internal_url)
+            await self.finish(user_id, key, status, sent)
+            return sent
         except Exception:
             logger.warning("푸시 발송 중 오류(작업에는 영향 없음): user=%s kind=%s", user_id, kind, exc_info=True)
             return 0
 
-    async def send_to_all(self, user_id: int, payload: str) -> int:
+    async def deliver(self, user_id: int, kind: PushKind, url: str) -> tuple[int, NotificationStatus]:
+        if not push_enabled(self.settings):
+            return 0, NotificationStatus.DISABLED
+        sent, total = await self.send_to_all(user_id, build_payload(kind, url))
+        if sent:
+            return sent, NotificationStatus.SENT
+        return 0, NotificationStatus.FAILED if total else NotificationStatus.NO_SUBSCRIPTION
+
+    async def claim(self, user_id: int, kind: PushKind, url: str, key: str) -> bool:
+        """이 키의 기록을 만든다. 이미 있으면(보냈거나 보내는 중) False."""
+        async with self.session_factory() as session:
+            created = await session.scalar(
+                insert(Notification)
+                .values(user_id=user_id, notification_key=key, kind=kind.value, url=url)
+                .on_conflict_do_nothing(index_elements=["user_id", "notification_key"])
+                .returning(Notification.id)
+            )
+            await session.commit()
+        return created is not None
+
+    async def finish(self, user_id: int, key: str, status: NotificationStatus, sent: int) -> None:
+        async with self.session_factory() as session:
+            await session.execute(
+                update(Notification)
+                .where(Notification.user_id == user_id, Notification.notification_key == key)
+                .values(status=status, sent_count=sent)
+            )
+            await session.commit()
+
+    async def send_to_all(self, user_id: int, payload: str) -> tuple[int, int]:
+        """(성공한 기기 수, 구독 수)."""
         async with self.session_factory() as session:
             rows = list(await session.scalars(select(PushSubscription).where(PushSubscription.user_id == user_id)))
         vapid = VapidKeys(self.settings.vapid_private_key.get_secret_value(), self.settings.vapid_subject)
@@ -134,7 +190,7 @@ class PushNotifier:
             except Exception as error:
                 logger.warning("푸시 발송 실패: subscription=%s (%s)", row.id, type(error).__name__)
         await self.record(sent, gone)
-        return len(sent)
+        return len(sent), len(rows)
 
     async def record(self, sent: list[int], gone: list[int]) -> None:
         async with self.session_factory() as session:

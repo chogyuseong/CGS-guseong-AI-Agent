@@ -404,8 +404,8 @@ async def finish_watch(
     return conversation_id
 
 
-async def send_watch_push(services: RunServices, user_id: int, conversation_id: int) -> int:
-    return await services.notifier.notify(user_id, PushKind.WATCH_MET, f"/chat/{conversation_id}")
+async def send_watch_push(services: RunServices, user_id: int, conversation_id: int, key: str) -> int:
+    return await services.notifier.notify(user_id, PushKind.WATCH_MET, f"/chat/{conversation_id}", key)
 
 
 async def run_watch(services: AutomationServices, watch_id: int, run_at: datetime, now: datetime) -> None:
@@ -419,4 +419,5 @@ async def run_watch(services: AutomationServices, watch_id: int, run_at: datetim
         review = await durable_step("watch_verdict", judge_watch, run, services.watch_agent, job, result, now)
     conversation_id = await durable_step("finish_watch", finish_watch, run.session_factory, job, result, review, now)
     if conversation_id is not None:
-        await durable_step("notify_watch", send_watch_push, run, job.user_id, conversation_id)
+        key = f"watch_met:watch-{watch_id}:{run_at.isoformat()}"  # 같은 감시·같은 예정 시각의 알림은 하나
+        await durable_step("notify_watch", send_watch_push, run, job.user_id, conversation_id, key)

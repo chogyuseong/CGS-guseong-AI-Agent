@@ -492,8 +492,14 @@ async def finish(
     return push_kind_for(info, outcome.status, finished_at=time.time())
 
 
-async def send_push(services: RunServices, info: TaskInfo, kind: PushKind) -> int:
-    return await services.notifier.notify(info.user_id, kind, f"/chat/{info.conversation_id}")
+def notification_key(info: TaskInfo, kind: PushKind) -> str:
+    """같은 task·같은 실행 회차(워크플로)·같은 종류의 알림은 하나다. 복구로 notify 단계가 다시 돌아도 한 번만 보낸다."""
+    workflow = current_workflow_id() or f"task-{info.id}"
+    return f"{kind.value}:task-{info.id}:{workflow}"
+
+
+async def send_push(services: RunServices, info: TaskInfo, kind: PushKind, key: str) -> int:
+    return await services.notifier.notify(info.user_id, kind, f"/chat/{info.conversation_id}", key)
 
 
 async def complete(
@@ -511,7 +517,7 @@ async def complete(
     if kind == PushKind.TASK_DONE and done_kind is not None:
         kind = done_kind
     if kind is not None:
-        await durable_step("notify", send_push, services, info, kind)
+        await durable_step("notify", send_push, services, info, kind, notification_key(info, kind))
 
 
 # ---- 공개 함수 ----

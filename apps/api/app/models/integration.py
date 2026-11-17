@@ -2,11 +2,12 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import TimestampedTable
+from app.models.base import TimestampedTable, enum_type
+from app.models.enums import NotificationStatus
 
 
 class Connection(TimestampedTable):
@@ -31,3 +32,22 @@ class PushSubscription(TimestampedTable):
     auth: Mapped[str] = mapped_column(String(100))
     user_agent: Mapped[str | None] = mapped_column(String(500))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Notification(TimestampedTable):
+    """푸시 한 건의 기록(3단계 보강, BUILD_SPEC 8.4). 같은 (user, notification_key)는 한 번만 보낸다.
+
+    본문은 kind별 고정 문구라 저장하지 않는다. 사용자 글·일정 제목 같은 내용은 여기 없다.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("user_id", "notification_key"),)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    notification_key: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(40))
+    url: Mapped[str] = mapped_column(String(200))
+    status: Mapped[NotificationStatus] = mapped_column(
+        enum_type(NotificationStatus, "notification_status"), server_default=NotificationStatus.PENDING.value
+    )
+    sent_count: Mapped[int] = mapped_column(Integer, server_default="0")

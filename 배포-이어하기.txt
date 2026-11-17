@@ -1,5 +1,5 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-17 (BUILD_SPEC 기준 3단계 보강 진행 중: (1)(2)(3) 완료)
+마지막 갱신 2026-11-17 (BUILD_SPEC 기준 3단계 보강 진행 중: (1)~(4) 완료)
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
@@ -35,14 +35,15 @@
                      취소 답변에 완료된 외부 작업 수, 승인 후 실행 전 취소는 operation cancelled)
                      (3) 완료: outbox(실행·재개 시작 요청을 같은 트랜잭션에, 실패하면 재시도 시각·오류 종류, 10번이면 failed,
                      API 직후·서버 시작·1분 검사가 처리, 고정 워크플로 ID로 중복 없음)
-                     남은 것: (4) 푸시 notification_key·notifications 테이블
-                     (5) 로그·기록 민감 정보 검사
+                     (4) 완료: 푸시 notify(…, notification_key)로 같은 알림 한 번, notifications 기록, 앱 내부 경로만,
+                     task_needs_review 문구
+                     남은 것: (5) 로그·기록 민감 정보 검사
   4~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC, 3단계 보강 (3) 끝): API pytest 450개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음,
+검사(2026-11-17, 두 번째 PC, 3단계 보강 (4) 끝): API pytest 458개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음,
 웹 Biome 0건, tsc, Vitest 269개, Playwright 37개 통과.
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 3단계 보강 (4)부터 이어서 진행해라"
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 3단계 보강 (5)부터 이어서 진행해라"
 (3단계: 장애 지점 5곳 주입, unknown/reconciling·결과 재조회, outbox, 취소 경합, 푸시. 중간 단위마다 커밋·push)
 
 

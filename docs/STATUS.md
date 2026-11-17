@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 3단계 보강 진행 중(2026-11-17). (1) 결과 재조회·장애 주입, (2) 취소와 실행 경합, (3) outbox 끝. 다음은 (4) 푸시.
+현재 단계: BUILD_SPEC 기준 3단계 보강 진행 중(2026-11-17). (1) 결과 재조회·장애 주입, (2) 취소와 실행 경합, (3) outbox, (4) 푸시 끝. 다음은 (5) 로그·기록 민감 정보 검사.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -77,7 +77,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] outbox(task 저장↔워크플로 등록, 승인↔재개, 예약 발생↔task) 또는 DBOS 트랜잭션 연계 확인 — app/agent/outbox.py, tests/test_outbox.py
   (예약 발생↔task는 같은 워크플로 안이라 outbox 불필요)
 - [x] 취소와 실행 경합 — tests/test_cancel_race.py
-- [ ] 푸시: notify(user_id, kind, internal_url, notification_key), notifications 테이블, 404·410 구독 정리, 짧은 채팅 완료엔 푸시 안 함
+- [x] 푸시: notify(user_id, kind, internal_url, notification_key), notifications 테이블, 404·410 구독 정리, 짧은 채팅 완료엔 푸시 안 함 — tests/test_notifications.py, test_push.py
+  (iOS·Android 실기기 확인은 사용자)
 
 ### 4단계 — 실제 조회와 캘린더
 - [ ] create_event: 안정적인 event ID, 중복 응답·타임아웃 구분

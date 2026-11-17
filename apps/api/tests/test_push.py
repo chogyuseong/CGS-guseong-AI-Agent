@@ -32,15 +32,6 @@ def subscription_body(endpoint: str = ENDPOINT) -> dict:
     return {"endpoint": endpoint, "expirationTime": None, "keys": {"p256dh": P256DH, "auth": AUTH}}
 
 
-@pytest.fixture
-def push_on(test_settings: Settings) -> Settings:
-    """VAPID 세 값을 채운다. 실제로 보내지는 않으므로 아무 문자열이면 된다."""
-    test_settings.vapid_public_key = "test-public-key"
-    test_settings.vapid_private_key = SecretStr("test-private-key")
-    test_settings.vapid_subject = "mailto:test@example.com"
-    return test_settings
-
-
 async def subscribe(client: httpx.AsyncClient, endpoint: str = ENDPOINT) -> httpx.Response:
     return await client.post("/api/push/subscribe", json=subscription_body(endpoint))
 
@@ -226,7 +217,9 @@ async def test_notify_updates_last_used_at(
     db_session.add(PushSubscription(user_id=logged_in_user.id, endpoint=ENDPOINT, p256dh=P256DH, auth=AUTH))
     await db_session.commit()
 
-    sent = await services_from_state(app.state).notifier.notify(logged_in_user.id, PushKind.APPROVAL_NEEDED, "/chat/1")
+    sent = await services_from_state(app.state).notifier.notify(
+        logged_in_user.id, PushKind.APPROVAL_NEEDED, "/chat/1", "approval_needed:test"
+    )
 
     assert sent == 1
     row = await db_session.scalar(select(PushSubscription).execution_options(populate_existing=True))

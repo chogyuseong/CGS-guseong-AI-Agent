@@ -346,7 +346,7 @@ async def test_briefing_sends_briefing_push(
     with agent.override(model=scripted(text("오늘 일정은 없습니다.")).model()):
         await run_check(automation_services, now)
 
-    assert [p["body"] for p in push_sender.payloads()] == ["오늘의 브리핑이 준비되었습니다"]
+    assert [p["body"] for p in push_sender.payloads()] == ["브리핑이 준비되었습니다"]
 
 
 # ---- 아침 브리핑 기본 예약 ----

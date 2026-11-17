@@ -36,7 +36,7 @@ class ScheduleOut(BaseModel):
     # 꺼져 있어도 값은 있다(켤 때 다시 계산한다). 화면은 is_active일 때만 '다음 실행'으로 보여 준다.
     next_run_at: datetime
     last_run_at: datetime | None
-    # 아침 브리핑 기본 예약인가(완료 푸시가 '오늘의 브리핑이 준비되었습니다')
+    # 아침 브리핑 기본 예약인가(완료 푸시가 '브리핑이 준비되었습니다')
     is_briefing: bool
     last_task: LastTaskOut | None
 

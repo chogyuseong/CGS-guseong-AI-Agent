@@ -97,6 +97,16 @@ class OutboxStatus(StrEnum):
     FAILED = "failed"  # 여러 번 실패해 더 시도하지 않는다(로그·화면에서 확인)
 
 
+class NotificationStatus(StrEnum):
+    """푸시 한 건(notification_key)의 결과(3단계 보강, BUILD_SPEC 8.4). 전달을 정확히 한 번 보장하지는 않는다."""
+
+    PENDING = "pending"  # 보내는 중(이 키는 이미 잡혔다)
+    SENT = "sent"  # 한 기기 이상에 보냄
+    FAILED = "failed"  # 구독은 있었지만 모두 실패
+    NO_SUBSCRIPTION = "no_subscription"  # 구독한 기기가 없음
+    DISABLED = "disabled"  # 서버에 VAPID 설정이 없어 보내지 않음
+
+
 class VerdictKind(StrEnum):
     MATCH = "match"
     MISMATCH = "mismatch"

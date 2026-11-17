@@ -16,6 +16,7 @@ import argparse
 import getpass
 import logging
 import sys
+import uuid
 
 from app.config import get_settings
 from app.db import create_engine_for, create_session_factory
@@ -90,7 +91,7 @@ async def send_test_push_command(email: str, kind: PushKind) -> int:
         if user is None:
             print(f"오류: 계정이 없습니다: {normalize_email(email)}", file=sys.stderr)
             return 1
-        sent = await PushNotifier(factory, settings).notify(user.id, kind, "/chat")
+        sent = await PushNotifier(factory, settings).notify(user.id, kind, "/chat", f"test:{uuid.uuid4()}")
     finally:
         await engine.dispose()
     print(f"보낸 기기 수: {sent} (0이면 화면에서 '알림 켜기'를 먼저 하세요. 실패 이유는 위 경고 로그 참고)")
