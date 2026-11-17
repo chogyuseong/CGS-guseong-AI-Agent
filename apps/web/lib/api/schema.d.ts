@@ -321,8 +321,9 @@ export interface paths {
         get?: never;
         /**
          * Give Mail Consent
-         * @description 7단계 보강: 메일 데이터 처리 동의. 메일 내용이 답변을 만들려고 AI 모델 제공자에게 전송됨을 화면에서 알린 뒤 받는다.
+         * @description 7단계 보강: 메일 데이터 처리 동의.
          *
+         *     메일 내용이 답변을 만들려고 AI 모델 제공자에게 전송됨을 화면에서 알린 뒤 받는다.
          *     같은 요청을 다시 보내도 처음 동의 시각을 바꾸지 않는다.
          */
         put: operations["give_mail_consent_api_connections_google_mail_consent_put"];
@@ -516,7 +517,7 @@ export interface paths {
         patch: operations["update_watch_api_watches__watch_id__patch"];
         trace?: never;
     };
-    "/api/usage": {
+    "/api/usage/daily": {
         parameters: {
             query?: never;
             header?: never;
@@ -524,7 +525,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Usage */
-        get: operations["get_usage_api_usage_get"];
+        get: operations["get_usage_api_usage_daily_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2363,7 +2364,7 @@ export interface operations {
             };
         };
     };
-    get_usage_api_usage_get: {
+    get_usage_api_usage_daily_get: {
         parameters: {
             query?: {
                 /** @description 오늘을 포함한 최근 며칠(서울 날짜) */

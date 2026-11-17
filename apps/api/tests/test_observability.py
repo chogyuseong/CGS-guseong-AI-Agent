@@ -221,13 +221,13 @@ async def test_mail_task_trace_has_no_content(
 async def test_query_strings_are_not_traced(
     client: httpx.AsyncClient, logged_in_user: User, trace_exporter: TestExporter
 ) -> None:
-    await client.get("/api/usage", params={"days": 3, "note": "QUERY-SECRET"})
+    await client.get("/api/usage/daily", params={"days": 3, "note": "QUERY-SECRET"})
     await client.get("/api/connections/google/callback", params={"code": "OAUTH-CODE-SECRET", "state": "STATE-X"})
 
     trace = dumped(trace_exporter)
     names = span_names(trace_exporter)
 
-    assert "GET /api/usage" in names
+    assert "GET /api/usage/daily" in names
     assert "QUERY-SECRET" not in trace and "days=3" not in trace
     assert "OAUTH-CODE-SECRET" not in trace and "STATE-X" not in trace
     assert not any("callback" in name for name in names)  # 콜백은 트레이스를 만들지 않는다

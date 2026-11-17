@@ -3,13 +3,13 @@ import { loginToChat } from "./helpers";
 import { fakeUsage } from "./width-fixtures";
 
 // 9단계 2번: 비용 화면이 360px에서 보이고 깨지지 않는지 본다.
-// GET /api/usage는 page.route로 흉내 낸다(실제 사용량은 모델 호출로만 쌓여서). 로그인만 실제 API로 간다.
+// GET /api/usage/daily는 page.route로 흉내 낸다(실제 사용량은 모델 호출로만 쌓여서). 로그인만 실제 API로 간다.
 type UsageServer = { requested: number[] };
 
 async function fakeUsageApi(page: Page, empty = false): Promise<UsageServer> {
   const server: UsageServer = { requested: [] };
   await page.route(
-    (url) => url.pathname === "/api/usage",
+    (url) => url.pathname === "/api/usage/daily",
     (route) => {
       const days = Number(new URL(route.request().url()).searchParams.get("days"));
       server.requested.push(days);

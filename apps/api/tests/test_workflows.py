@@ -381,6 +381,30 @@ async def test_budget_exceeded_at_resume_closes_approved_step(
     assert detail["steps"][0]["output"]["user_message"] == runner.NOT_EXECUTED_MESSAGE
 
 
+async def test_finished_task_leaves_no_approved_operation(
+    client: httpx.AsyncClient,
+    agent: MyAgent,
+    conversation: int,
+    db_session: AsyncSession,
+    test_settings: Settings,
+    fake_external_counter: FakeExternalCounter,
+) -> None:
+    """9단계 보강(docs/STATE_MACHINES.md): 승인됐지만 실행 전에 task가 끝나면 operation도 cancelled로 닫는다.
+
+    예전에는 step만 failed로 닫고 operation은 approved로 남아, 끝난 task인데 '열린 외부 작업'으로 보여
+    보관 기간 정리(retention)가 그 task의 기록을 지우지 못했다.
+    """
+    with agent.override(model=scripted(call("fake_external", value=1), text("끝")).model()):
+        task = await send(client, conversation, "외부 도구 실행해줘")
+        test_settings.daily_cost_limit_usd = Decimal("0")
+        await client.post(f"/api/approvals/{task['approvals'][0]['id']}/approve")
+
+    plan_ids = select(ActionPlan.id).where(ActionPlan.task_id == task["id"])
+    statuses = list(await db_session.scalars(select(Operation.status).where(Operation.plan_id.in_(plan_ids))))
+    assert fake_external_counter.count == 0
+    assert statuses == [OperationStatus.CANCELLED]
+
+
 # ---- 단계들의 멱등성 ----
 
 

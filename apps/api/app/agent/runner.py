@@ -52,7 +52,7 @@ from app.agent.budget import (
     calculate_cost,
     daily_cost_exceeded,
 )
-from app.agent.cancel import RUN_CANCELLED_MESSAGE, TaskCancelledError, completed_external_note
+from app.agent.cancel import NOT_STARTED, RUN_CANCELLED_MESSAGE, TaskCancelledError, completed_external_note
 from app.agent.deps import AgentDeps
 from app.agent.durable import current_workflow_id, durable_step
 from app.agent.guard import GuardAgent, GuardReview, check_action
@@ -411,6 +411,8 @@ async def close_unexecuted_steps(session: AsyncSession, task_id: int) -> None:
 
     예: 재개 직전 하루 비용 상한에 걸려 budget_exceeded로 끝나면 승인된 호출은 실행되지 않는다.
     실행하지 않았다는 사실이 확실하므로 output.error에 그렇게 적는다(실행 여부를 모르는 경우와 구별).
+    9단계 보강: 그 호출의 operation(awaiting_approval·approved)도 cancelled로 닫는다. 실행기는 task가 running일 때만
+    실행하므로 끝난 task의 승인은 다시 쓰일 수 없다(전이 표: docs/STATE_MACHINES.md).
     """
     output = not_executed_output(NOT_EXECUTED_MESSAGE)
     await session.execute(
@@ -418,6 +420,8 @@ async def close_unexecuted_steps(session: AsyncSession, task_id: int) -> None:
         .where(Step.task_id == task_id, Step.status == StepStatus.WAITING_APPROVAL)
         .values(status=StepStatus.FAILED, ok=False, output=output)
     )
+    task_plans = select(ActionPlan.id).where(ActionPlan.task_id == task_id)
+    await approvals.set_operation_status(session, task_plans, OperationStatus.CANCELLED, NOT_STARTED)
 
 
 async def save_outcome(

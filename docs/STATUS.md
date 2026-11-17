@@ -174,6 +174,15 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 ### 9단계 — 배포와 운영
 - [ ] 다크 모드, PWA 아이콘 확인
 - [ ] 폴링: 승인 대기 느리게, 보이지 않을 때 줄이기
-- [ ] 배포, 마이그레이션·백업·복원·롤백 절차(docs/OPERATIONS.md), 7일 실사용 기록 양식
-- [ ] docs/STATE_MACHINES.md(task, operation, approval 전이 표)
-- [ ] `GET /usage/daily` 이름 맞추기(지금 `GET /api/usage`)
+- [x] 마이그레이션·롤백(downgrade 위험), 백업·복원, DBOS 업그레이드(WORKFLOW_VERSION)와 실행 중 작업, 키 교체, 모델/API 장애
+  표시·대응, 7일 실사용 기록 양식 — docs/OPERATIONS.md. 모델 장애 화면 문구는 tests/test_outage.py(가짜 모델 529)
+- [x] 테스트 DB 복원 연습 — **로컬 docker postgres에서만**(2026-11-18, docs/OPERATIONS.md 7절: pg_dump → 버리는 DB에 복원 →
+  41개 표 행 수·인덱스·제약·시퀀스 같음, alembic current head, alembic check 통과 → 삭제). 배포 환경 복원은 미완료
+- [x] docs/STATE_MACHINES.md(task 12, operation 12, approval, outbox, 발생 기록, step 전이 표) — tests/test_state_machines.py
+  (상태 목록 = enum, 표의 상태·함수 이름이 코드에 있음). 표를 만들며 찾은 버그(끝난 task의 approved operation이 남아 보관 정리에서
+  빠짐)를 고침 — tests/test_workflows.py::test_finished_task_leaves_no_approved_operation.
+  task의 waiting_input·reconciling·partially_done과 operation planned는 정의만 있고 쓰지 않음(표에 이유)
+- [x] `GET /usage/daily` 이름 맞추기 — `GET /api/usage/daily`, 옛 `/api/usage`는 없앰(404). tests/test_usage_api.py,
+  화면 lib/usage.ts·UsageReport.test.tsx·e2e 가짜 경로, schema.d.ts 재생성
+- [ ] (남음) 실제 배포(HTTPS 주소), 배포 환경에서 로그인·승인·생성·재시작 복구 확인, Railway 백업 기능 확인과 배포 환경 복원 연습
+- [ ] (남음) 실기기 키보드·푸시·음성 확인, 7일 실사용 기록(양식만 있음)

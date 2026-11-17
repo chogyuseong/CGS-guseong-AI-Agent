@@ -239,7 +239,7 @@ function memory(id: number) {
   return { id, content, created_at: AT, source: { ...source, content: `${content} 기억해` } };
 }
 
-// 비용 화면(GET /api/usage?days=N). 오늘은 한도를 넘은 상태(안내 상자까지 보이게), 긴 모델 이름,
+// 비용 화면(GET /api/usage/daily?days=N). 오늘은 한도를 넘은 상태(안내 상자까지 보이게), 긴 모델 이름,
 // 아주 작은 금액('미만' 표기)과 큰 토큰 수를 넣는다.
 function usageTotals(cost: number, tokens: number, calls: number) {
   const input = Math.floor(tokens * 0.9);
@@ -278,7 +278,7 @@ export function fakeUsage(days: number) {
 // 자동화·기억·설정(알림)·연결·비용 화면.
 export async function fakeTabs(page: Page) {
   await page.route(
-    (url) => url.pathname === "/api/usage",
+    (url) => url.pathname === "/api/usage/daily",
     (route) => {
       const days = Number(new URL(route.request().url()).searchParams.get("days") ?? 14);
       return route.fulfill({ status: 200, json: fakeUsage(days) });

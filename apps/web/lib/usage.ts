@@ -1,7 +1,7 @@
 // 비용 화면(9단계 2번)이 쓰는 서버 호출과 표기. 타입은 pnpm gen:api가 만든 schema.d.ts에서 꺼낸다.
 //
 // API(apps/api/app/routers/usage.py):
-//   GET /api/usage?days=N(1~90) → 일별(오래된 날부터, 빈 날은 0), 용도별(항상 4개), 모델별, 기간 합계, 오늘 한도
+//   GET /api/usage/daily?days=N(1~90) → 일별(오래된 날부터, 빈 날은 0), 용도별(항상 4개), 모델별, 기간 합계, 오늘 한도
 // 날짜 경계는 서버의 하루 비용 상한 검사와 같은 서울 0시다. 금액은 달러 숫자(소수 6자리).
 // 한도를 바꾸는 API·화면은 없다(명세에 없음). 한도는 서버 설정(DAILY_COST_LIMIT_USD)이다.
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -101,7 +101,7 @@ function networkError(): never {
 
 async function fetchUsage(days: number): Promise<Usage> {
   const { data, response } = await api
-    .GET("/api/usage", { params: { query: { days } } })
+    .GET("/api/usage/daily", { params: { query: { days } } })
     .catch(networkError);
   if (data === undefined) throw new Error(`사용량을 불러오지 못했습니다 (오류 ${response.status})`);
   return data;

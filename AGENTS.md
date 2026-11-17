@@ -6,6 +6,9 @@
 - docs/STATUS.md — 지금 단계, BUILD_SPEC과 코드의 차이(단계별 보강 목록)
 - docs/DATA_POLICY.md — 저장소별 보관·삭제 범위(무엇을 새로 저장하면 이 표에 넣는다)
 - docs/ARCHITECTURE.md, docs/DECISIONS.md("예정된 결정"과 "BUILD_SPEC 전환" 절 포함), docs/VERSIONS.md
+- docs/STATE_MACHINES.md — task·operation·approval·outbox 상태 전이 표(누가 바꾸는지). 상태나 전이 함수를 바꾸면 같이 고친다
+  (tests/test_state_machines.py가 enum·함수 이름과 맞춰 본다)
+- docs/OPERATIONS.md — 마이그레이션·롤백, 백업·복원, WORKFLOW_VERSION 올리는 배포, 키 교체, 장애 대응, 7일 기록 양식
 같은 서비스의 Django판을 참고할 때는 docs/DJANGO-REFERENCE.md를 먼저 본다(읽기 전용, 코드 복사 금지).
 
 지금 코드는 예전 명세로 0~9단계를 만든 뒤, BUILD_SPEC 기준으로 0단계부터 단계별로 보강하는 중이다(A안).
@@ -177,7 +180,7 @@
 - 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)
 - Google 연결: `app/google_auth.py`(OAuth·토큰 암호화 저장·갱신, 7단계 보강: 다시 연결 필요 표시), `app/routers/connections.py`(start·callback·상태·해제·메일 동의)
 - 8단계: `app/observability.py` Logfire 설정·가리기(TELEMETRY_ENABLED, OTLP 환경변수 숨김, 내용 미포함, 쿼리·예외 메시지 지움) /
-  `app/usage_report.py` 비용 화면 합계(`GET /api/usage`) / `evals/` eval(BUILD_SPEC 16절 30개, 승인하지 않음, 가짜 외부 API,
+  `app/usage_report.py` 비용 화면 합계(`GET /api/usage/daily`) / `evals/` eval(BUILD_SPEC 16절 30개, 승인하지 않음, 가짜 외부 API,
   버리는 DB): `cases.py` 허용 경로·인자 검사, `evaluators.py` 안전 경계 5·모델 판단 8, `record.py` 실행 기록, `summary.py` 분리 보고
 - `app/clock.py` 지금 시각 한 곳(날짜 지시문·날씨 범위·자동화 생성·조회 시각). `clock.now_utc()`로 부른다(eval이 바꿔 낀다)
 - 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.

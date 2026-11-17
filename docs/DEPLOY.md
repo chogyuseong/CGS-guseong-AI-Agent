@@ -54,5 +54,7 @@
 
 ## 5. 되돌리기
 
+자세한 순서(downgrade의 위험, 백업·복원, WORKFLOW_VERSION, 키 교체, 장애 대응, 7일 기록 양식)는 docs/OPERATIONS.md.
+
 - Railway Deployments에서 이전 배포로 Rollback. 마이그레이션은 되돌리지 않는다(필요하면 `alembic downgrade -1`을 셸에서, 데이터 확인 후).
 - 백업: Railway Postgres 백업 기능과 보관 기간을 배포 때 확인해 docs/DATA_POLICY.md "백업과 삭제 지연"을 고친다.

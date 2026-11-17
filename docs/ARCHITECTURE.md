@@ -6,7 +6,7 @@
 3단계(API): 실행을 DBOS 워크플로로 옮겨 API는 바로 응답(202)하고 서버가 죽었다 살아나도 이어서 실행, 웹 푸시 구독·발송.
 6단계(API): 예약 작업·조건 감시·아침 브리핑. DBOS 예약 실행으로 1분마다 검사(아래 "자동화" 절), 자동화 화면 API.
 8단계(API): Logfire 관찰(토큰 없으면 전송 없음, 내용 미포함, `docs/OBSERVABILITY.md`), Pydantic Evals 실행기(`docs/EVALS.md`),
-비용 API(`GET /api/usage`, 9단계 2번의 API 부분), 메시지 출처(origin·sources).
+비용 API(`GET /api/usage/daily`, 9단계 2번의 API 부분. 9단계 보강에서 옛 `/api/usage`를 명세 이름으로 바꿈), 메시지 출처(origin·sources).
 
 ## 구성
 
@@ -63,7 +63,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | DELETE | `/api/conversations/{id}` | 204 대화와 메시지·작업·단계·승인·계획·영수증·DBOS 기록 삭제(5단계 보강). 기억은 남김(출처 null). 진행 중 작업이 있으면 409, 남의 대화 404 |
 | POST | `/api/conversations` | 201 대화 생성. 본문 `{"title"?}`, 비우면 "새 대화". 8단계: 제목 "예약 작업"(앞뒤 공백 무시)은 422(자동 실행 결과용 대화방 이름) |
 | GET | `/api/conversations/{id}/messages` | 내 대화의 메시지(오래된 순). 남의 대화·없는 대화는 404. 한 건 = `id, role, content, task_id, created_at` + 8단계 추가 `origin`(`chat`: 사용자 메시지와 채팅 답변 / `schedule`: 예약 작업 결과 / `watch`: 조건 감시 알림), `sources`(감시 알림의 출처 링크 목록, 그 밖은 `[]`) |
-| GET | `/api/usage?days=14` | 8단계(9단계 2번 비용 화면). `days` 1~90(기본 14). 200 `{timezone: "Asia/Seoul", days: [{date, input_tokens, output_tokens, total_tokens, cost_usd, calls}] (오래된 날부터, 사용 없는 날도 0, 길이 = days), by_purpose: [{purpose(agent·guard·watch·eval 항상 4개), …합계}], by_model: [{model, …합계}] (비용 큰 순), total: {…합계}, today: {date, cost_usd, limit_usd, remaining_usd(0 아래 없음), exceeded}}`. 금액은 달러 숫자(소수 6자리). 날짜는 하루 비용 상한 검사와 같은 서울 0시 경계 |
+| GET | `/api/usage/daily?days=14` | 8단계(9단계 2번 비용 화면). `days` 1~90(기본 14). 200 `{timezone: "Asia/Seoul", days: [{date, input_tokens, output_tokens, total_tokens, cost_usd, calls}] (오래된 날부터, 사용 없는 날도 0, 길이 = days), by_purpose: [{purpose(agent·guard·watch·eval 항상 4개), …합계}], by_model: [{model, …합계}] (비용 큰 순), total: {…합계}, today: {date, cost_usd, limit_usd, remaining_usd(0 아래 없음), exceeded}}`. 금액은 달러 숫자(소수 6자리). 날짜는 하루 비용 상한 검사와 같은 서울 0시 경계 |
 | POST | `/api/conversations/{id}/messages` | 202 `{"task_id"}`. 본문 `{"content"}`(1~4,000자). **3단계: run_task 워크플로를 시작만 하고 바로 응답**(그 시점 task는 보통 queued). 분당 20회 초과 429 |
 | GET | `/api/tasks` | 최근 작업 목록(`?limit=1~100`, 기본 30) |
 | GET | `/api/tasks/{id}` | 상태, steps, final_answer, error, approvals(그 작업의 모든 승인, step 순서). 화면은 이것을 1초마다 폴링한다 |

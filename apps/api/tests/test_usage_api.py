@@ -1,4 +1,4 @@
-"""9단계 2번(API): 비용 화면용 GET /api/usage.
+"""9단계 2번(API): 비용 화면용 GET /api/usage/daily(BUILD_SPEC 9절 이름. 9단계 보강에서 옛 GET /api/usage를 없앴다).
 
 일별 토큰과 비용, 용도별(agent, guard, watch, eval) 합계, 모델별 합계, 오늘 남은 한도.
 날짜 경계는 하루 비용 상한 검사(budget.seoul_day_start)와 같은 Asia/Seoul 0시다.
@@ -47,9 +47,14 @@ async def add_sample_logs(db_session: AsyncSession, me: User, other: User) -> No
 
 
 async def test_usage_requires_login(client: httpx.AsyncClient) -> None:
-    response = await client.get("/api/usage")
+    response = await client.get("/api/usage/daily")
 
     assert response.status_code == 401
+
+
+async def test_old_usage_path_is_gone(client: httpx.AsyncClient, logged_in_user: User) -> None:
+    """명세 이름으로 옮긴 뒤 옛 경로는 남기지 않는다(쓰는 곳이 이 앱 화면 하나뿐이라 함께 바꿨다)."""
+    assert (await client.get("/api/usage")).status_code == 404
 
 
 async def test_usage_groups_by_seoul_day_purpose_and_model(
@@ -62,7 +67,7 @@ async def test_usage_groups_by_seoul_day_purpose_and_model(
     other = await make_user("other@example.com", "password-other")
     await add_sample_logs(db_session, logged_in_user, other)
 
-    response = await client.get("/api/usage", params={"days": 3})
+    response = await client.get("/api/usage/daily", params={"days": 3})
 
     assert response.status_code == 200
     body = response.json()
@@ -94,16 +99,16 @@ async def test_today_remaining_is_zero_when_limit_exceeded(
     db_session.add(spent_today(logged_in_user.id, Decimal("0.07")))
     await db_session.commit()
 
-    today = (await client.get("/api/usage", params={"days": 1})).json()["today"]
+    today = (await client.get("/api/usage/daily", params={"days": 1})).json()["today"]
 
     assert today["remaining_usd"] == 0.0
     assert today["exceeded"] is True
 
 
 async def test_usage_days_must_be_in_range(client: httpx.AsyncClient, logged_in_user: User) -> None:
-    assert (await client.get("/api/usage", params={"days": 0})).status_code == 422
-    assert (await client.get("/api/usage", params={"days": 91})).status_code == 422
-    default = (await client.get("/api/usage")).json()
+    assert (await client.get("/api/usage/daily", params={"days": 0})).status_code == 422
+    assert (await client.get("/api/usage/daily", params={"days": 91})).status_code == 422
+    default = (await client.get("/api/usage/daily")).json()
     assert len(default["days"]) == 14
 
 
@@ -118,7 +123,7 @@ async def test_today_remaining_counts_pending_reservations(
     db_session.add(day)
     await db_session.commit()
 
-    today = (await client.get("/api/usage", params={"days": 1})).json()["today"]
+    today = (await client.get("/api/usage/daily", params={"days": 1})).json()["today"]
 
     assert today["cost_usd"] == 0.01
     assert today["remaining_usd"] == 0.79

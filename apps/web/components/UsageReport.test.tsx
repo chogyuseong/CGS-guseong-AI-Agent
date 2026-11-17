@@ -84,11 +84,11 @@ describe("비용 화면", () => {
     getMock.mockReset();
   });
 
-  it("처음에는 최근 14일을 /api/usage로 요청한다", async () => {
+  it("처음에는 최근 14일을 /api/usage/daily로 요청한다", async () => {
     serve();
     renderReport();
     await screen.findByRole("region", { name: "오늘" });
-    expect(getMock).toHaveBeenCalledWith("/api/usage", { params: { query: { days: 14 } } });
+    expect(getMock).toHaveBeenCalledWith("/api/usage/daily", { params: { query: { days: 14 } } });
   });
 
   it("오늘 쓴 금액·한도·남은 금액과 진행 막대를 보여 준다", async () => {

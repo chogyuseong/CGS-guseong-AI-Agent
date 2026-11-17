@@ -137,7 +137,7 @@ lib/connections.ts      연결 상태·해제 호출, 콜백 결과 코드별 �
 lib/memories.ts         기억 목록·삭제 호출과 오류 문구, 날짜 표시
 lib/automations.ts      예약·감시 목록·켜기/끄기·삭제 호출, 409 코드별 문구, 시각·간격 표시, '예약 작업' 대화방 판정
 lib/suggestions.ts      답변에서 [제안] 줄 찾기, 칩을 붙일 메시지(예약 작업 결과, 서버 origin 기준) 고르기
-lib/usage.ts            /api/usage 호출, 금액·토큰·날짜 표기, 용도 이름, 한도 사용률
+lib/usage.ts            /api/usage/daily 호출, 금액·토큰·날짜 표기, 용도 이름, 한도 사용률
 lib/stepOutput.ts       단계 출력에서 외부 콘텐츠 읽기, 안전한 링크 판정
 lib/toolText.ts         도구 칸 이름·시각을 사람이 읽는 글자로
 lib/push.ts             웹 푸시 상태 판정, 구독·해지(브라우저·서버를 인자로 받아 테스트 가능)
