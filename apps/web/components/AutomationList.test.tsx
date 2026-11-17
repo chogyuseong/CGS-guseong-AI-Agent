@@ -193,6 +193,26 @@ describe("자동화 목록", () => {
     expect(screen.getByText("켜진 조건 감시 1개 / 최대 10개")).toBeInTheDocument();
   });
 
+  it("판정하지 못한 확인(unknown)은 '조건 아님'과 구분해 이유를 보여 준다(6단계 보강)", async () => {
+    const failed: Watch = {
+      ...RAIN,
+      last_result: {
+        status: "unknown",
+        reason: "tool_failed",
+        checked_at: "2026-11-17T00:00:00Z",
+        summary: "",
+        error: "조회 실패",
+        sources: [],
+      },
+    };
+    serve([], [failed]);
+    renderList();
+    const item = await findItem("내일 서울 비 확률");
+
+    expect(item).toHaveTextContent("판단 보류 · 조회 실패");
+    expect(item).not.toHaveTextContent("조건에 맞지 않음");
+  });
+
   it("빈 상태: 채팅에서 만드는 예시 문장과 조회만 한다는 안내", async () => {
     serve([], []);
     renderList();

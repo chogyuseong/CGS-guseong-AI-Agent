@@ -44,7 +44,7 @@ from app.agent.deps import AgentDeps
 from app.agent.durable import durable_step
 from app.agent.results import ToolResult
 from app.agent.runner import RunServices
-from app.automation import retention, rules, store
+from app.automation import conditions, retention, rules, store
 from app.automation.watch import WatchAgent, WatchReview, build_watch_prompt, judge
 from app.automation.watchable import run_watch_tool
 from app.models import Approval, AutomationOccurrence, Message, ScheduledJob, Step, Task, UsageLog, Watch
@@ -296,6 +296,8 @@ class WatchJob:
     tool_name: str
     tool_input: dict[str, Any]
     condition_text: str
+    condition_type: str = conditions.TEXT
+    condition_spec: dict[str, Any] | None = None
 
 
 async def lock_watch(session: AsyncSession, watch_id: int) -> Watch | None:
@@ -327,7 +329,14 @@ async def claim_watch_run(services: RunServices, watch_id: int, run_at: datetime
             await session.commit()
             return None
         job = WatchJob(
-            watch.id, watch.user_id, watch.description, watch.tool_name, watch.tool_input, watch.condition_text
+            watch.id,
+            watch.user_id,
+            watch.description,
+            watch.tool_name,
+            watch.tool_input,
+            watch.condition_text,
+            watch.condition_type,
+            watch.condition_spec,
         )
         await session.commit()
         return job
@@ -362,26 +371,40 @@ async def judge_watch(
     return await judge(agent, prompt, scope)
 
 
-def watch_status(result: ToolResult, review: WatchReview | None) -> str:
+def verdict_for(job: WatchJob, result: ToolResult, review: WatchReview | None) -> conditions.Verdict:
+    """6단계 보강: 숫자 조건은 서버 비교, 문장 조건은 판정 모델. 조회·판정 실패는 unknown(조건 아님이 아니다)."""
+    if job.condition_type == conditions.NUMBER and job.condition_spec:
+        return conditions.judge_number(job.condition_spec, result)
     if not result.ok or review is None:
-        return "tool_failed"
+        return conditions.Verdict(conditions.UNKNOWN, conditions.TOOL_FAILED, "")
     if not review.judged:
-        return "judge_failed"
-    return "met" if review.met else "not_met"
+        return conditions.Verdict(conditions.UNKNOWN, conditions.JUDGE_FAILED, "")
+    return conditions.Verdict(conditions.MET if review.met else conditions.NOT_MET, None, review.summary)
 
 
-def last_result(result: ToolResult, review: WatchReview | None, now: datetime) -> dict[str, Any]:
+def last_result(verdict: conditions.Verdict, result: ToolResult, now: datetime) -> dict[str, Any]:
     return {
-        "status": watch_status(result, review),
+        "status": verdict.status,
+        "reason": verdict.reason,
         "checked_at": now.isoformat(),
-        "summary": review.summary if review is not None else "",
+        "summary": verdict.summary,
         "error": result.error,
         "sources": result.sources,
     }
 
 
-def met_message(watch: Watch, review: WatchReview, result: ToolResult, now: datetime) -> str:
-    lines = [f"[조건 감시] {watch.description}", f"조건: {watch.condition_text}", review.summary]
+def should_notify(watch: Watch, verdict: conditions.Verdict, now: datetime) -> bool:
+    """거짓(또는 처음)→참으로 바뀌었고, 마지막 알림에서 12시간 이상 지났을 때만 알린다.
+
+    계속 참이면 다시 알리지 않는다. 12시간 안에 다시 참이 되면 그 전환은 알리지 않고 넘어간다.
+    """
+    if verdict.status != conditions.MET or watch.last_known_met is True:
+        return False
+    return watch.last_notified_at is None or now - watch.last_notified_at >= rules.WATCH_REPEAT_DELAY
+
+
+def met_message(watch: Watch, summary: str, result: ToolResult, now: datetime) -> str:
+    lines = [f"[조건 감시] {watch.description}", f"조건: {watch.condition_text}", summary]
     if result.sources:
         lines.append("출처: " + " ".join(result.sources))
     lines.append(f"확인 시각: {rules.seoul_text(now)}")
@@ -407,25 +430,21 @@ async def record_watch_usage(session: AsyncSession, user_id: int, review: WatchR
     )
 
 
-async def notify_met(
-    session: AsyncSession, watch: Watch, review: WatchReview, result: ToolResult, now: datetime
-) -> int:
-    """대화방에 요약과 출처를 남기고 감시를 끄거나 12시간 미룬다. 알릴 대화방 id를 돌려준다."""
+async def notify_met(session: AsyncSession, watch: Watch, summary: str, result: ToolResult, now: datetime) -> int:
+    """대화방에 요약과 출처를 남긴다. repeat=false면 감시를 끈다. 알릴 대화방 id를 돌려준다."""
     conversation = await store.automation_conversation(session, watch.user_id)
     session.add(
         Message(
             conversation_id=conversation.id,
             role=MessageRole.ASSISTANT,
-            content=met_message(watch, review, result, now),
+            content=met_message(watch, summary, result, now),
             # 8단계: 화면이 본문을 파싱하지 않고 출처 링크를 그릴 수 있게 따로 저장한다.
             sources=list(result.sources),
         )
     )
     conversation.updated_at = func.now()
     watch.last_notified_at = now
-    if watch.repeat:
-        watch.next_run_at = now + rules.WATCH_REPEAT_DELAY
-    else:
+    if not watch.repeat:
         watch.is_active = False
     return conversation.id
 
@@ -437,15 +456,18 @@ async def finish_watch(
     review: WatchReview | None,
     now: datetime,
 ) -> int | None:
-    """결과를 저장한다. 조건이 맞아 알려야 하면 대화방 id, 아니면 None. 그 사이 꺼지거나 지워진 감시는 알리지 않는다."""
+    """결과를 저장한다. 알려야 하면 대화방 id, 아니면 None. 그 사이 꺼지거나 지워진 감시는 알리지 않는다."""
+    verdict = verdict_for(job, result, review)
     async with factory() as session:
         await record_watch_usage(session, job.user_id, review)
         watch = await lock_watch(session, job.id)
         conversation_id = None
         if watch is not None and watch.is_active:
-            watch.last_result = last_result(result, review, now)
-            if review is not None and review.judged and review.met:
-                conversation_id = await notify_met(session, watch, review, result, now)
+            watch.last_result = last_result(verdict, result, now)
+            if should_notify(watch, verdict, now):
+                conversation_id = await notify_met(session, watch, verdict.summary, result, now)
+            if verdict.status != conditions.UNKNOWN:
+                watch.last_known_met = verdict.status == conditions.MET
         await session.commit()
     return conversation_id
 
@@ -461,7 +483,7 @@ async def run_watch(services: AutomationServices, watch_id: int, run_at: datetim
         return
     result = await durable_step("watch_tool", execute_watch_tool, run, job)
     review = None
-    if result.ok:
+    if result.ok and job.condition_type != conditions.NUMBER:  # 숫자 조건은 모델을 부르지 않는다
         review = await durable_step("watch_verdict", judge_watch, run, services.watch_agent, job, result, now)
     conversation_id = await durable_step("finish_watch", finish_watch, run.session_factory, job, result, review, now)
     if conversation_id is not None:

@@ -412,7 +412,7 @@ async def test_watch_met_leaves_message_notifies_and_stops(
     assert await tasks_of(db_session, logged_in_user) == []  # 감시 확인은 task를 만들지 않는다
 
 
-async def test_repeating_watch_waits_12_hours_after_met(
+async def test_repeating_watch_keeps_checking_after_met(
     automation_services: AutomationServices, watch_agent: WatchAgent, db_session: AsyncSession, logged_in_user: User
 ) -> None:
     now = datetime.now(UTC)
@@ -423,7 +423,9 @@ async def test_repeating_watch_waits_12_hours_after_met(
 
     watch = await refreshed(db_session, Watch, watch.id)
     assert watch.is_active is True
-    assert watch.next_run_at == now + timedelta(hours=12)
+    # 6단계 보강: 12시간을 건너뛰지 않고 간격대로 확인한다. 다시 알림은 거짓→참 + 12시간(test_watch_conditions.py)
+    assert watch.next_run_at == now + timedelta(minutes=watch.interval_minutes)
+    assert watch.last_known_met is True
 
 
 async def test_watch_not_met_checks_again_after_interval(
@@ -449,7 +451,7 @@ async def test_watch_not_met_checks_again_after_interval(
     assert push_sender.sent == []
 
 
-async def test_watch_verdict_format_error_is_not_met(
+async def test_watch_verdict_format_error_is_unknown(
     automation_services: AutomationServices, watch_agent: WatchAgent, db_session: AsyncSession, logged_in_user: User
 ) -> None:
     now = datetime.now(UTC)
@@ -460,7 +462,8 @@ async def test_watch_verdict_format_error_is_not_met(
 
     watch = await refreshed(db_session, Watch, watch.id)
     assert watch.is_active is True
-    assert watch.last_result is not None and watch.last_result["status"] == "judge_failed"
+    assert watch.last_result is not None and watch.last_result["status"] == "unknown"
+    assert watch.last_result["reason"] == "judge_failed"
 
 
 async def test_watch_tool_failure_skips_verdict(
@@ -478,7 +481,8 @@ async def test_watch_tool_failure_skips_verdict(
 
     watch = await refreshed(db_session, Watch, watch.id)
     assert seen == []
-    assert watch.last_result is not None and watch.last_result["status"] == "tool_failed"
+    assert watch.last_result is not None and watch.last_result["status"] == "unknown"
+    assert watch.last_result["reason"] == "tool_failed"
     assert watch.is_active is True
 
 
@@ -495,7 +499,8 @@ async def test_watch_never_runs_a_non_read_tool_even_if_stored(
     todos = await db_session.scalar(select(func.count()).select_from(Todo).where(Todo.user_id == logged_in_user.id))
     watch = await refreshed(db_session, Watch, watch.id)
     assert todos == 0
-    assert watch.last_result is not None and watch.last_result["status"] == "tool_failed"
+    assert watch.last_result is not None and watch.last_result["status"] == "unknown"
+    assert watch.last_result["reason"] == "tool_failed"
 
 
 async def test_watch_skipped_when_daily_budget_is_used_up(

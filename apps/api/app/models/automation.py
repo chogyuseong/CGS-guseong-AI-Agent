@@ -53,6 +53,12 @@ class Watch(TimestampedTable):
     tool_name: Mapped[str] = mapped_column(String(100))
     tool_input: Mapped[dict[str, Any]] = mapped_column(JSONB)
     condition_text: Mapped[str] = mapped_column(Text)
+    # 6단계 보강: number(서버가 숫자 비교, condition_spec {field, op, value}) | text(판정 모델).
+    # app/automation/conditions.py
+    condition_type: Mapped[str] = mapped_column(String(20), server_default="text")
+    condition_spec: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 마지막으로 확실히 판정한 결과(unknown은 바꾸지 않는다). 거짓→참으로 바뀔 때만 다시 알린다.
+    last_known_met: Mapped[bool | None] = mapped_column(Boolean)
     interval_minutes: Mapped[int] = mapped_column(Integer)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

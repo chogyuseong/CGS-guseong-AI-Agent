@@ -48,17 +48,23 @@ class ScheduleListOut(BaseModel):
     max_active: int
 
 
-type WatchStatus = Literal["met", "not_met", "tool_failed", "judge_failed", "skipped_budget", "expired"]
+# unknown(6단계 보강): 조회·판정 실패, 값 없음(reason). tool_failed·judge_failed는 보강 전 기록에만 있다.
+type WatchStatus = Literal[
+    "met", "not_met", "unknown", "tool_failed", "judge_failed", "skipped_budget", "paused_budget", "expired"
+]
+type WatchUnknownReason = Literal["tool_failed", "judge_failed", "value_missing"]
 
 
 class WatchResultOut(BaseModel):
     """감시의 마지막 확인 결과(watches.last_result).
 
-    status: met(조건 충족, 대화방에 알림) | not_met | tool_failed(조회 실패) | judge_failed(판정 실패, met=false로 봄)
-    | skipped_budget(하루 비용 상한으로 건너뜀) | expired(만료로 꺼짐)
+    status: met(조건 충족) | not_met | unknown(조회·판정 실패, 값 없음: reason)
+    | paused_budget(하루 비용 상한으로 건너뜀)
+    | expired(만료로 꺼짐). tool_failed·judge_failed·skipped_budget은 6단계 보강 전 기록.
     """
 
     status: WatchStatus
+    reason: WatchUnknownReason | None = None
     checked_at: datetime
     summary: str = ""
     error: str | None = None

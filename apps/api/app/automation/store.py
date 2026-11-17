@@ -12,13 +12,13 @@
 - 커밋은 호출한 쪽이 한다.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.automation import rules
+from app.automation import conditions, rules
 from app.automation.watchable import WatchToolError, check_watch_tool
 from app.models import Conversation, ScheduledJob, User, Watch
 
@@ -183,19 +183,54 @@ def check_interval(interval_minutes: int) -> None:
         raise AutomationError("invalid", f"감시 간격은 {low}분 이상 {high}분(하루) 이하여야 합니다.")
 
 
-async def add_watch(session: AsyncSession, user_id: int, *, fields: dict[str, Any], now: datetime) -> Watch:
-    """감시를 만든다. fields: description, tool_name, tool_input, condition_text, interval_minutes, repeat.
+def check_condition(fields: dict[str, Any]) -> None:
+    """6단계 보강: condition_spec이 있으면 숫자 조건(서버 비교), 없으면 문장 조건(판정 모델)."""
+    spec = fields.get("condition_spec")
+    if spec is None:
+        fields["condition_type"] = conditions.TEXT
+        return
+    problem = conditions.number_spec_problem(spec)
+    if problem is not None:
+        raise AutomationError("invalid", problem)
+    fields["condition_type"] = conditions.NUMBER
 
-    첫 확인은 다음 1분 검사 때(next_run_at=now), 만료는 30일 뒤(명세 기본값).
+
+def watch_expiry(tool_input: dict[str, Any], now: datetime) -> datetime:
+    """기본 30일 뒤. 조회 인자에 date가 있으면 만들 때의 실제 날짜로 고정하고 그 날이 끝나면(서울 자정) 만료한다.
+
+    '내일 비 오면'의 내일이 매번 다음 날로 밀리지 않게 한다(BUILD_SPEC 8.2).
+    """
+    lifetime = now + rules.WATCH_LIFETIME
+    if "date" not in tool_input:
+        return lifetime
+    day = rules.parse_date(tool_input["date"])
+    if day is None:
+        raise AutomationError(
+            "invalid",
+            "조회 인자의 날짜는 'YYYY-MM-DD' 실제 날짜여야 합니다. '내일'은 오늘 기준 실제 날짜로 바꿔 넣습니다.",
+        )
+    end = datetime.combine(day + timedelta(days=1), time(0), tzinfo=rules.SEOUL)
+    if end <= now:
+        raise AutomationError("invalid", "이미 지난 날짜로는 감시를 만들 수 없습니다.")
+    return min(lifetime, end)
+
+
+async def add_watch(session: AsyncSession, user_id: int, *, fields: dict[str, Any], now: datetime) -> Watch:
+    """감시를 만든다. fields: description, tool_name, tool_input, condition_text, interval_minutes, repeat,
+    condition_spec(숫자 조건, 없으면 None).
+
+    첫 확인은 다음 1분 검사 때(next_run_at=now), 만료는 30일 뒤(명세 기본값) 또는 고정 날짜가 끝날 때.
     """
     check_interval(fields["interval_minutes"])
+    check_condition(fields)
+    expires_at = watch_expiry(fields["tool_input"], now)
     try:
         check_watch_tool(fields["tool_name"], fields["tool_input"])
     except WatchToolError as error:
         raise AutomationError("invalid", error.message) from None
     await lock_user(session, user_id)
     await ensure_watch_allowed(session, user_id, fields["tool_name"], fields["tool_input"], fields["condition_text"])
-    watch = Watch(user_id=user_id, **fields, next_run_at=now, expires_at=now + rules.WATCH_LIFETIME, is_active=True)
+    watch = Watch(user_id=user_id, **fields, next_run_at=now, expires_at=expires_at, is_active=True)
     session.add(watch)
     await session.flush()
     return watch

@@ -11,7 +11,7 @@
 import json
 import re
 from collections.abc import Sequence
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -53,6 +53,19 @@ def parse_time_of_day(value: str) -> time | None:
     """'HH:MM'(24시간)만 받는다. 아니면 None."""
     match = TIME_PATTERN.match(value.strip())
     return time(int(match.group(1)), int(match.group(2))) if match else None
+
+
+DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def parse_date(value: object) -> date | None:
+    """'YYYY-MM-DD' 실제 날짜만. '내일' 같은 말이나 없는 날짜는 None."""
+    if not isinstance(value, str) or not DATE_PATTERN.match(value):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def clean_weekdays(weekdays: list[int]) -> list[int] | None:

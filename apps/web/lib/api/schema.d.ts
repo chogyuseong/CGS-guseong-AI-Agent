@@ -1209,11 +1209,13 @@ export interface components {
          * WatchResultOut
          * @description 감시의 마지막 확인 결과(watches.last_result).
          *
-         *     status: met(조건 충족, 대화방에 알림) | not_met | tool_failed(조회 실패) | judge_failed(판정 실패, met=false로 봄)
-         *     | skipped_budget(하루 비용 상한으로 건너뜀) | expired(만료로 꺼짐)
+         *     status: met(조건 충족) | not_met | unknown(조회·판정 실패, 값 없음: reason)
+         *     | paused_budget(하루 비용 상한으로 건너뜀)
+         *     | expired(만료로 꺼짐). tool_failed·judge_failed·skipped_budget은 6단계 보강 전 기록.
          */
         WatchResultOut: {
             status: components["schemas"]["WatchStatus"];
+            reason?: components["schemas"]["WatchUnknownReason"] | null;
             /**
              * Checked At
              * Format: date-time
@@ -1230,7 +1232,9 @@ export interface components {
             sources?: string[];
         };
         /** @enum {string} */
-        WatchStatus: "met" | "not_met" | "tool_failed" | "judge_failed" | "skipped_budget" | "expired";
+        WatchStatus: "met" | "not_met" | "unknown" | "tool_failed" | "judge_failed" | "skipped_budget" | "paused_budget" | "expired";
+        /** @enum {string} */
+        WatchUnknownReason: "tool_failed" | "judge_failed" | "value_missing";
     };
     responses: never;
     parameters: never;

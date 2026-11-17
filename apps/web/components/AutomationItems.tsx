@@ -9,7 +9,7 @@ import {
   type Schedule,
   shortText,
   TASK_STATUS_TEXT,
-  WATCH_STATUS_TEXT,
+  watchStatusText,
   type Watch,
 } from "@/lib/automations";
 import { conversationHref } from "@/lib/memories";
@@ -132,7 +132,8 @@ function LastCheck({ watch }: { watch: Watch }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-lg bg-muted p-3 text-sm">
       <p className="font-medium">
-        마지막 확인 {formatRunTime(result.checked_at)} · {WATCH_STATUS_TEXT[result.status]}
+        마지막 확인 {formatRunTime(result.checked_at)} ·{" "}
+        {watchStatusText(result.status, result.reason)}
       </p>
       {result.summary && (
         <div className="flex min-w-0 flex-col gap-1 rounded border border-amber-500/40 bg-amber-500/5 p-2">

@@ -70,7 +70,7 @@ async def add_watch_alert(db_session: AsyncSession, user: User) -> None:
     db_session.add(watch)
     await db_session.flush()
     result = ToolResult.external({"rain": 70}, sources=["https://open-meteo.com/", "https://map.kakao.com/x"])
-    await check.notify_met(db_session, watch, met_review(), result, now)
+    await check.notify_met(db_session, watch, met_review().summary, result, now)
     await db_session.commit()
 
 

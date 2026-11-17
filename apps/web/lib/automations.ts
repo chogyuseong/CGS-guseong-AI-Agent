@@ -129,14 +129,30 @@ export const TASK_STATUS_TEXT: Record<Schemas["TaskStatus"], string> = {
   needs_review: "확인 필요",
 };
 
+// 6단계 보강: unknown은 '조건 아님'이 아니다(조회·판정을 못 해 판단 보류). tool_failed·judge_failed·skipped_budget은 보강 전 기록.
 export const WATCH_STATUS_TEXT: Record<WatchStatus, string> = {
-  met: "조건 충족 · 알림 보냄",
+  met: "조건 충족",
   not_met: "조건에 맞지 않음",
-  tool_failed: "조회 실패",
-  judge_failed: "판정 실패(조건이 맞지 않은 것으로 봄)",
-  skipped_budget: "하루 비용 한도로 건너뜀",
+  unknown: "판단 보류",
+  tool_failed: "판단 보류 · 조회 실패",
+  judge_failed: "판단 보류 · 판정 실패",
+  skipped_budget: "하루 비용 한도로 쉬는 중",
+  paused_budget: "하루 비용 한도로 쉬는 중",
   expired: "만료되어 꺼짐",
 };
+
+const UNKNOWN_REASON_TEXT: Record<string, string> = {
+  tool_failed: "조회 실패",
+  judge_failed: "판정 실패",
+  value_missing: "결과에 비교할 값이 없음",
+};
+
+// 마지막 확인 결과 한 줄. unknown이면 이유를 붙인다.
+export function watchStatusText(status: WatchStatus, reason: string | null | undefined): string {
+  const base = WATCH_STATUS_TEXT[status];
+  const why = status === "unknown" && reason ? UNKNOWN_REASON_TEXT[reason] : undefined;
+  return why ? `${base} · ${why}` : base;
+}
 
 // 네트워크가 끊기면 fetch가 영어 오류를 던지므로 한국어 문구로 바꾼다.
 function networkError(): never {

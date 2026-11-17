@@ -131,15 +131,18 @@ async def test_watch_rejects_bad_tool_input(tool_deps: AgentDeps, db_session: As
 
 
 async def test_watch_created_with_30_day_expiry(tool_deps: AgentDeps, db_session: AsyncSession) -> None:
+    """날짜 인자가 없는 감시는 30일 뒤 만료(날짜가 있으면 그 날이 끝날 때, tests/test_watch_conditions.py)."""
     before = datetime.now(UTC)
 
-    result = await create_watch(tool_deps, interval_minutes=30, repeat=True)
+    result = await create_watch(
+        tool_deps, interval_minutes=30, repeat=True, tool_name="list_todos", tool_input={}, condition_text="할 일 있음"
+    )
 
     assert result.ok is True, result.error
     data = payload(result)
     watch = await db_session.get_one(Watch, data["id"])
-    assert (watch.tool_name, watch.interval_minutes, watch.repeat, watch.is_active) == ("get_weather", 30, True, True)
-    assert watch.tool_input == {"place": "서울", "date": TOMORROW}
+    assert (watch.tool_name, watch.interval_minutes, watch.repeat, watch.is_active) == ("list_todos", 30, True, True)
+    assert watch.tool_input == {}
     assert timedelta(days=29, hours=23) < watch.expires_at - before < timedelta(days=30, minutes=5)
     assert watch.next_run_at <= datetime.now(UTC) + timedelta(minutes=1)  # 첫 확인은 다음 검사 때
     assert data["interval_minutes"] == 30 and data["expires_on"]

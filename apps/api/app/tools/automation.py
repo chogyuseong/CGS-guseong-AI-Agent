@@ -11,7 +11,7 @@ list_schedules·list_watches = READ (toolsets.py에서 정한다. 명세 도구 
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import Field
 from pydantic_ai import RunContext
@@ -58,8 +58,22 @@ Interval = Annotated[
     ),
 ]
 Repeat = Annotated[
-    bool, Field(description="true면 조건이 맞아 알린 뒤 12시간 뒤부터 다시 감시, false면 한 번 알리고 끝")
+    bool,
+    Field(
+        description="true면 알린 뒤에도 계속 감시하고 조건이 거짓→참으로 다시 바뀔 때 알린다(최소 12시간 간격). "
+        "false면 한 번 알리고 끝"
+    ),
 ]
+NumberField = Annotated[
+    str | None,
+    Field(
+        max_length=100,
+        description="숫자 조건일 때: 조회 결과에서 비교할 값의 키(점으로 연결). 예: get_weather는 "
+        "precipitation_probability_max, 할 일 개수는 list_todos의 todos",
+    ),
+]
+NumberOp = Annotated[Literal[">", ">=", "<", "<=", "=="] | None, Field(description="숫자 조건의 비교")]
+NumberValue = Annotated[float | None, Field(description="숫자 조건의 기준 값. 예: 60")]
 
 
 def now_utc() -> datetime:
@@ -84,6 +98,7 @@ def watch_view(watch: Watch) -> dict[str, Any]:
         "tool_name": watch.tool_name,
         "tool_input": watch.tool_input,
         "condition_text": watch.condition_text,
+        "condition_type": watch.condition_type,
         "interval_minutes": watch.interval_minutes,
         "repeat": watch.repeat,
         "is_active": watch.is_active,
@@ -144,10 +159,21 @@ async def create_watch(
     condition_text: Condition,
     interval_minutes: Interval,
     repeat: Repeat = False,
+    number_field: NumberField = None,
+    number_op: NumberOp = None,
+    number_value: NumberValue = None,
 ) -> ToolResult:
     """조회 도구를 정한 간격으로 실행해 조건이 맞으면 알려 주는 감시를 만든다. 조회(READ) 도구만 쓸 수 있고 메일 도구는
-    안 된다. 간격 30분 이상, 켜 둔 감시 10개까지, 30일 뒤 만료. 날짜는 실제 날짜(YYYY-MM-DD)로 넣는다.
-    만든 뒤 확인 간격과 만료일을 사용자에게 말한다."""
+    안 된다. 간격 30분 이상, 켜 둔 감시 10개까지, 30일 뒤 만료.
+    날짜는 실제 날짜(YYYY-MM-DD)로 넣고, 그 날이 지나면 끝난다.
+    '강수 확률 60% 초과'처럼 숫자로 비교할 수 있는 조건은 number_field·number_op·number_value를 함께 넣는다
+    (서버가 비교해 비용이 들지 않는다). 만든 뒤 확인 간격과 만료일을 사용자에게 말한다."""
+    number = (number_field, number_op, number_value)
+    if any(part is not None for part in number) and any(part is None for part in number):
+        return ToolResult.failure(
+            "숫자 조건은 number_field, number_op, number_value를 함께 넣어야 합니다.", error_code="invalid"
+        )
+    spec = None if number_field is None else {"field": number_field, "op": number_op, "value": number_value}
     fields = {
         "description": description,
         "tool_name": tool_name,
@@ -155,6 +181,7 @@ async def create_watch(
         "condition_text": condition_text,
         "interval_minutes": interval_minutes,
         "repeat": repeat,
+        "condition_spec": spec,
     }
     async with ctx.deps.db() as session:
         try:
