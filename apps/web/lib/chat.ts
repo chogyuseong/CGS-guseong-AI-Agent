@@ -128,19 +128,40 @@ export function useMessages(conversationId: number) {
 // 메시지 전송. 3단계 서버는 실행을 기다리지 않고 바로 202 {task_id}로 답한다(그때 task는 보통 queued).
 // 그래서 성공하면 메시지 목록을 다시 가져온다. 답변이 없는 내 메시지 아래에 PendingTask가 진행 상황을 폴링한다.
 // 전송 요청이 끝나기 전(onSettled가 끝날 때까지)은 "보내는 중" 말풍선이 보이므로 화면이 비지 않는다.
+//
+// 1단계 보강(중복 방지): 보낼 때마다 client_request_id(UUID)를 하나 만들고, 네트워크 오류로 다시 보낼 때는
+// 같은 값을 쓴다. 첫 요청이 서버에 닿았는데 응답만 끊긴 경우에도 서버는 새 task를 만들지 않고 처음 task를 준다.
+export const SEND_ATTEMPTS = 3;
+
+type SendPost = (clientRequestId: string) => ReturnType<typeof postMessage>;
+
+function postMessage(conversationId: number, content: string, clientRequestId: string) {
+  return api.POST("/api/conversations/{conversation_id}/messages", {
+    params: { path: { conversation_id: conversationId } },
+    body: { content, client_request_id: clientRequestId },
+  });
+}
+
+// 네트워크 오류(fetch가 던짐)일 때만 같은 id로 다시 보낸다. 서버가 답한 오류(4xx·5xx)는 다시 보내지 않는다.
+export async function sendWithRetry(post: SendPost, clientRequestId: string) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await post(clientRequestId);
+    } catch {
+      if (attempt >= SEND_ATTEMPTS) {
+        // fetch의 영어 오류 대신 한국어 문구.
+        throw new Error("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
+      }
+    }
+  }
+}
+
 export function useSendMessage(conversationId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (content: string) => {
-      const result = await api
-        .POST("/api/conversations/{conversation_id}/messages", {
-          params: { path: { conversation_id: conversationId } },
-          body: { content },
-        })
-        .catch(() => {
-          // 네트워크가 끊기면 fetch가 영어 오류를 던지므로 한국어 문구로 바꾼다.
-          throw new Error("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
-        });
+      const post: SendPost = (id) => postMessage(conversationId, content, id);
+      const result = await sendWithRetry(post, crypto.randomUUID());
       if (!result.data) throw new Error(sendErrorMessage(result.response.status));
       return result.data;
     },

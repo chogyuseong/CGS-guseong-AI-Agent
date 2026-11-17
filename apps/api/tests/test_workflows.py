@@ -36,7 +36,7 @@ from app.config import Settings
 from app.models import Approval, Conversation, Message, Step, Task, Todo, User
 from app.models.enums import ApprovalStatus, MessageRole, RiskLevel, StepStatus, TaskOrigin, TaskStatus
 from app.security import hash_password
-from tests.conftest import WaitingLauncher, login, make_client
+from tests.conftest import WaitingLauncher, login, make_client, message_body
 from tests.fake_tools import FakeExternalCounter
 from tests.model_scripts import call, current_run_messages, registered, scripted, text
 from tests.test_agent_run import send
@@ -153,7 +153,7 @@ async def test_send_message_returns_before_run_finishes(committed_app: FastAPI) 
     async with committed_login(committed_app, "fast@example.com") as client:
         conversation = (await client.post("/api/conversations", json={})).json()["id"]
         with agent.override(model=registered(slow_answer)):
-            response = await client.post(f"/api/conversations/{conversation}/messages", json={"content": "안녕"})
+            response = await client.post(f"/api/conversations/{conversation}/messages", json=message_body("안녕"))
             task_id = response.json()["task_id"]
             during = (await client.get(f"/api/tasks/{task_id}")).json()
             gate.set()

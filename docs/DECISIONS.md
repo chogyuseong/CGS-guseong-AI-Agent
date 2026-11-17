@@ -511,3 +511,8 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 테스트 DB 보호를 넓힌다(`tests/db_guard.py`): 이름이 `_test`로 끝나야 하고, 로컬(localhost·127.0.0.1·::1)이어야 하고, 앱의 `DATABASE_URL`(환경변수, 없으면 루트 .env)과 같은 DB면 거부한다.
 - 2026-11-17 저장소에 `.gitattributes`(`* text=auto eol=lf`)를 둔다. `core.autocrlf=true`인 PC에서 받으면 CRLF가 되어 Biome 포맷 검사가 모든 파일에서 실패했다.
 - 2026-11-17 Origin이 없는 상태 변경 요청은 계속 403이다(BUILD_SPEC 10.4 "Origin이 없을 때의 정책을 명시"). 브라우저는 POST에 항상 Origin을 붙이고, 이 앱에는 브라우저 밖 클라이언트가 없다.
+### 1단계 보강
+- 2026-11-17 메시지 전송 본문에 `client_request_id`(UUID, 필수)를 둔다. tasks에 `UNIQUE(user_id, client_request_id)`. messages에는 user_id가 없어 사용자 범위 고유성을 tasks에서 건다.
+- 2026-11-17 같은 id가 다시 오면 같은 대화방·같은 내용일 때만 처음 task_id를 202로 돌려주고(전송 한도도 쓰지 않음), 대화방이나 내용이 다르면 409. 동시에 두 번 오면 UNIQUE 위반을 잡아 먼저 저장된 task를 돌려준다.
+- 2026-11-17 화면은 전송마다 `crypto.randomUUID()`를 만들고 네트워크 오류(fetch 예외)일 때만 같은 id로 최대 3번 보낸다. 서버가 답한 오류는 다시 보내지 않는다.
+- 2026-11-17 task 저장과 워크플로 등록 사이에 서버가 죽으면 task가 queued로 남고, 시작 때 `restart_orphaned_tasks`가 이어서 시작한다(기존). outbox는 3단계 보강에서 다룬다.

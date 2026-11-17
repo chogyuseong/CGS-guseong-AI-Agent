@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -43,6 +44,8 @@ class ConversationOut(BaseModel):
 
 class MessageCreate(BaseModel):
     content: MessageText
+    # 화면이 보낼 때마다 새로 만드는 UUID. 네트워크 오류로 다시 보낼 때는 같은 값을 쓴다(중복 task 방지).
+    client_request_id: uuid.UUID
 
 
 class MessageOut(BaseModel):

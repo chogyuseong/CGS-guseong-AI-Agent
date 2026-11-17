@@ -7,7 +7,7 @@ from app.agent.agent import MyAgent
 from app.models import Conversation, Task
 from app.models.enums import TaskOrigin
 from app.rate_limit import SlidingWindowRateLimiter
-from tests.conftest import UserFactory
+from tests.conftest import UserFactory, message_body
 from tests.model_scripts import call, scripted, text
 from tests.test_agent_run import send
 
@@ -34,14 +34,14 @@ async def test_send_message_returns_202_with_task_id(
     client: httpx.AsyncClient, agent: MyAgent, conversation: int
 ) -> None:
     with agent.override(model=scripted(text("네")).model()):
-        response = await client.post(f"/api/conversations/{conversation}/messages", json={"content": "안녕"})
+        response = await client.post(f"/api/conversations/{conversation}/messages", json=message_body("안녕"))
 
     assert response.status_code == 202
     assert set(response.json()) == {"task_id"}
 
 
 async def test_empty_message_is_rejected(client: httpx.AsyncClient, conversation: int) -> None:
-    response = await client.post(f"/api/conversations/{conversation}/messages", json={"content": "   "})
+    response = await client.post(f"/api/conversations/{conversation}/messages", json=message_body("   "))
 
     assert response.status_code == 422
 
@@ -54,7 +54,7 @@ async def test_cannot_send_to_other_users_conversation(
     db_session.add(other_conversation)
     await db_session.commit()
 
-    response = await client.post(f"/api/conversations/{other_conversation.id}/messages", json={"content": "안녕"})
+    response = await client.post(f"/api/conversations/{other_conversation.id}/messages", json=message_body("안녕"))
 
     assert response.status_code == 404
 
@@ -145,7 +145,7 @@ async def test_message_rate_limit_returns_429(
 
     with agent.override(model=scripted(text("네")).model()):
         statuses = [
-            (await client.post(f"/api/conversations/{conversation}/messages", json={"content": f"{i}"})).status_code
+            (await client.post(f"/api/conversations/{conversation}/messages", json=message_body(f"{i}"))).status_code
             for i in range(3)
         ]
 

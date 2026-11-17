@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Approval } from "./approvals";
 import {
+  SEND_ATTEMPTS,
+  sendWithRetry,
   isTaskFinished,
   openScheduleTaskIds,
   PHASE_TEXT,
@@ -125,5 +127,37 @@ describe("openScheduleTaskIds: 답변이 아직 없는 예약 작업 task", () =
   it("이 대화방의 끝나지 않은 예약 task 중 답변이 없는 것만, 오래된 것(id 작은 것)부터", () => {
     expect(openScheduleTaskIds([...tasks].reverse(), 5, answered)).toEqual([1, 7]);
     expect(openScheduleTaskIds(undefined, 5, answered)).toEqual([]);
+  });
+});
+
+describe("sendWithRetry: 네트워크 오류면 같은 client_request_id로 다시 보낸다", () => {
+  const ok = { data: { task_id: 1 }, response: new Response(null, { status: 202 }) };
+
+  it("두 번 끊긴 뒤 세 번째에 성공하면 세 번 모두 같은 id를 쓴다", async () => {
+    const post = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(ok);
+
+    const result = await sendWithRetry(post, "req-1");
+
+    expect(result).toBe(ok);
+    expect(post.mock.calls).toEqual([["req-1"], ["req-1"], ["req-1"]]);
+  });
+
+  it("계속 끊기면 정해진 횟수만 보내고 한국어 오류를 던진다", async () => {
+    const post = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(sendWithRetry(post, "req-2")).rejects.toThrow("서버에 연결하지 못했습니다");
+    expect(post).toHaveBeenCalledTimes(SEND_ATTEMPTS);
+  });
+
+  it("서버가 오류로 답하면(4xx) 다시 보내지 않는다", async () => {
+    const refused = { data: undefined, response: new Response(null, { status: 429 }) };
+    const post = vi.fn().mockResolvedValue(refused);
+
+    expect(await sendWithRetry(post, "req-3")).toBe(refused);
+    expect(post).toHaveBeenCalledTimes(1);
   });
 });

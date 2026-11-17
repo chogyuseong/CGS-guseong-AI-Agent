@@ -680,6 +680,11 @@ export interface components {
         MessageCreate: {
             /** Content */
             content: string;
+            /**
+             * Client Request Id
+             * Format: uuid
+             */
+            client_request_id: string;
         };
         /** MessageOut */
         MessageOut: {
@@ -1302,6 +1307,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TaskCreated"];
                 };
+            };
+            /** @description 같은 client_request_id를 다른 대화방이나 다른 내용으로 이미 썼다 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

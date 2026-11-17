@@ -12,6 +12,7 @@ from app.config import Settings
 from app.models import Conversation, Step, Task, Todo, UsageLog, User
 from app.models.enums import TaskOrigin
 from app.push import PushNotifier
+from tests.conftest import message_body
 from tests.fake_push import FakePushSender
 from tests.model_scripts import call, scripted, text
 
@@ -49,7 +50,7 @@ MAIL_TOOL_NAMES = sorted(["list_mail", "read_mail"])
 
 async def send(client: httpx.AsyncClient, conversation_id: int, content: str) -> dict:
     """메시지를 보내고 task 상세를 돌려준다."""
-    response = await client.post(f"/api/conversations/{conversation_id}/messages", json={"content": content})
+    response = await client.post(f"/api/conversations/{conversation_id}/messages", json=message_body(content))
     assert response.status_code == 202, response.text
     task_id = response.json()["task_id"]
     detail = await client.get(f"/api/tasks/{task_id}")

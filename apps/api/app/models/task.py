@@ -3,11 +3,12 @@
 0단계에서는 테이블만 만든다. 이 테이블을 채우는 에이전트·승인 코드는 1~2단계에서 만든다.
 """
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,12 +26,16 @@ from app.models.enums import (
 
 class Task(TimestampedTable):
     __tablename__ = "tasks"
+    # 1단계 보강: 같은 사용자가 같은 client_request_id로 다시 보내면 새 task를 만들지 않는다(BUILD_SPEC 9.1).
+    __table_args__ = (UniqueConstraint("user_id", "client_request_id"),)
 
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     # 시작 메시지와 1:1. 예약·감시 작업처럼 메시지 없이 시작할 수 있어 null을 허용한다.
     trigger_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), unique=True)
     origin: Mapped[TaskOrigin] = mapped_column(enum_type(TaskOrigin, "task_origin"))
+    # 화면이 메시지마다 만드는 UUID. 채팅 task에만 있고 예약·감시 task는 null(null끼리는 겹쳐도 된다).
+    client_request_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     status: Mapped[TaskStatus] = mapped_column(
         enum_type(TaskStatus, "task_status"), server_default=TaskStatus.QUEUED.value
     )

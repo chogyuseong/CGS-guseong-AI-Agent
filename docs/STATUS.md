@@ -42,7 +42,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 2026-11-17에 BUILD_SPEC과 코드를 대조해 만든 목록이다. 단계를 보강할 때 이 목록부터 다시 확인한다.
 
 ### 1단계 — 작업 실행과 내부 도구
-- [ ] client_request_id로 메시지·task 중복 방지(사용자 범위 고유)
+- [x] client_request_id로 메시지·task 중복 방지(사용자 범위 고유) — tests/test_client_request_id.py
 - [ ] agent_runs(최초 실행·재개 회차) 분리. 지금은 tasks에 모델 기록
 - [ ] 예산: 모델 호출마다 예약 → 정산(budget_reservations, daily_budgets 잠금). 지금은 실행 시작 때 하루 비용만 검사
 - [ ] 가격 미등록 모델은 호출 차단(지금은 비용 0으로 기록하고 경고)

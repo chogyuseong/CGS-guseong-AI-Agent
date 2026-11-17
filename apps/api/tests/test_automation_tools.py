@@ -21,7 +21,7 @@ from app.automation import rules
 from app.models import ScheduledJob, Watch
 from app.models.enums import TaskOrigin
 from app.tools import automation as tools
-from tests.conftest import payload, tool_context
+from tests.conftest import message_body, payload, tool_context
 from tests.model_scripts import scripted, text
 
 TOMORROW = (datetime.now(rules.SEOUL) + timedelta(days=1)).date().isoformat()
@@ -117,7 +117,7 @@ async def test_model_cannot_create_watch_under_30_minutes(
     model = scripted(bad, text("감시 간격은 30분 이상이어야 합니다."))
 
     with agent.override(model=model.model()):
-        response = await client.post(f"/api/conversations/{conversation}/messages", json={"content": "5분마다 확인"})
+        response = await client.post(f"/api/conversations/{conversation}/messages", json=message_body("5분마다 확인"))
 
     assert response.status_code == 202
     assert await count(db_session, Watch, logged_in_user.id) == 0

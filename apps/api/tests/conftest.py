@@ -30,6 +30,7 @@
 import asyncio
 import os
 import sys
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from datetime import datetime
 from pathlib import Path
@@ -387,6 +388,11 @@ def make_user(db_session: AsyncSession) -> UserFactory:
         return user
 
     return _make_user
+
+
+def message_body(content: str) -> dict[str, str]:
+    """메시지 전송 본문. 화면처럼 보낼 때마다 새 client_request_id를 붙인다."""
+    return {"content": content, "client_request_id": str(uuid.uuid4())}
 
 
 async def login(client: httpx.AsyncClient, email: str, password: str) -> httpx.Response:

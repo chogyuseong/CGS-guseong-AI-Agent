@@ -6,6 +6,7 @@
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.workflows import WorkflowLauncher
@@ -91,7 +92,10 @@ async def list_messages(conversation_id: int, user: CurrentUser, session: DbSess
 @router.post(
     "/{conversation_id}/messages",
     status_code=status.HTTP_202_ACCEPTED,
-    responses={429: {"description": "분당 전송 한도(20회)를 넘었다"}},
+    responses={
+        409: {"description": "같은 client_request_id를 다른 대화방이나 다른 내용으로 이미 썼다"},
+        429: {"description": "분당 전송 한도(20회)를 넘었다"},
+    },
 )
 async def send_message(
     conversation_id: int, body: MessageCreate, request: Request, user: CurrentUser, session: DbSession
@@ -103,21 +107,72 @@ async def send_message(
     서버가 실행 도중 재시작돼도 워크플로가 이어서 실행된다.
     """
     conversation = await get_owned_conversation(session, conversation_id, user.id)
+    # 다시 보낸 요청이면 전송 한도를 쓰지 않고 처음 task를 돌려준다.
+    existing = await find_resent_task(session, user.id, conversation.id, body)
+    if existing is not None:
+        return TaskCreated(task_id=existing)
     limiter: SlidingWindowRateLimiter = request.app.state.message_rate_limiter
     if not limiter.allow(user.id):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS, detail="메시지를 너무 자주 보냈습니다. 잠시 뒤 다시 보내 주세요."
         )
+    task_id = await save_message_and_task(session, user.id, conversation, body)
+    if task_id is None:
+        # 같은 요청이 동시에 와서 다른 쪽이 먼저 저장했다. 그 task를 돌려준다(실행은 그쪽이 시작한다).
+        existing = await find_resent_task(session, user.id, conversation.id, body)
+        if existing is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=REQUEST_ID_CONFLICT)
+        return TaskCreated(task_id=existing)
+    # 커밋한 뒤에 워크플로를 시작한다(워크플로가 task 행을 볼 수 있게). 요청 세션은 여기서 더 쓰지 않는다.
+    # 시작 전에 서버가 죽으면 task는 queued로 남고, 다음 시작 때 restart_orphaned_tasks가 이어서 시작한다.
+    launcher: WorkflowLauncher = request.app.state.launcher
+    await launcher.start_run(task_id, body.content)
+    return TaskCreated(task_id=task_id)
+
+
+REQUEST_ID_CONFLICT = "이미 다른 내용으로 보낸 요청 번호입니다. 새로 보내 주세요."
+
+
+async def find_resent_task(
+    session: AsyncSession, user_id: int, conversation_id: int, body: MessageCreate
+) -> int | None:
+    """같은 client_request_id로 이미 만든 task id. 없으면 None, 대화방이나 내용이 다르면 409."""
+    row = (
+        await session.execute(
+            select(Task.id, Task.conversation_id, Message.content)
+            .outerjoin(Message, Message.id == Task.trigger_message_id)
+            .where(Task.user_id == user_id, Task.client_request_id == body.client_request_id)
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    task_id, task_conversation_id, content = row
+    if task_conversation_id != conversation_id or content != body.content:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=REQUEST_ID_CONFLICT)
+    return task_id
+
+
+async def save_message_and_task(
+    session: AsyncSession, user_id: int, conversation: Conversation, body: MessageCreate
+) -> int | None:
+    """메시지와 task를 한 트랜잭션으로 저장하고 task id를 돌려준다. 같은 요청이 먼저 저장됐으면 None."""
     message = Message(conversation_id=conversation.id, role=MessageRole.USER, content=body.content)
     session.add(message)
     await session.flush()
-    task = Task(conversation_id=conversation.id, user_id=user.id, trigger_message_id=message.id, origin=TaskOrigin.CHAT)
+    task = Task(
+        conversation_id=conversation.id,
+        user_id=user_id,
+        trigger_message_id=message.id,
+        origin=TaskOrigin.CHAT,
+        client_request_id=body.client_request_id,
+    )
     session.add(task)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return None
     message.task_id = task.id
     conversation.updated_at = func.now()
     await session.commit()
-    # 커밋한 뒤에 워크플로를 시작한다(워크플로가 task 행을 볼 수 있게). 요청 세션은 여기서 더 쓰지 않는다.
-    launcher: WorkflowLauncher = request.app.state.launcher
-    await launcher.start_run(task.id, body.content)
-    return TaskCreated(task_id=task.id)
+    return task.id
