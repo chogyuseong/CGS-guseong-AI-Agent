@@ -18,7 +18,7 @@
                      APP_ENV, 테스트 DB 보호 확대, .gitattributes(LF), STATUS·VERSIONS 문서
   1단계 보강   완료  client_request_id 중복 방지, SMART 전환 제거·호출 제한 시간, 호출별 예산 예약·정산,
                      task 상태 12개·취소 API·실행 회차(agent_runs), ToolResult(succeeded/failed/unknown)
-                     (AgentReply 구조화 출력은 6단계로 미룸. 이유는 docs/DECISIONS.md)
+                     (AgentReply 구조화 출력은 6단계로 미룸. 사용자 승인, 이유는 docs/DECISIONS.md)
   2~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
 검사(2026-11-17, 두 번째 PC, 1단계 보강 끝): API pytest 400개, ruff·pyright 0건, alembic check 차이 없음,
