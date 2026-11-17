@@ -24,7 +24,6 @@ DBOS는 워크플로 코드가 바뀌면 옛 워크플로를 복구하지 않으
 """
 
 import logging
-import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,8 +31,9 @@ from dbos import DBOS, DBOSConfig, ScheduleInput, SetWorkflowID, WorkflowHandleA
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent import approvals, runner
+from app.agent import approvals, outbox, runner
 from app.agent.durable import durable_step
+from app.agent.outbox import resume_workflow_id, run_workflow_id
 from app.agent.runner import RunServices
 from app.automation import check
 from app.config import Settings
@@ -44,11 +44,10 @@ from app.push import PushNotifier
 logger = logging.getLogger(__name__)
 
 # DBOS 애플리케이션 버전. 복구는 같은 버전의 워크플로만 한다. 단계 구성을 바꾸면 올린다.
-WORKFLOW_VERSION = "myagent-3"
+WORKFLOW_VERSION = "myagent-4"  # 3단계 보강: 1분 검사에 find_outbox 단계 추가
 DBOS_APP_NAME = "myagent"
 # DBOS 시스템 테이블은 앱과 같은 DB의 별도 스키마에 둔다(앱 테이블, Alembic과 섞이지 않는다).
 DBOS_SYSTEM_SCHEMA = "dbos"
-RESUME_SUFFIX = re.compile(r"-resume-(\d+)$")
 # 6단계: 1분 검사 DBOS 예약의 이름. DBOS가 실행마다 워크플로 ID를 "sched-{이름}-{예정 시각}"으로 정한다.
 AUTOMATION_SCHEDULE_NAME = "automation-check"
 
@@ -132,17 +131,6 @@ def current_automation_services() -> check.AutomationServices:
 # ---- 워크플로 ID ----
 
 
-def run_workflow_id(task_id: int) -> str:
-    return f"task-{task_id}"
-
-
-def resume_workflow_id(task_id: int, current_workflow_id: str | None) -> str:
-    """지금 task.workflow_id의 재개 번호 + 1로 다음 재개 워크플로 ID를 만든다."""
-    match = RESUME_SUFFIX.search(current_workflow_id or "")
-    number = int(match.group(1)) + 1 if match else 1
-    return f"task-{task_id}-resume-{number}"
-
-
 def moment_key(moment: datetime) -> str:
     """예정 시각을 워크플로 ID에 넣을 글자로(UTC, 마이크로초까지). 같은 예정 시각이면 항상 같은 글자다."""
     return moment.astimezone(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -169,8 +157,9 @@ class WorkflowLauncher:
         with SetWorkflowID(run_workflow_id(task_id)):
             return await DBOS.start_workflow_async(run_task_workflow, task_id, prompt)
 
-    async def start_resume(self, task_id: int, current_workflow_id: str | None) -> WorkflowHandleAsync[None]:
-        with SetWorkflowID(resume_workflow_id(task_id, current_workflow_id)):
+    async def start_resume(self, task_id: int, workflow_id: str) -> WorkflowHandleAsync[None]:
+        """재개 워크플로를 정해진 ID(outbox.resume_workflow_id)로 시작한다."""
+        with SetWorkflowID(workflow_id):
             return await DBOS.start_workflow_async(resume_task_workflow, task_id)
 
     async def start_schedule(self, job_id: int, run_at: datetime, checked_at: datetime) -> WorkflowHandleAsync[None]:
@@ -198,15 +187,19 @@ async def start_resume_if_waiting(
         if await approvals.pending_count(session, task_id) > 0:
             return
         current = task.workflow_id
-    await launcher.start_resume(task_id, current)
+    await launcher.start_resume(task_id, resume_workflow_id(task_id, current))
 
 
 async def restart_orphaned_tasks(launcher: WorkflowLauncher, session_factory: async_sessionmaker[AsyncSession]) -> int:
     """서버 시작 때: task는 커밋됐는데 워크플로를 시작하기 전에 서버가 죽은 경우를 잇는다.
 
+    3단계 보강: 먼저 outbox의 pending 요청을 모두 처리한다. 아래 검사는 outbox가 생기기 전 기록을 위해 남겨 둔다
+    (같은 워크플로 ID라 겹쳐도 한 번만 실행된다).
+
     - queued인 chat task → run 워크플로 시작(같은 ID가 이미 있으면 DBOS가 다시 실행하지 않는다)
     - waiting_approval인데 pending 승인이 없는 task(마지막 결정 직후 죽음) → 재개 워크플로 시작
     """
+    await outbox.dispatch(launcher, session_factory, include_not_due=True)
     async with session_factory() as session:
         queued = (
             await session.execute(

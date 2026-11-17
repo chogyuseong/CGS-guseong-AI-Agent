@@ -4,7 +4,7 @@ from app.models.automation import ScheduledJob, Watch
 from app.models.base import Base
 from app.models.budget import BudgetReservation, DailyBudget
 from app.models.chat import Conversation, Message
-from app.models.execution import ActionPlan, ExecutionReceipt, Operation
+from app.models.execution import ActionPlan, ExecutionReceipt, Operation, OutboxEvent
 from app.models.integration import Connection, PushSubscription
 from app.models.personal import Memory, Note, Todo
 from app.models.task import AgentRun, Approval, GuardCheck, Step, Task, UsageLog
@@ -25,6 +25,7 @@ __all__ = [
     "Message",
     "Note",
     "Operation",
+    "OutboxEvent",
     "PushSubscription",
     "ScheduledJob",
     "Step",

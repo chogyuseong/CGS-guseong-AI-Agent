@@ -28,6 +28,7 @@ from pydantic_ai.tools import DeferredToolResults, ToolApproved, ToolDenied
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent import outbox
 from app.agent.plans import DECISION_WINDOW, EXECUTE_WINDOW, POLICY_VERSION, PlanDraft
 from app.models import ActionPlan, AgentRun, Approval, Conversation, GuardCheck, Message, Operation, Step, Task
 from app.models.enums import (
@@ -262,6 +263,9 @@ async def decide(
         raise MismatchConfirmationRequiredError
     await apply_decision(session, approval, approve=approve, now=now)
     all_decided = await pending_count(session, task_id) == 0
+    if all_decided:
+        # 3단계 보강: 재개 요청을 결정과 같은 트랜잭션에 남긴다(커밋 직후 서버가 죽어도 재개된다).
+        await outbox.add_resume_event(session, task, now)
     await session.commit()
     return Decision(approval_id, task_id, changed=True, all_decided=all_decided)
 

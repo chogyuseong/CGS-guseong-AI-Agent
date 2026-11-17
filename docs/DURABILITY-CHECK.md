@@ -10,7 +10,7 @@
 
 | 경우 | 죽인 시점 | 죽인 직후 DB | 다시 켠 뒤 |
 | --- | --- | --- | --- |
-| 1 | 모델이 add_todo를 부르고(할 일 1개 들어감) 두 번째 응답을 기다리는 중 | task running, step add_todo done, todos 1, dbos 워크플로 PENDING | 로그 `Recovering 1 workflows from application version myagent-3` → 첫 모델 응답은 다시 요청하지 않고, add_todo도 다시 실행하지 않고, 두 번째 응답만 받아 task done, 답변 메시지 1개, **todos 1** |
+| 1 | 모델이 add_todo를 부르고(할 일 1개 들어감) 두 번째 응답을 기다리는 중 | task running, step add_todo done, todos 1, dbos 워크플로 PENDING | 로그 `Recovering 1 workflows from application version myagent-4` → 첫 모델 응답은 다시 요청하지 않고, add_todo도 다시 실행하지 않고, 두 번째 응답만 받아 task done, 답변 메시지 1개, **todos 1** |
 | 2 | add_todo가 DB에 커밋한 직후(도구 실행 도중) | task running, step add_todo running | 다시 실행하지 않고 step failed "실행 여부를 확인할 수 없습니다…", task done, **할 일이 두 번 들어가지 않음** |
 
 메시지 전송 API는 두 경우 모두 16ms 만에 202를 돌려줬다(실행을 기다리지 않음).
@@ -68,7 +68,7 @@ task는 `running`, 워크플로는 `PENDING`이어야 한다. 화면은 계속 "
 
 ### 4. 다시 켠다
 
-터미널 2에서 같은 명령으로 API를 다시 켠다. 로그에 `Recovering 1 workflows from application version myagent-3`가 보이고,
+터미널 2에서 같은 명령으로 API를 다시 켠다. 로그에 `Recovering 1 workflows from application version myagent-4`가 보이고,
 화면을 새로 고치지 않아도(폴링) 나머지 단계가 이어서 생기다가 답변이 나온다. 화면을 닫았다 열어도 같은 작업이 보인다.
 
 ### 5. 확인할 것

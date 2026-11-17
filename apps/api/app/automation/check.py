@@ -39,7 +39,7 @@ from typing import Any, Protocol
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent import approvals, runner
+from app.agent import approvals, outbox, runner
 from app.agent.budget import BudgetScope, calculate_cost, daily_cost_exceeded
 from app.agent.deps import AgentDeps
 from app.agent.durable import durable_step
@@ -61,6 +61,10 @@ class AutomationLauncher(Protocol):
     async def start_schedule(self, job_id: int, run_at: datetime, checked_at: datetime) -> Any: ...
 
     async def start_watch(self, watch_id: int, run_at: datetime, checked_at: datetime) -> Any: ...
+
+    async def start_run(self, task_id: int, prompt: str) -> Any: ...
+
+    async def start_resume(self, task_id: int, workflow_id: str) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,10 @@ async def run_check(services: AutomationServices, now: datetime) -> CheckReport:
     briefings = await durable_step("seed_briefings", seed_briefings, factory, now)
     expired = await durable_step("expire_approvals", expire_overdue_approvals, factory, now)
     watches_expired = await durable_step("expire_watches", expire_watches, factory, now)
+    # 3단계 보강: 시작하지 못한 outbox 요청(시도 시각이 된 것)을 다시 시작한다. 예약과 같이 목록은 단계로 기록하고
+    # 시작은 워크플로 코드에서 한다(복구 때 같은 순서·같은 워크플로 ID). 겹쳐도 한 번만 돈다.
+    pending = await durable_step("find_outbox", outbox.due_events, factory, now)
+    await outbox.dispatch_events(services.launcher, factory, pending, now)
     due = await durable_step("find_due", find_due, factory, now)
     for job_id, run_at in due.schedules:
         await services.launcher.start_schedule(job_id, run_at, now)

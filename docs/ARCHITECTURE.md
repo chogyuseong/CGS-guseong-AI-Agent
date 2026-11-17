@@ -151,7 +151,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 | 워크플로 ID | `with SetWorkflowID("id"): await DBOS.start_workflow_async(fn, ...)`. 같은 ID로 다시 시작하면 실행하지 않고 기존 워크플로 핸들을 준다 | `task-{id}`, `task-{id}-resume-{n}` |
 | 결과 기다리기 | `handle.get_result()`, `DBOS.retrieve_workflow_async(id)` | 운영 코드는 기다리지 않는다. 테스트의 WaitingLauncher만 기다린다 |
 | 예약 실행 | `DBOS.create_schedule(schedule_name=, workflow_fn=, schedule="cron식", cron_timezone=)` 또는 `apply_schedules`. 워크플로는 `(예약 시각, context)`를 받고, ID는 DBOS가 `sched-{이름}-{시각}`으로 정해 같은 시각이 두 번 돌지 않는다 | 6단계: launch 뒤 `apply_schedules`(같은 이름이면 덮어씀)로 `automation-check`("* * * * *", Asia/Seoul, `automatic_backfill=False`)를 등록. 3.5에는 옛 `@DBOS.scheduled` 데코레이터가 없다. 예약 행은 `dbos` 스키마에 저장되고, 실행은 내부 큐로 들어가 그 소유 앱의 최신 application_version으로 돈다 |
-| 복구 | launch 때 같은 executor("local")·같은 application_version의 PENDING 워크플로를 다시 실행. 기본 100번까지 | `application_version="myagent-3"`으로 고정(코드가 바뀌어도 복구). 워크플로 단계 구성을 바꾸면 올린다. 6단계는 기존 run_task·resume_task의 단계 구성을 바꾸지 않고 새 워크플로만 더해 올리지 않았다 |
+| 복구 | launch 때 같은 executor("local")·같은 application_version의 PENDING 워크플로를 다시 실행. 기본 100번까지 | `application_version="myagent-4"`로 고정(3단계 보강에서 1분 검사에 find_outbox 단계를 더해 3→4)(코드가 바뀌어도 복구). 워크플로 단계 구성을 바꾸면 올린다. 6단계는 기존 run_task·resume_task의 단계 구성을 바꾸지 않고 새 워크플로만 더해 올리지 않았다 |
 | Pydantic AI 통합 | `Agent(name=..., capabilities=[DBOSDurability()])`를 launch 전에 만들고, 우리 `@DBOS.workflow` 안에서 `agent.run()`. 모델 요청이 단계가 되고, 함수 도구·hook은 단계가 아니다. 실행 중 모델 객체를 바꾸려면 `models=`에 등록해야 한다(문자열은 등록 불필요). `DBOSAgent` 래퍼는 없어질 예정 | `agent.py`. 도구 중복 실행 방지는 StepTracking의 tool_call_id 검사 |
 
 - Windows: DBOS는 루프 밖에서 launch하면 자기 루프(`asyncio.new_event_loop()` = Proactor)를 만들어 psycopg 비동기가 안 된다.

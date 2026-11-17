@@ -84,6 +84,19 @@ class OperationStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class OutboxKind(StrEnum):
+    """outbox 요청 종류(3단계 보강, BUILD_SPEC 4.4)."""
+
+    RUN = "run_task"  # task 저장 → 실행 워크플로 시작
+    RESUME = "resume_task"  # 마지막 승인 결정 → 재개 워크플로 시작
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "pending"  # 아직 시작하지 못했다(처음이거나 실패 뒤 다음 시도 대기)
+    DISPATCHED = "dispatched"  # 워크플로를 시작했다(같은 ID라 다시 시작해도 한 번만 돈다)
+    FAILED = "failed"  # 여러 번 실패해 더 시도하지 않는다(로그·화면에서 확인)
+
+
 class VerdictKind(StrEnum):
     MATCH = "match"
     MISMATCH = "mismatch"

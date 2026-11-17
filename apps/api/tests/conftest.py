@@ -174,8 +174,8 @@ class WaitingLauncher(WorkflowLauncher):
         await handle.get_result()
         return handle
 
-    async def start_resume(self, task_id: int, current_workflow_id: str | None) -> WorkflowHandleAsync[None]:
-        handle = await super().start_resume(task_id, current_workflow_id)
+    async def start_resume(self, task_id: int, workflow_id: str) -> WorkflowHandleAsync[None]:
+        handle = await super().start_resume(task_id, workflow_id)
         await handle.get_result()
         return handle
 

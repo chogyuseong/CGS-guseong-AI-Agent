@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent import outbox
 from app.agent.workflows import WorkflowLauncher
 from app.db import DbSession
 from app.models import Conversation, Message, Task
@@ -124,9 +125,9 @@ async def send_message(
             raise HTTPException(status.HTTP_409_CONFLICT, detail=REQUEST_ID_CONFLICT)
         return TaskCreated(task_id=existing)
     # 커밋한 뒤에 워크플로를 시작한다(워크플로가 task 행을 볼 수 있게). 요청 세션은 여기서 더 쓰지 않는다.
-    # 시작 전에 서버가 죽으면 task는 queued로 남고, 다음 시작 때 restart_orphaned_tasks가 이어서 시작한다.
+    # 시작이 실패하거나 그 전에 서버가 죽으면 outbox 요청이 pending으로 남아 1분 검사·서버 시작 때 다시 시작한다.
     launcher: WorkflowLauncher = request.app.state.launcher
-    await launcher.start_run(task_id, body.content)
+    await outbox.dispatch(launcher, request.app.state.session_factory, task_id=task_id)
     return TaskCreated(task_id=task_id)
 
 
@@ -174,5 +175,6 @@ async def save_message_and_task(
         return None
     message.task_id = task.id
     conversation.updated_at = func.now()
+    await outbox.add_run_event(session, task)  # 3단계 보강: 실행 시작 요청도 같은 트랜잭션에
     await session.commit()
     return task.id

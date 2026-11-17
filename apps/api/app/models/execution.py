@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import TimestampedTable, enum_type
-from app.models.enums import OperationStatus
+from app.models.enums import OperationStatus, OutboxKind, OutboxStatus
 
 
 class ActionPlan(TimestampedTable):
@@ -84,3 +84,27 @@ class ExecutionReceipt(TimestampedTable):
     external_resource_id: Mapped[str | None] = mapped_column(String(1024))
     summary: Mapped[dict[str, Any]] = mapped_column(JSONB)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OutboxEvent(TimestampedTable):
+    """워크플로 시작 요청(3단계 보강, BUILD_SPEC 4.4). 그 요청을 만든 DB 변경과 같은 트랜잭션에 저장한다.
+
+    dedupe_key와 workflow_id가 고정이라 dispatcher가 여러 번(동시에도) 처리해도 워크플로는 한 번만 돈다.
+    실행 내용(사용자 메시지)은 여기 복사하지 않는다. 시작할 때 task에서 다시 읽는다.
+    """
+
+    __tablename__ = "outbox_events"
+    __table_args__ = (ForeignKeyConstraint(["task_id", "user_id"], ["tasks.id", "tasks.user_id"], ondelete="CASCADE"),)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[int] = mapped_column(Integer, index=True)
+    kind: Mapped[OutboxKind] = mapped_column(enum_type(OutboxKind, "outbox_kind"))
+    dedupe_key: Mapped[str] = mapped_column(String(200), unique=True)
+    workflow_id: Mapped[str] = mapped_column(String(200))
+    status: Mapped[OutboxStatus] = mapped_column(
+        enum_type(OutboxStatus, "outbox_status"), server_default=OutboxStatus.PENDING.value, index=True
+    )
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(200))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

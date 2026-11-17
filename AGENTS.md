@@ -154,6 +154,8 @@
 - 푸시는 `app/push.py`(`PushNotifier.notify(user_id, kind, url)`, 본문은 고정 문구)
 - `approvals.py` 승인 저장(`save_requests`: 계획·operation·승인), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`, 저장된 인자를 override_args로)
 - `plans.py` 실행 계획 초안(인자 정규화·해시·도구 규격) / `executor.py` 실행기 검사(`begin_execution`)·영수증(`finish_execution`) (2단계 보강)
+  3단계 보강: `executor.reconcile_operation`(끊긴 외부 작업 결과 재조회, 도구 규격의 `reconcile`), `outbox.py`(실행·재개 시작 요청을
+  DB 변경과 같은 트랜잭션에 남기고 API 커밋 직후·서버 시작·1분 검사 때 처리), 장애 결과 표 docs/FAULTS.md
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
 - `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트
