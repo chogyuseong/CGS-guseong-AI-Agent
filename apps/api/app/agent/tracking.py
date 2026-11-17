@@ -28,14 +28,15 @@
     running, READ 도구           조회만 하므로 다시 실행한다
     running, INTERNAL·EXTERNAL   지난 실행이 도중에 끊겼다. 실제로 반영됐는지 알 수 없으므로 다시 실행하지 않고
                                  failed + "실행 여부를 확인할 수 없음"으로 닫는다(at-most-once, docs/SAFETY.md)
-    waiting_approval             승인된 EXTERNAL 호출의 첫 실행. 그대로 실행한다(assert_approved가 다시 검사)
+    waiting_approval             승인된 EXTERNAL 호출의 첫 실행. 그대로 실행한다(executor.begin_execution이 검사)
 
 7단계(메일): list_mail·read_mail 결과는 output_for_storage로 앞 500자만 steps.output에 저장한다(명세 [보안]).
 모델에게는 원래 결과(본문 4,000자)가 간다. 복구 재생 때는 저장된 500자 결과가 돌아간다(READ라 다시 읽으면 된다).
 
 EXTERNAL 도구(2단계): requires_approval 도구는 첫 run에서 실행되지 않으므로 이 hook도 불리지 않는다. step 행은
 runner가 승인 요청을 저장할 때(approvals.save_requests) waiting_approval로 만든다. 승인 후 재개한 run에서 이 hook이
-불리면 start_step은 그 행을 그대로 쓰고, 도구 첫 줄의 assert_approved가 waiting_approval → running으로 바꾼다.
+불리면 start_step은 그 행을 그대로 쓰고, 도구 첫 줄의 begin_execution이 running으로 바꾼다(2단계 보강).
+EXTERNAL 도구의 성공은 영수증(receipt_id)이 있어야 한다. 없으면 receipt_checked가 unknown으로 바꾼다.
 거절된 호출은 도구가 실행되지 않아 이 hook이 불리지 않고, step은 decide가 정한 rejected로 남는다.
 """
 
@@ -56,6 +57,7 @@ from sqlalchemy import func, select
 
 from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
 from app.agent.deps import AgentDeps
+from app.agent.executor import mark_interrupted
 from app.agent.results import ToolResult, ToolStatus, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
@@ -64,7 +66,7 @@ from app.models.enums import RiskLevel, StepStatus
 logger = logging.getLogger(__name__)
 
 # 이 예외들은 failed 결과로 바꾸지 않고 그대로 올려 보낸다.
-# - PermissionError: 2단계 assert_approved의 두 번째 방어선. 삼키면 승인 없는 실행을 숨기게 된다.
+# - PermissionError: 실행기(begin_execution)의 두 번째 방어선. 삼키면 승인 없는 실행을 숨기게 된다.
 # - 나머지: Pydantic AI가 흐름 제어에 쓰는 예외(재시도 요청, 승인 대기, 실행 건너뛰기 등).
 # - TaskCancelledError: 1단계 보강. 취소 요청을 발견하면 도구를 실행하지 않고 run 전체를 멈춘다.
 PASS_THROUGH_ERRORS = (
@@ -83,6 +85,10 @@ UNCERTAIN_MESSAGE = (
     "같은 행동을 다시 하지 말고, 확인이 필요하다고 사용자에게 알리세요."
 )
 INTERRUPTED_RESULT_MESSAGE = "이전 실행에서 이 도구가 끝나지 못했습니다."
+NO_RECEIPT_MESSAGE = (
+    "외부 서비스 처리 영수증이 없어 완료를 확인할 수 없습니다. "
+    "같은 행동을 다시 하지 말고, 확인이 필요하다고 사용자에게 알리세요."
+)
 FINISHED_STEP_STATUSES = (StepStatus.DONE, StepStatus.FAILED, StepStatus.UNKNOWN)
 STEP_STATUS_OF = {
     ToolStatus.SUCCEEDED: StepStatus.DONE,
@@ -119,8 +125,9 @@ def recorded_result(step: RecordedStep) -> ToolResult | None:
 
 
 async def close_uncertain_step(deps: AgentDeps, step_id: int) -> ToolResult:
-    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 결과 불명(unknown)으로 닫는다."""
+    """도중에 끊긴 INTERNAL·EXTERNAL 호출을 다시 실행하지 않고 결과 불명(unknown)으로 닫는다. operation도 unknown."""
     result = ToolResult.unknown(UNCERTAIN_MESSAGE, error_code="interrupted")
+    await mark_interrupted(deps, step_id)
     await finish_step(deps, step_id, output=result.model_dump(mode="json"), result=result, duration_ms=None)
     logger.warning("복구: 실행 여부를 알 수 없는 도구 호출을 결과 불명으로 닫음 task=%s step=%s", deps.task_id, step_id)
     return result
@@ -165,6 +172,13 @@ async def finish_step(
         await session.commit()
 
 
+def receipt_checked(result: ToolResult, risk: RiskLevel) -> ToolResult:
+    """EXTERNAL 도구의 성공은 영수증이 있어야 완료다(절대 원칙 10). 없으면 결과 불명으로 바꾼다."""
+    if risk == RiskLevel.EXTERNAL and result.status == ToolStatus.SUCCEEDED and not result.receipt_id:
+        return ToolResult.unknown(NO_RECEIPT_MESSAGE, error_code="no_receipt")
+    return result
+
+
 def elapsed_ms(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
 
@@ -203,12 +217,13 @@ class StepTracking(AbstractCapability[AgentDeps]):
             if recorded.status == StepStatus.RUNNING and recorded.risk_level != RiskLevel.READ:
                 return await close_uncertain_step(ctx.deps, recorded.id)
             step_id = recorded.id
-        return await self.run_and_record(ctx, call.tool_name, step_id, args, handler)
+        return await self.run_and_record(ctx, call.tool_name, risk_level_of(tool_def), step_id, args, handler)
 
     async def run_and_record(
         self,
         ctx: RunContext[AgentDeps],
         tool_name: str,
+        risk: RiskLevel,
         step_id: int,
         args: dict[str, Any],
         handler: WrapToolExecuteHandler,
@@ -220,7 +235,10 @@ class StepTracking(AbstractCapability[AgentDeps]):
             # 승인 거부(PermissionError) 같은 예외도 step에는 실패로 남기고 그대로 올려 보낸다.
             await finish_step(ctx.deps, step_id, output=None, result=None, duration_ms=elapsed_ms(started))
             raise
-        described = describe_result(result)
+        original = describe_result(result)
+        described = receipt_checked(original, risk)
+        if described is not original:
+            result = described  # 영수증 없는 외부 성공: 모델에게도 결과 불명으로 알린다
         # 7단계: 메일 도구 결과는 500자만 저장한다(모델에게 돌려주는 result는 그대로 4,000자까지).
         stored = output_for_storage(tool_name, described.model_dump(mode="json"))
         await finish_step(ctx.deps, step_id, output=stored, result=described, duration_ms=elapsed_ms(started))

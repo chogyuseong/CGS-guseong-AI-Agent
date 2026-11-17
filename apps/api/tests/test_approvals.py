@@ -146,7 +146,7 @@ async def test_external_tool_blocked_even_if_framework_approval_is_off(
     fake_external_counter: FakeExternalCounter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """프레임워크 설정(requires_approval)이 빠져도 두 번째 방어선(assert_approved)이 실행을 막는다."""
+    """프레임워크 설정(requires_approval)이 빠져도 두 번째 방어선(begin_execution)이 실행을 막는다."""
     unguarded = build_external_toolset([fake_external], requires_approval=False)
     monkeypatch.setitem(TOOLSETS_BY_ORIGIN, TaskOrigin.CHAT, [read_tools, internal_tools, unguarded])
 

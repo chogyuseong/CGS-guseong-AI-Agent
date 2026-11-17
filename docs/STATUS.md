@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 2단계 보강 진행 중(2026-11-17). (1) 실행 계획 저장 끝, 다음은 (2) 실행기 검사·영수증.
+현재 단계: BUILD_SPEC 기준 2단계 보강 진행 중(2026-11-17). (1) 실행 계획 저장, (2) 실행기 검사·영수증 끝. 다음은 (3) 가짜 외부 서비스.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -59,8 +59,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] action_plans(operation_id, canonical_args, args_hash, tool_version, connection_id, target_version, 만료 2종, policy_version) — tests/test_action_plans.py
   (target_version 칸만 있음. ETag 비교는 4단계. 실행 유효 시간은 approvals.execute_before, DECISIONS 2단계 보강)
 - [x] approvals를 계획·승인 회차별로. 승인 후 실행 유효 시간(기본 5분) — 실행 때 검사는 (2)에서
-- [ ] operations, execution_receipts. 완료 표시는 영수증 기준
-- [ ] 실행기의 DB 검사 목록(3.3) 전부
+- [x] operations, execution_receipts. 완료 표시는 영수증 기준 — tests/test_executor.py (화면 표시는 (4))
+- [x] 실행기의 DB 검사 목록(3.3) 전부 — app/agent/executor.py (대상 버전은 4단계 ETag)
 - [ ] 재시작과 무관하게 기록이 남는 가짜 외부 서비스(멱등성 키·결과 조회)
 - [ ] 승인 카드: 계정·캘린더, 변경 전후, 유효 시간, 감시 배지 문구(일치로 추정/요청과 다를 수 있음/확인 필요)
 

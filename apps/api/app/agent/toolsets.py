@@ -6,7 +6,8 @@
   같은 task의 DB 쓰기가 겹치지 않는다.
 - external_tools(EXTERNAL)는 toolset 전체가 requires_approval=True다(첫 번째 방어선). 모델이 이 도구를 부르면
   Pydantic AI가 도구를 실행하지 않고 run을 DeferredToolRequests로 끝낸다. 두 번째 방어선은 각 도구 함수 첫 줄의
-  assert_approved(ctx)다(approvals.py). 4단계부터 일정 쓰기 도구 셋(create/update/delete_event)이 들어 있다.
+  begin_execution(ctx, 인자)다(executor.py, 2단계 보강).
+  4단계부터 일정 쓰기 도구 셋(create/update/delete_event)이 들어 있다.
   테스트는 build_external_toolset([fake_external])로 같은 설정의 묶음을 만들어 끼운다.
 - 실행할 때 origin에 맞는 toolset만 agent.run(toolsets=...)으로 넘긴다. 넘기지 않은 도구는 모델에게 보이지도 않고
   실행되지도 않는다. (DBOS 문서: 실행 시점 FunctionToolset 전달은 내구성 실행에서도 지원된다.)
@@ -95,7 +96,7 @@ internal_tools = FunctionToolset[AgentDeps](
     metadata=risk_metadata(RiskLevel.INTERNAL),
     sequential=True,
 )
-# 일정 쓰기 도구. 함수 첫 줄은 모두 assert_approved(ctx)다(두 번째 방어선, app/tools/gcal.py).
+# 일정 쓰기 도구. 함수 첫 줄은 모두 begin_execution(ctx, 인자)다(두 번째 방어선, app/tools/gcal.py).
 external_tools = build_external_toolset([gcal.create_event, gcal.update_event, gcal.delete_event])
 
 # 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4). 메일(mail_tools)은 READ지만 chat에만 넘긴다.

@@ -10,7 +10,10 @@
 - 오류: 401 authError(토큰 만료 → 갱신 후 한 번 다시), 403/429 rateLimitExceeded(한도), 404 notFound, 410 deleted.
 - sendUpdates는 보내지 않는다(기본값: 참석자에게 알림 메일을 보내지 않음). 메일 발송은 금지 기능이다.
 
-EXTERNAL 도구는 두 겹으로 막는다: external_tools toolset의 requires_approval=True + 함수 첫 줄 assert_approved(ctx).
+EXTERNAL 도구는 두 겹으로 막는다: external_tools toolset의 requires_approval=True
++ 함수 첫 줄 begin_execution(ctx, 인자)(2단계 보강: 실행 계획·승인·operation 검사).
+끝나면 finish_execution이 영수증을 남긴다(app/agent/executor.py).
+안정적인 event ID(생성 중복 방지)와 ETag 조건부 요청(대상 버전)은 4단계 보강에서 더한다.
 쓰기 요청은 다시 시도하지 않는다(app/tools/http.py). 단, 401은 Google이 요청을 받아들이지 않은 것이라 새 토큰으로
 한 번 다시 보내도 일정이 두 번 생기지 않는다.
 
@@ -28,8 +31,8 @@ from pydantic import Field
 from pydantic_ai import RunContext
 
 from app import google_auth
-from app.agent.approvals import assert_approved
 from app.agent.deps import AgentDeps
+from app.agent.executor import Execution, begin_execution, finish_execution
 from app.agent.plans import ExternalToolSpec
 from app.agent.prompts import SEOUL
 from app.agent.results import ToolResult, ToolStatus
@@ -245,15 +248,29 @@ async def create_event(
 ) -> ToolResult:
     """Google 캘린더(기본 캘린더)에 일정을 만든다. 사용자 승인 후에만 실행된다. 승인 전에는 만들었다고 말하지 않는다.
     시각은 서울 기준이다. 사용자가 끝 시각을 말하지 않았으면 시작 1시간 뒤로 넣는다."""
-    await assert_approved(ctx)
+    args = {"title": title, "start": start, "end": end, "location": location, "description": description}
+    started = await begin_execution(ctx, args)
+    if isinstance(started, ToolResult):
+        return started
     body: dict[str, Any] = {"summary": title, "start": event_time(start), "end": event_time(end)}
     body.update({k: v for k, v in (("location", location), ("description", description)) if v})
     try:
         check_range(start, end)
         event = await calendar_request(ctx.deps, "POST", json=body)
     except ExternalApiError as error:
-        return ToolResult.from_api_error(error)
-    return saved_result(event)
+        return await finished(ctx.deps, started, ToolResult.from_api_error(error))
+    return await finished(ctx.deps, started, saved_result(event), event_id_of(event))
+
+
+def event_id_of(event: Any) -> str | None:
+    if not isinstance(event, dict):
+        return None
+    return str(event.get("id") or "") or None
+
+
+async def finished(deps: AgentDeps, started: Execution, result: ToolResult, event_id: str | None = None) -> ToolResult:
+    """실행 결과를 operation·영수증으로 기록한다(성공이면 영수증, 실패·불명이면 그 상태)."""
+    return await finish_execution(deps, started, result, provider=google_auth.PROVIDER, resource_id=event_id)
 
 
 async def connection_warning(deps: AgentDeps) -> str:
@@ -303,14 +320,16 @@ async def update_event(
     description: EventMemo = None,
 ) -> ToolResult:
     """Google 캘린더 일정을 수정한다. event_id는 list_events로 찾는다. 바꿀 칸만 넣는다. 사용자 승인 후 실행."""
-    await assert_approved(ctx)
     changes = {"title": title, "start": start, "end": end, "location": location, "description": description}
+    started = await begin_execution(ctx, {"event_id": event_id, **changes})
+    if isinstance(started, ToolResult):
+        return started
     try:
         body = await patch_body(ctx.deps, event_id, changes)
         event = await calendar_request(ctx.deps, "PATCH", event_id, json=body)
     except ExternalApiError as error:
-        return ToolResult.from_api_error(error)
-    return saved_result(event)
+        return await finished(ctx.deps, started, ToolResult.from_api_error(error))
+    return await finished(ctx.deps, started, saved_result(event), event_id)
 
 
 def describe_changes(before: dict[str, Any] | None, args: dict[str, Any]) -> str:
@@ -354,12 +373,15 @@ async def preview_update_event(deps: AgentDeps, args: dict[str, Any]) -> str:
 
 async def delete_event(ctx: RunContext[AgentDeps], event_id: EventId) -> ToolResult:
     """Google 캘린더 일정을 삭제한다. event_id는 list_events로 찾는다. 사용자 승인 후 실행."""
-    await assert_approved(ctx)
+    started = await begin_execution(ctx, {"event_id": event_id})
+    if isinstance(started, ToolResult):
+        return started
     try:
         await calendar_request(ctx.deps, "DELETE", event_id)
     except ExternalApiError as error:
-        return ToolResult.from_api_error(error)
-    return ToolResult.success({"deleted_id": event_id, "deleted_from": "Google 캘린더"})
+        return await finished(ctx.deps, started, ToolResult.from_api_error(error))
+    result = ToolResult.success({"deleted_id": event_id, "deleted_from": "Google 캘린더"})
+    return await finished(ctx.deps, started, result, event_id)
 
 
 async def preview_delete_event(deps: AgentDeps, args: dict[str, Any]) -> str:

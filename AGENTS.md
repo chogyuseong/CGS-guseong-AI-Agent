@@ -118,9 +118,14 @@
 3. **결과**: 항상 `ToolResult`(`app/agent/results.py`)를 돌려준다. status는 succeeded / failed / unknown(1단계 보강).
    실패는 `ToolResult.failure("한국어 이유", error_code=...)`, 했는지 모르면 `ToolResult.unknown(...)`(실패와 구분, 자동 재시도 금지).
    예외를 밖으로 던지지 않는다. 예상 못 한 예외는 `StepTracking.on_tool_execute_error`가 한 곳에서 status=failed로 바꾼다.
-   유일한 예외: EXTERNAL 도구 첫 줄의 `await assert_approved(ctx)`(`app/agent/approvals.py`)가 던지는 `PermissionError`.
+   유일한 예외: EXTERNAL 도구 첫 줄의 `begin_execution(ctx, 인자 전부)`(`app/agent/executor.py`)가 던지는 `PermissionError`.
+   EXTERNAL 도구 모양(2단계 보강): `started = await begin_execution(ctx, {...})` → ToolResult면 그대로 돌려준다(실행 안 함·영수증
+   재사용) → 외부 호출(멱등성 키 `started.operation_id`) → `return await finish_execution(deps, started, result, provider=..., resource_id=...)`.
+   영수증 없는 성공은 StepTracking이 unknown으로 바꾼다. 도구 파일의 `SPECS`에 `ExternalToolSpec(version, provider, target_arg)`를
+   두고 toolsets가 `EXTERNAL_TOOL_SPECS`에 모은다(규격 없는 EXTERNAL 도구는 계획을 만들지 않는다). 요청 모양이 바뀌면 version을 올린다.
    EXTERNAL 도구는 `TOOL_PREVIEWS`에 `async def preview_도구(deps, args) -> str`(실행하지 않고 무엇을 할지 설명)도 등록한다.
-   예시는 `tests/fake_tools.py`의 `fake_external`(테스트 전용, 운영 코드에 등록 금지).
+   예시는 `tests/fake_tools.py`의 `fake_external`(테스트 전용, 운영 코드에 등록 금지). 직접 호출 테스트의 승인 상태는
+   `tests/plan_helpers.py`의 `approve_directly`로 만든다.
 4. **등록**: `app/agent/toolsets.py`에서 등급에 맞는 toolset 목록에 함수를 넣는다(read_tools / internal_tools / external_tools).
    등급은 toolset의 metadata로 steps.risk_level에 복사된다. EXTERNAL은 toolset 전체가 requires_approval=True다.
 5. **타임라인 문구**: 도구 파일의 `LABELS` 딕셔너리(→ `toolsets.TOOL_LABELS`)에 `"도구이름": lambda args: "…하는 중"`을 넣는다(예: "할 일에 '우유 사기' 추가하는 중").
@@ -145,7 +150,8 @@
 - `runner.py` `run_task`·`resume_task`를 단계로 구성(claim → prepare → agent.run → finish → notify). 하루 비용 검사, 이전 기록,
   사용량 이어받기. 승인 대기면 preview·감시 검사 후 승인 요청을 저장한다
 - 푸시는 `app/push.py`(`PushNotifier.notify(user_id, kind, url)`, 본문은 고정 문구)
-- `approvals.py` 승인 저장(`save_requests`), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`), 두 번째 방어선(`assert_approved`)
+- `approvals.py` 승인 저장(`save_requests`: 계획·operation·승인), 결정(`decide`, FOR UPDATE), 재개 결과(`build_results`, 저장된 인자를 override_args로)
+- `plans.py` 실행 계획 초안(인자 정규화·해시·도구 규격) / `executor.py` 실행기 검사(`begin_execution`)·영수증(`finish_execution`) (2단계 보강)
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
 - `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트

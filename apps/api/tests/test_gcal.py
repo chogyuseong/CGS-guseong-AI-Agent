@@ -21,11 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.deps import AgentDeps
 from app.agent.results import EXTERNAL_NOTICE
 from app.google_auth import CALENDAR_SCOPE, NOT_CONNECTED_MESSAGE, RECONNECT_MESSAGE, GoogleTokens, save_tokens
-from app.models import Approval, Connection, Step
-from app.models.enums import ApprovalStatus, RiskLevel, StepStatus
+from app.models import Connection
 from app.tools import gcal
 from tests.conftest import TEST_FERNET_KEY, payload, tool_context
 from tests.fake_http import FakeHttp, fixture_response, json_response
+from tests.plan_helpers import approve_directly
 
 EVENTS = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -212,24 +212,6 @@ async def test_list_events_bad_range_does_not_call_api(
 # ---- EXTERNAL: 승인 기록 없이는 실행되지 않는다 ----
 
 
-async def approve_call(db_session: AsyncSession, deps: AgentDeps, tool_name: str, call_id: str) -> None:
-    """승인 API를 거친 것과 같은 DB 상태(step waiting_approval + approval approved)를 만든다."""
-    step = Step(
-        task_id=deps.task_id,
-        order=1,
-        tool_name=tool_name,
-        tool_call_id=call_id,
-        risk_level=RiskLevel.EXTERNAL,
-        input={},
-        status=StepStatus.WAITING_APPROVAL,
-        label="테스트",
-    )
-    db_session.add(step)
-    await db_session.flush()
-    db_session.add(Approval(step_id=step.id, tool_call_id=call_id, status=ApprovalStatus.APPROVED, summary="테스트"))
-    await db_session.commit()
-
-
 CREATE_ARGS = {"title": "저녁 약속", "start": "2026-11-20T19:00", "end": "2026-11-20T21:00", "location": "성수동"}
 
 
@@ -255,7 +237,7 @@ async def test_calendar_write_without_approval_raises_and_sends_nothing(
 
 async def test_create_event_after_approval(tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession) -> None:
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "create_event", "call-create")
+    await approve_directly(db_session, tool_deps, "create_event", "call-create", CREATE_ARGS)
     fake_http.route("POST", EVENTS, fixture_response("google_event_created.json"))
 
     result = await gcal.create_event(tool_context(tool_deps, "create_event", "call-create"), **CREATE_ARGS)
@@ -280,7 +262,7 @@ async def test_create_event_timeout_is_not_retried(
 ) -> None:
     """쓰기 요청은 타임아웃이 나도 다시 보내지 않는다(일정이 두 번 생기지 않게). 확인을 부탁한다."""
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "create_event", "call-timeout")
+    await approve_directly(db_session, tool_deps, "create_event", "call-timeout", CREATE_ARGS)
     fake_http.route("POST", EVENTS, httpx.ReadTimeout("느림"))
 
     result = await gcal.create_event(tool_context(tool_deps, "create_event", "call-timeout"), **CREATE_ARGS)
@@ -295,7 +277,7 @@ async def test_create_event_401_refreshes_and_retries(
 ) -> None:
     """401은 Google이 요청을 받아들이지 않은 것이라 새 토큰으로 한 번 다시 보내도 일정이 두 번 생기지 않는다."""
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "create_event", "call-401")
+    await approve_directly(db_session, tool_deps, "create_event", "call-401", CREATE_ARGS)
     fake_http.route("POST", TOKEN_URL, fixture_response("google_token_refresh.json"))
     fake_http.route(
         "POST",
@@ -314,8 +296,8 @@ async def test_create_event_end_before_start_fails(
     tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession
 ) -> None:
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "create_event", "call-bad")
     args = {**CREATE_ARGS, "end": "2026-11-20T18:00"}
+    await approve_directly(db_session, tool_deps, "create_event", "call-bad", args)
 
     result = await gcal.create_event(tool_context(tool_deps, "create_event", "call-bad"), **args)
 
@@ -327,7 +309,13 @@ async def test_update_event_with_only_start_keeps_duration_check(
     tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession
 ) -> None:
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "update_event", "call-update")
+    await approve_directly(
+        db_session,
+        tool_deps,
+        "update_event",
+        "call-update",
+        {"event_id": "evt0meeting001", "start": "2026-11-20T10:30"},
+    )
     fake_http.route("GET", f"{EVENTS}/evt0meeting001", fixture_response("google_event_meeting.json"))
     fake_http.route("PATCH", f"{EVENTS}/evt0meeting001", fixture_response("google_event_meeting.json"))
     context = tool_context(tool_deps, "update_event", "call-update")
@@ -343,7 +331,7 @@ async def test_update_event_with_only_start_keeps_duration_check(
 
 async def test_delete_event_after_approval(tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession) -> None:
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "delete_event", "call-delete")
+    await approve_directly(db_session, tool_deps, "delete_event", "call-delete", {"event_id": "evt0meeting001"})
     fake_http.route("DELETE", f"{EVENTS}/evt0meeting001", httpx.Response(204))
 
     result = await gcal.delete_event(tool_context(tool_deps, "delete_event", "call-delete"), event_id="evt0meeting001")
@@ -357,7 +345,7 @@ async def test_delete_missing_event(
     tool_deps: AgentDeps, fake_http: FakeHttp, db_session: AsyncSession, status: int
 ) -> None:
     await connect_google(tool_deps)
-    await approve_call(db_session, tool_deps, "delete_event", "call-missing")
+    await approve_directly(db_session, tool_deps, "delete_event", "call-missing", {"event_id": "gone"})
     fake_http.route("DELETE", f"{EVENTS}/gone", fixture_response("google_error_404.json", status=status))
 
     result = await gcal.delete_event(tool_context(tool_deps, "delete_event", "call-missing"), event_id="gone")

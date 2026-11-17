@@ -3,8 +3,8 @@
 이중 방어 (docs/SAFETY.md):
     1. 프레임워크: external_tools는 requires_approval=True다. 모델이 이 도구를 부르면 Pydantic AI가 실행하지 않고
        run을 DeferredToolRequests로 끝낸다. → save_requests가 승인 요청을 DB에 남긴다.
-    2. DB: EXTERNAL 도구 함수의 첫 줄은 assert_approved(ctx)다. 이 tool_call_id의 승인이 DB에 approved로 있고
-       아직 실행되지 않았을 때만 통과한다. 프레임워크 설정 하나가 바뀌거나 누가 함수를 직접 불러도 실행되지 않는다.
+    2. DB: EXTERNAL 도구 함수의 첫 줄은 executor.begin_execution(ctx, 인자)다(2단계 보강). 실행 계획·승인·operation을
+       BUILD_SPEC 3.3대로 모두 검사한다. 프레임워크 설정 하나가 바뀌거나 누가 함수를 직접 불러도 실행되지 않는다.
 
 흐름:
     run 결과가 DeferredToolRequests ─▶ runner가 plans.draft_plan으로 인자를 정규화·고정(2단계 보강)
@@ -13,9 +13,10 @@
     사용자가 카드에서 결정       ─▶ decide: task·승인 행을 SELECT ... FOR UPDATE로 잠그고 pending일 때만 바꾼다.
                                     승인이면 실행 유효 시간(5분)을 정하고 operation도 approved/rejected/expired로
     모두 결정되면                ─▶ runner.resume_task가 build_results로 DeferredToolResults를 만들어 run을 잇는다
-    승인된 도구 실행             ─▶ assert_approved가 step을 waiting_approval → running으로 바꾸며 "한 번만" 통과시킨다
+    승인된 도구 실행             ─▶ 저장된 인자(override_args)로 실행, executor.begin_execution이 operation을
+                                    approved → executing으로 바꾸며 "한 번만" 통과시킨다. 결과는 finish_execution
 
-이 모듈은 도구 파일(app/tools/*)이 assert_approved를 가져다 쓰므로 toolsets·tracking·runner를 import하지 않는다.
+이 모듈은 cancel.py가 가져다 쓰므로 toolsets·tracking·runner를 import하지 않는다.
 """
 
 import uuid
@@ -23,12 +24,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic_ai import RunContext
 from pydantic_ai.tools import DeferredToolResults, ToolApproved, ToolDenied
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.deps import AgentDeps
 from app.agent.plans import DECISION_WINDOW, EXECUTE_WINDOW, POLICY_VERSION, PlanDraft
 from app.models import ActionPlan, AgentRun, Approval, Conversation, GuardCheck, Message, Operation, Step, Task
 from app.models.enums import (
@@ -45,7 +44,6 @@ from app.models.enums import (
 # 거절을 모델에게 알리는 문장(명세). 모델은 이 문장을 도구 결과로 받고 다른 방법을 찾는다.
 DENIAL_MESSAGE = "사용자가 거절함"
 EXPIRED_MESSAGE = "승인을 30분 안에 받지 못해 작업을 취소했습니다. 필요하면 다시 요청해 주세요."
-NOT_APPROVED_MESSAGE = "승인 기록이 없는 외부 도구 실행을 막았습니다."
 
 
 # ---- 결정 결과와 오류 (라우터가 HTTP 응답으로 바꾼다) ----
@@ -311,58 +309,25 @@ async def expire_task(session: AsyncSession, task: Task) -> None:
 
 
 async def build_results(session: AsyncSession, task_id: int, pending_ids: list[str]) -> DeferredToolResults:
-    """결과를 기다리는 호출(pending_ids)마다 승인=ToolApproved, 거절=ToolDenied('사용자가 거절함')."""
-    rows = await session.scalars(
-        select(Approval)
+    """결과를 기다리는 호출(pending_ids)마다 승인=ToolApproved, 거절=ToolDenied('사용자가 거절함').
+
+    승인은 계획에 저장된 정규화 인자를 override_args로 넘긴다(2단계 보강). 그래서 재개한 run의 도구는 기록 속
+    모델 인자가 아니라 승인된 인자로 실행된다. 같은 tool_call_id가 여러 회차에 있으면 가장 최근 회차를 쓴다.
+    """
+    rows = await session.execute(
+        select(Approval, ActionPlan.canonical_args)
         .join(Step, Step.id == Approval.step_id)
+        .outerjoin(ActionPlan, ActionPlan.id == Approval.plan_id)
         .where(Step.task_id == task_id, Approval.tool_call_id.in_(pending_ids))
+        .order_by(Approval.approval_round)
     )
     decisions: dict[str, ToolApproved | ToolDenied] = {}
-    for approval in rows:
+    for approval, stored_args in rows:
         if approval.status == ApprovalStatus.APPROVED:
-            decisions[approval.tool_call_id] = ToolApproved()
+            decisions[approval.tool_call_id] = ToolApproved(override_args=stored_args)
         elif approval.status == ApprovalStatus.REJECTED:
             decisions[approval.tool_call_id] = ToolDenied(DENIAL_MESSAGE)
     missing = set(pending_ids) - set(decisions)
     if missing:
         raise ValueError(f"결정되지 않은 승인이 있어 재개할 수 없다: {sorted(missing)}")
     return DeferredToolResults(approvals=dict(decisions))
-
-
-# ---- 4. 두 번째 방어선 ----
-
-
-async def assert_approved(ctx: RunContext[AgentDeps]) -> None:
-    """EXTERNAL 도구 함수의 첫 줄. DB에 이 호출의 승인이 approved이고 아직 실행 전일 때만 통과한다.
-
-    통과하면서 step을 waiting_approval → running으로 바꾼다(행 잠금 안에서). 같은 승인으로 두 번 실행하려 하면
-    두 번째는 step이 이미 running/done이라 PermissionError다. 테스트 밖에서 이 검사를 건너뛰는 코드는 없다.
-    """
-    if not ctx.tool_call_id:
-        raise PermissionError(NOT_APPROVED_MESSAGE)
-    async with ctx.deps.db() as session:
-        row = (
-            await session.execute(
-                select(Approval, Step)
-                .join(Step, Step.id == Approval.step_id)
-                .join(Task, Task.id == Step.task_id)
-                .where(
-                    Approval.tool_call_id == ctx.tool_call_id,
-                    Step.task_id == ctx.deps.task_id,
-                    Task.user_id == ctx.deps.user_id,
-                )
-                .with_for_update(of=[Approval, Step])
-            )
-        ).one_or_none()
-        if row is None or not is_runnable(row[0], row[1], ctx.tool_name):
-            raise PermissionError(NOT_APPROVED_MESSAGE)
-        row[1].status = StepStatus.RUNNING
-        await session.commit()
-
-
-def is_runnable(approval: Approval, step: Step, tool_name: str | None) -> bool:
-    return (
-        approval.status == ApprovalStatus.APPROVED
-        and step.status == StepStatus.WAITING_APPROVAL
-        and step.tool_name == tool_name
-    )

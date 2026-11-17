@@ -326,7 +326,7 @@ async def test_interrupted_external_call_is_not_executed_again(
     session_factory: async_sessionmaker[AsyncSession],
     fake_external_counter: FakeExternalCounter,
 ) -> None:
-    """at-most-once: 승인된 외부 도구가 실행 도중(assert_approved 통과, step running) 서버가 죽었다면
+    """at-most-once: 승인된 외부 도구가 실행 도중(begin_execution 통과, step running) 서버가 죽었다면
     복구 때 다시 실행하지 않고 '실행 여부를 확인할 수 없음'으로 실패 처리한다."""
     model = scripted(call("fake_external", value=5), text("확인이 필요합니다."))
     with agent.override(model=model.model()):
