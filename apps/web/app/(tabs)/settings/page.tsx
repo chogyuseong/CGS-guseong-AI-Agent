@@ -32,7 +32,7 @@ function SettingsLink({ href, icon: Icon, title, description }: SettingsLinkProp
   return (
     <Link
       href={href}
-      className="flex min-h-14 min-w-0 items-center gap-3 rounded-xl border bg-card p-4 text-card-foreground"
+      className="flex min-h-14 min-w-0 shrink-0 items-center gap-3 rounded-xl border bg-card p-4 text-card-foreground"
     >
       <Icon aria-hidden="true" className="size-5 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col">

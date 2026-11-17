@@ -51,6 +51,20 @@ test("360px 설정 화면: 알림이 꺼져 있으면 '알림 켜기' 버튼이 
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
 });
 
+test("360px 설정 화면: 바로가기 카드의 두 줄 설명이 카드 밖으로 넘치지 않는다", async ({
+  page,
+}) => {
+  // 스크롤되는 세로 목록에서 카드가 줄어들어 '비용' 설명이 테두리 밖으로 삐져나오던 문제(2026-11-18).
+  await fakePushConfig(page, true);
+  await openSettings(page);
+  for (const name of ["Google 계정 연결", "비용"]) {
+    const card = page.getByRole("link", { name: new RegExp(name) });
+    await card.scrollIntoViewIfNeeded();
+    const fits = await card.evaluate((el) => el.scrollHeight <= el.clientHeight);
+    expect(fits, `${name} 카드 내용이 넘친다`).toBe(true);
+  }
+});
+
 test("360px 설정 화면: 서버에 키가 없으면 '서버에 키 없음'을 보여 주고 켜기 버튼을 막는다", async ({
   page,
 }) => {
