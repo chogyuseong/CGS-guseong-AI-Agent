@@ -596,3 +596,8 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 감시 판정: 숫자 조건은 create_watch의 number_field·number_op·number_value로 받아 서버가 비교한다(모델 호출·비용 없음). 경로는 결과 data(외부 콘텐츠면 content) 안의 키를 점으로 잇고, 값이 목록이면 개수로 비교한다. 조회 실패·판정 실패·값 없음은 unknown(이유 포함)이고 알리지 않으며 last_known_met을 바꾸지 않는다.
 - 2026-11-17 다시 알림 정책: 거짓(또는 처음)→참으로 바뀔 때만, 마지막 알림에서 12시간 이상 지났을 때만 알린다. 계속 참이면 다시 알리지 않고, 12시간 안에 다시 참이 된 전환은 알리지 않고 넘어간다. 예전처럼 알린 뒤 12시간을 건너뛰지 않고 간격대로 확인한다.
 - 2026-11-17 단발성 날짜: 조회 인자에 date가 있으면 'YYYY-MM-DD' 실제 날짜만 받고('내일'은 거부), 그 날이 끝나는 서울 자정에 만료한다(30일보다 이르면). 지난 날짜는 거부한다.
+- 2026-11-17 구조화된 제안: 예약 task(origin=schedule)만 output_type을 [str, AutomationReply, DeferredToolRequests]로 바꿔 실행한다(채팅은 str 그대로, 전체 AgentReply는 남은 일). AutomationReply.text가 메시지 본문, suggestions(최대 5개)가 messages.suggestions. 모델이 글로만 답해도 실행은 끝나고 제안이 없다. [제안] 줄 파싱(lib/suggestions.ts parseSuggestions)은 없앴다.
+- 2026-11-17 제안 버튼은 입력창에 문장을 채우고 포커스만 준다(BUILD_SPEC 8.3: 사용자 확인 후 전송). 예전에는 누르면 바로 보냈다. 제안은 승인·권한을 넘기지 않는다(보내면 평소 채팅과 같은 길). 아침 브리핑 문장도 마이그레이션으로 바꿨다.
+- 2026-11-17 예산 부족 표시: 감시는 하루 한도에 닿으면 도구·모델을 부르지 않고 last_result.status=paused_budget(발생 기록 skipped/budget). 예약은 지금처럼 모델 없이 budget_exceeded로 끝난다. 자동화 목록 API가 budget_paused를 주고 화면이 "오늘은 쉬는 중, 내일 다시"를 보여 준다.
+### 배포 준비
+- 2026-11-17 사용자가 "선택이 오면 가장 완성도 있고 효과적인 것"으로 판단을 맡겨 배포처를 권장안 A(Railway 한 곳)로 정했다. 실제 배포는 Railway 계정 로그인·결제가 필요해 하지 않았다(이 PC에 CLI·로그인 없음). 코드 준비: next.config.ts의 API_ORIGIN 빌드 환경변수, apps/api/start.sh(--no-access-log, API_HOST 기본 ::, PORT), DATABASE_URL의 postgresql://·postgres://를 postgresql+psycopg://로 변환. 절차는 docs/DEPLOY.md.

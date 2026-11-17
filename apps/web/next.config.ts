@@ -3,7 +3,9 @@ import type { NextConfig } from "next";
 
 // FastAPI 서버 주소. 브라우저는 이 주소를 모르고 항상 같은 출처(/api/...)로만 호출한다.
 // 그래서 CORS 설정이 필요 없다. (Django에서 nginx가 /api를 뒤쪽 서버로 넘기는 것과 같은 역할)
-const API_ORIGIN = "http://localhost:8000";
+// 배포(docs/DEPLOY.md)에서는 빌드 환경변수 API_ORIGIN으로 넣는다(예: Railway 사설망 http://api.railway.internal:8080).
+// rewrites는 빌드 때 값을 읽으므로 바꾸면 다시 빌드한다. 끝의 /는 뗀다.
+const API_ORIGIN = (process.env.API_ORIGIN?.trim() || "http://localhost:8000").replace(/\/+$/, "");
 
 // 이 PC의 사설 IPv4 주소 목록(예: 192.168.0.12).
 // 폰이 같은 와이파이에서 http://<이 주소>:3000 으로 열 때 개발 서버가 막지 않도록 허용 목록에 넣는다.

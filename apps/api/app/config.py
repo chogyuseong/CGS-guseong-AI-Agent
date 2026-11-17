@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # apps/api/app/config.py 기준으로 세 단계 위가 저장소 루트다.
@@ -93,6 +93,18 @@ class Settings(BaseSettings):
 
     # 관찰 (8단계). 비어 있으면 아무것도 보내지 않는다.
     logfire_token: SecretStr = SecretStr("")
+
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg_driver(cls, value: str) -> str:
+        """배포 준비: 호스팅이 주는 postgresql://·postgres://를 psycopg(3) 형식으로 바꾼다.
+
+        psycopg2는 설치하지 않았다(그대로 쓰면 SQLAlchemy가 psycopg2를 찾는다).
+        """
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
+        return value
 
     @model_validator(mode="after")
     def require_https_in_production(self) -> Self:

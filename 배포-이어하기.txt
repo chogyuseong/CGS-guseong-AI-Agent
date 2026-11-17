@@ -1,5 +1,5 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-17 (BUILD_SPEC 기준 6단계 보강 진행 중: (1)(2)(3) 완료)
+마지막 갱신 2026-11-17 (BUILD_SPEC 기준 6단계 보강 완료, 배포 전 코드 준비 완료. 다음은 실제 배포(사용자 계정)와 7단계 보강)
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
@@ -57,20 +57,22 @@
                      영수증 90일). 설정 EXECUTION_RETENTION_DAYS·RECEIPT_RETENTION_DAYS(.env.example)
                      (4) 완료: docs/DATA_POLICY.md(저장소별 보관·삭제 범위, 백업 30일 지연, 키 관리), 설정 화면 '데이터 보관'
                      남긴 것: 메일 실행 기록 암호화(7단계), 계정 삭제(요구사항에 없음), 배포 백업 실제 설정
-  6단계 보강   진행  (1) 완료: 아침 브리핑은 사용자가 켠 뒤에만(자동화 화면 '아침 브리핑 설정', 기본 07:30,
+  6단계 보강   완료  (1) 완료: 아침 브리핑은 사용자가 켠 뒤에만(자동화 화면 '아침 브리핑 설정', 기본 07:30,
                      PUT /api/schedules/briefing). 예전에 자동으로 만든 브리핑은 마이그레이션이 껐다
                      (2) 완료: automation_occurrences(예정 시각마다 한 건, 건너뛴 이유), scheduled_jobs.timezone
                      (3) 완료: 숫자 조건 서버 비교(모델 없음), 실패는 unknown, 거짓→참+12시간 재알림, 날짜 고정·그 날 만료
-                     남은 것: (4) 구조화된 제안 (5) 예산 부족 표시
+                     (4) 완료: 예약 답은 AutomationReply(text, suggestions), 제안 버튼은 입력창에 채우기만
+                     (5) 완료: 예산 부족이면 감시 paused_budget, 자동화 화면 '오늘은 쉬는 중' 안내
+  배포 준비     완료  Railway(선택지 A)로 정함. API_ORIGIN 환경변수, apps/api/start.sh, DATABASE_URL 형식 변환.
+                     실제 배포는 Railway 계정 로그인·결제가 필요해 하지 않음 → docs/DEPLOY.md 순서대로
   7~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC, 6단계 보강 (3) 끝): API pytest 533개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
-웹: Biome 0건, tsc, Vitest 287개, Playwright 38개.
+검사(2026-11-17, 두 번째 PC, 6단계 보강·배포 준비 끝): API pytest 542개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
+웹: Biome 0건, tsc, Vitest 278개, Playwright 38개.
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 6단계 보강 (4)부터 이어서 진행해라"
-(5단계: 기억 원문 인용 검증, MEMORY_BLOCKING_TOOLS 제거, 기억 한도, 대화 삭제, 보관 기간 정리, docs/DATA_POLICY.md.
- 중간 단위마다 커밋·push)
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 7단계 보강을 진행해라(배포는 docs/DEPLOY.md, 계정 연결 뒤)"
+(7단계: 음성 외부 처리 안내, Gmail 승인·암호화 등 docs/STATUS.md 차이 목록. 중간 단위마다 커밋·push)
 
 
 ========================================
@@ -138,9 +140,9 @@
     결과 한 줄을 docs/EVALS.md 표에 붙인다. 가장 많이 틀린 유형 3개와 개선 제안은 그 뒤에 한다
     (밤사이 시험 실행을 하려 했으나 권한 검사에서 막혀 실행하지 않았다)
 
-(4) 배포처 정하기: docs/DEPLOY-OPTIONS.md. 권장안은 Railway 한 곳에 화면·API·DB를 모두 올리는 것(월 $5~11 추정).
-    배포 전에 고쳐야 할 코드 4가지(API 주소 환경변수화, DATABASE_URL 형식, 접속 로그 끄기, 배포용 시작 명령)도
-    그 문서에 있다. 실제 배포는 하지 않았다
+(4) 배포: Railway(선택지 A)로 정했고 배포 전 코드 변경은 끝났다(2026-11-17). 남은 것은 사용자가 할 일:
+    Railway 가입·Hobby 결제·사용량 한도 → 서비스 3개(Postgres, api=apps/api, web=apps/web) → 환경변수 →
+    Google 리디렉션 URI 추가 → 계정 만들기 → 폰 확인. 순서와 값은 docs/DEPLOY.md
 
 (5) 정해 주실 것
     - 한 건 삭제(기억)를 확인 없이 바로 지우는 방식이 괜찮은지

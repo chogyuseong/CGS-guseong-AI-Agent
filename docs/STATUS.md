@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 6단계 보강 진행 중(2026-11-17). (1) 브리핑 사용자 동의, (2) 발생 기록, (3) 감시 판정 끝. 다음은 (4) 구조화된 제안.
+현재 단계: BUILD_SPEC 기준 6단계 보강 완료(2026-11-17). 배포 전 코드 준비 끝(docs/DEPLOY.md, 실제 배포는 사용자 계정 연결 뒤). 다음은 7단계 보강(음성과 Gmail).
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -110,8 +110,10 @@ DBOS 워크플로 입력·단계 결과·message_history의 사용자 글은 5�
 - [x] automation_occurrences로 (job/watch, scheduled_for) 중복 방지, 누락은 유예 시간 안 1건만 — tests/test_occurrences.py
 - [x] 예약 하루 1회 이하, weekdays·time_of_day·timezone(scheduled_jobs.timezone, 기본 Asia/Seoul)
 - [x] 감시: 숫자 조건 서버 비교(LLM 없음), 판정 오류는 unknown, 재알림 최소 12시간, 단발성 날짜 고정 — tests/test_watch_conditions.py
-- [ ] 제안은 구조화된 배열(suggestions: title, proposed_user_message, reason). 지금은 `[제안]` 문자열 파싱
-- [ ] 예산 부족 시 paused_budget 표시
+- [x] 제안은 구조화된 배열(suggestions: title, proposed_user_message, reason) — app/agent/replies.py, tests/test_suggestions.py. 누르면 입력창에 채우기만
+- [x] 예산 부족 시 paused_budget 표시 — 감시 last_result paused_budget, 목록 API budget_paused, 자동화 화면 안내(tests/test_budget_pause.py)
+- 완료 증거: 같은 발생 시각 중복 없음·서버 중단 후 폭주 없음(test_occurrences), 숫자 감시 모델 호출 없음·날짜 고정(test_watch_conditions), EXTERNAL 계획 없음(test_automation_runs의 approvals 거부), 예산 부족 표시(test_budget_pause)
+- 남긴 것: 채팅 task 전체의 AgentReply(sources·needs_clarification), 예약 시간대는 서울만 만든다(컬럼은 있음)
 
 ### 7단계 — 음성과 Gmail
 - [ ] 음성 최초 사용 시 브라우저 서비스 외부 처리 안내
