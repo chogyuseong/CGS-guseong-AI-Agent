@@ -20,7 +20,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agent.durable import durable_step
 from app.agent.outbox import run_workflow_id
 from app.config import Settings
-from app.models import ActionPlan, AgentRun, ExecutionReceipt, Operation, OutboxEvent, Step, Task
+from app.models import (
+    ActionPlan,
+    AgentRun,
+    AutomationOccurrence,
+    ExecutionReceipt,
+    Operation,
+    OutboxEvent,
+    Step,
+    Task,
+)
 from app.models.enums import OperationStatus, OutboxStatus, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -68,6 +77,11 @@ async def prune_rows(factory: async_sessionmaker[AsyncSession], settings: Settin
         task_ids = await expired_task_ids(session, now - timedelta(days=settings.execution_retention_days))
         await clear_task_payloads(session, task_ids)
         receipts = await delete_old_receipts(session, now - timedelta(days=settings.receipt_retention_days))
+        await session.execute(
+            delete(AutomationOccurrence).where(
+                AutomationOccurrence.scheduled_for < now - timedelta(days=settings.execution_retention_days)
+            )
+        )
         active = await active_workflow_ids(session)
         await session.commit()
     return PrunedRows(len(task_ids), receipts, sorted(active))

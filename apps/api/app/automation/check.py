@@ -47,7 +47,7 @@ from app.agent.runner import RunServices
 from app.automation import retention, rules, store
 from app.automation.watch import WatchAgent, WatchReview, build_watch_prompt, judge
 from app.automation.watchable import run_watch_tool
-from app.models import Approval, Message, ScheduledJob, Step, Task, UsageLog, Watch
+from app.models import Approval, AutomationOccurrence, Message, ScheduledJob, Step, Task, UsageLog, Watch
 from app.models.enums import ApprovalStatus, MessageRole, TaskOrigin, TaskStatus, UsagePurpose
 from app.push import PushKind
 
@@ -174,6 +174,14 @@ async def find_due(factory: async_sessionmaker[AsyncSession], now: datetime) -> 
 
 # ---- 예약 작업 실행 ----
 
+# 6단계 보강: automation_occurrences의 값
+OCCURRENCE_SCHEDULE = "schedule"
+OCCURRENCE_WATCH = "watch"
+OCCURRENCE_STARTED = "started"
+OCCURRENCE_SKIPPED = "skipped"
+SKIP_MISSED = "missed"  # 유예 시간보다 오래 놓쳤다(서버가 꺼져 있었다)
+OCCURRENCE_SKIP_REASONS = {"expired": "expired", "skipped_budget": "budget"}
+
 
 @dataclass(frozen=True)
 class ScheduledRun:
@@ -204,24 +212,67 @@ async def create_schedule_task(session: AsyncSession, job: ScheduledJob, run_at:
     return task
 
 
+async def find_occurrence(
+    session: AsyncSession, kind: str, source_id: int, scheduled_for: datetime
+) -> AutomationOccurrence | None:
+    return await session.scalar(
+        select(AutomationOccurrence).where(
+            AutomationOccurrence.kind == kind,
+            AutomationOccurrence.source_id == source_id,
+            AutomationOccurrence.scheduled_for == scheduled_for,
+        )
+    )
+
+
+def add_occurrence(
+    session: AsyncSession, row: ScheduledJob | Watch, scheduled_for: datetime, *, skip: str | None, task_id: int | None
+) -> None:
+    """6단계 보강: 발생 한 건을 남긴다. 예약·감시 행을 잠근 트랜잭션 안에서 부르고, DB 유일 조건이 한 번 더 막는다."""
+    session.add(
+        AutomationOccurrence(
+            user_id=row.user_id,
+            kind=OCCURRENCE_SCHEDULE if isinstance(row, ScheduledJob) else OCCURRENCE_WATCH,
+            source_id=row.id,
+            scheduled_for=scheduled_for,
+            status=OCCURRENCE_SKIPPED if skip else OCCURRENCE_STARTED,
+            skip_reason=skip,
+            task_id=task_id,
+        )
+    )
+
+
+def replay_claim(job: ScheduledJob, occurrence: AutomationOccurrence) -> ScheduledRun | None:
+    """이미 잡힌 발생(복구·중복 시작): 실행했던 것이면 같은 task, 건너뛴 것이면 None."""
+    if occurrence.status != OCCURRENCE_STARTED or occurrence.task_id is None:
+        return None
+    return ScheduledRun(occurrence.task_id, job.prompt_text, done_kind_for(job))
+
+
 async def claim_schedule_run(
     factory: async_sessionmaker[AsyncSession], job_id: int, run_at: datetime, now: datetime
 ) -> ScheduledRun | None:
-    """이 예정 시각의 실행을 한 번만 잡는다. 이미 잡았으면(복구 때 다시 실행) 같은 task를 돌려준다."""
+    """이 예정 시각의 실행을 한 번만 잡는다(automation_occurrences). 이미 잡았으면 같은 task를 돌려준다.
+
+    유예 시간(2시간)보다 오래된 실행은 건너뛰고 이유(missed)를 남긴다. 다음 시각은 지금부터 다시 계산하므로
+    서버가 며칠 꺼져 있었어도 밀린 실행이 몰리지 않는다(예약마다 next_run_at이 하나뿐이라 많아야 1건).
+    """
     async with factory() as session:
         job = await lock_job(session, job_id)
         if job is None:
             return None
-        if job.last_run_at == run_at and job.last_task_id is not None:
-            return ScheduledRun(job.last_task_id, job.prompt_text, done_kind_for(job))
+        existing = await find_occurrence(session, OCCURRENCE_SCHEDULE, job.id, run_at)
+        if existing is not None:
+            return replay_claim(job, existing)
         if not job.is_active or job.next_run_at != run_at:
             return None
-        job.next_run_at = rules.next_schedule_run(job.time_of_day, job.weekdays, max(now, run_at))
+        job.next_run_at = rules.next_schedule_run(job.time_of_day, job.weekdays, max(now, run_at), job.timezone)
         if now - run_at > rules.SCHEDULE_CATCH_UP:
-            logger.info("예약 %s: %s 실행은 너무 오래전이라 건너뜀", job_id, run_at.isoformat())
+            logger.info("예약 %s: %s 실행은 유예 시간이 지나 건너뜀", job_id, run_at.isoformat())
+            add_occurrence(session, job, run_at, skip=SKIP_MISSED, task_id=None)
             await session.commit()
             return None
         task = await create_schedule_task(session, job, run_at)
+        add_occurrence(session, job, run_at, skip=None, task_id=task.id)
         claimed = ScheduledRun(task.id, job.prompt_text, done_kind_for(job))
         await session.commit()
         return claimed
@@ -262,12 +313,15 @@ async def claim_watch_run(services: RunServices, watch_id: int, run_at: datetime
         watch = await lock_watch(session, watch_id)
         if watch is None or not watch.is_active or watch.next_run_at != run_at:
             return None
+        if await find_occurrence(session, OCCURRENCE_WATCH, watch.id, run_at) is not None:
+            return None
         watch.next_run_at = now + timedelta(minutes=watch.interval_minutes)
         skip = None
         if watch.expires_at <= now:
             watch.is_active, skip = False, "expired"
         elif await daily_cost_exceeded(session, watch.user_id, services.settings):
             skip = "skipped_budget"
+        add_occurrence(session, watch, run_at, skip=OCCURRENCE_SKIP_REASONS.get(skip or ""), task_id=None)
         if skip is not None:
             watch.last_result = {"status": skip, "checked_at": now.isoformat()}
             await session.commit()

@@ -121,7 +121,7 @@ async def set_schedule_active(
     job = await owned_schedule(session, user_id, job_id)
     if active and not job.is_active:
         await ensure_schedule_room(session, user_id)
-        job.next_run_at = rules.next_schedule_run(job.time_of_day, job.weekdays, now)
+        job.next_run_at = rules.next_schedule_run(job.time_of_day, job.weekdays, now, job.timezone)
     job.is_active = active
     await session.flush()
     return job
@@ -289,6 +289,6 @@ async def enable_briefing(session: AsyncSession, user_id: int, *, time_text: str
     job.time_of_day = time_of_day
     job.weekdays = days
     job.is_active = True
-    job.next_run_at = rules.next_schedule_run(time_of_day, days, now)
+    job.next_run_at = rules.next_schedule_run(time_of_day, days, now, job.timezone or rules.DEFAULT_TIMEZONE)
     await session.flush()
     return job

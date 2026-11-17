@@ -1,5 +1,5 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-17 (BUILD_SPEC 기준 6단계 보강 진행 중: (1) 완료)
+마지막 갱신 2026-11-17 (BUILD_SPEC 기준 6단계 보강 진행 중: (1)(2) 완료)
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
@@ -59,14 +59,15 @@
                      남긴 것: 메일 실행 기록 암호화(7단계), 계정 삭제(요구사항에 없음), 배포 백업 실제 설정
   6단계 보강   진행  (1) 완료: 아침 브리핑은 사용자가 켠 뒤에만(자동화 화면 '아침 브리핑 설정', 기본 07:30,
                      PUT /api/schedules/briefing). 예전에 자동으로 만든 브리핑은 마이그레이션이 껐다
-                     남은 것: (2) 발생 기록·중복 방지 (3) 감시 판정(숫자 서버 비교, unknown) (4) 구조화된 제안 (5) 예산 부족 표시
+                     (2) 완료: automation_occurrences(예정 시각마다 한 건, 건너뛴 이유), scheduled_jobs.timezone
+                     남은 것: (3) 감시 판정(숫자 서버 비교, unknown) (4) 구조화된 제안 (5) 예산 부족 표시
   7~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC, 6단계 보강 (1) 끝): API pytest 515개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
+검사(2026-11-17, 두 번째 PC, 6단계 보강 (2) 끝): API pytest 520개, ruff·pyright 0건, alembic 업·다운·업과 check 차이 없음.
 웹: Biome 0건, tsc, Vitest 286개, Playwright 38개.
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 6단계 보강 (2)부터 이어서 진행해라"
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 6단계 보강 (3)부터 이어서 진행해라"
 (5단계: 기억 원문 인용 검증, MEMORY_BLOCKING_TOOLS 제거, 기억 한도, 대화 삭제, 보관 기간 정리, docs/DATA_POLICY.md.
  중간 단위마다 커밋·push)
 

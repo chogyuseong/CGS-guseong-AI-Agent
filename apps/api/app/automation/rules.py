@@ -17,7 +17,8 @@ from zoneinfo import ZoneInfo
 
 from app.agent.results import MAIL_TOOLS as MAIL_TOOLS
 
-SEOUL = ZoneInfo("Asia/Seoul")
+DEFAULT_TIMEZONE = "Asia/Seoul"
+SEOUL = ZoneInfo(DEFAULT_TIMEZONE)
 
 MAX_ACTIVE_SCHEDULES = 10
 MAX_ACTIVE_WATCHES = 10
@@ -71,12 +72,15 @@ def input_key(tool_input: dict[str, Any]) -> str:
     return json.dumps(tool_input, ensure_ascii=False, sort_keys=True)
 
 
-def next_schedule_run(time_of_day: time, weekdays: Sequence[int], after: datetime) -> datetime:
-    """after보다 뒤인(같은 시각은 제외) 가장 이른 실행 시각(서울 시간대)."""
-    local = after.astimezone(SEOUL)
+def next_schedule_run(
+    time_of_day: time, weekdays: Sequence[int], after: datetime, timezone: str = DEFAULT_TIMEZONE
+) -> datetime:
+    """after보다 뒤인(같은 시각은 제외) 가장 이른 실행 시각. 시각·요일은 timezone(기본 서울) 기준이다."""
+    zone = ZoneInfo(timezone)
+    local = after.astimezone(zone)
     for offset in range(8):
         day = local.date() + timedelta(days=offset)
-        candidate = datetime.combine(day, time_of_day, tzinfo=SEOUL)
+        candidate = datetime.combine(day, time_of_day, tzinfo=zone)
         if day.weekday() in weekdays and candidate > local:
             return candidate
     raise ValueError("요일 목록이 비어 있다")
