@@ -1,24 +1,31 @@
 """Google 계정 연결(OAuth) API 테스트. Google 서버 대신 가짜 HTTP(공식 문서 형식의 응답, 실제 응답 아님).
 
-흐름: GET /api/connections/google/start → 302 Google 동의 화면(state·PKCE를 세션에 저장)
+흐름: POST /api/connections/google/start → {authorization_url}
+     (4단계 보강: state는 DB에 해시로, 로그인 세션·10분·한 번 사용,
+     PKCE code_verifier는 암호화해 저장) → 화면이 그 주소로 이동 → Google 동의 화면
      → Google이 GET /api/connections/google/callback?code&state로 돌려보냄 → state 검증 → 토큰 교환
      → 토큰을 Fernet으로 암호화해 connections에 저장 → 302 {APP_ORIGIN}/connections?google=connected
 """
 
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.deps import AgentDeps
 from app.config import Settings
 from app.google_auth import CALENDAR_SCOPE, GMAIL_SCOPE
-from app.models import Connection, User
-from tests.conftest import TEST_FERNET_KEY, TEST_GOOGLE_REDIRECT, TEST_ORIGIN
+from app.models import ActionPlan, Connection, OAuthState, Operation, User
+from app.models.enums import OperationStatus
+from tests.conftest import TEST_FERNET_KEY, TEST_GOOGLE_REDIRECT, TEST_ORIGIN, login
 from tests.fake_http import FakeHttp, fixture_response, json_response
+from tests.plan_helpers import approve_directly
+from tests.test_gcal import CREATE_ARGS, connect_google
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
@@ -29,10 +36,10 @@ def error_redirect(reason: str) -> str:
     return f"{TEST_ORIGIN}/connections?google=error&reason={reason}"
 
 
-async def start(client: httpx.AsyncClient) -> dict[str, list[str]]:
-    response = await client.get("/api/connections/google/start")
-    assert response.status_code == 302, response.text
-    location = urlsplit(response.headers["location"])
+async def start(client: httpx.AsyncClient, **body: str) -> dict[str, list[str]]:
+    response = await client.post("/api/connections/google/start", json=body)
+    assert response.status_code == 200, response.text
+    location = urlsplit(response.json()["authorization_url"])
     assert f"{location.scheme}://{location.netloc}{location.path}" == "https://accounts.google.com/o/oauth2/v2/auth"
     return parse_qs(location.query)
 
@@ -205,11 +212,11 @@ async def test_start_without_encryption_key_is_not_available(
     test_settings.token_encryption_key = SecretStr("")
 
     listed = (await client.get("/api/connections")).json()[0]
-    response = await client.get("/api/connections/google/start")
+    response = await client.post("/api/connections/google/start", json={})
 
     assert listed["available"] is False
-    assert response.status_code == 302
-    assert response.headers["location"] == error_redirect("not_configured")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "not_configured"
 
 
 @pytest.mark.parametrize("revoke_reply", [httpx.Response(200), httpx.Response(400), httpx.ConnectError("끊김")])
@@ -249,12 +256,11 @@ async def test_disconnect_requires_origin(client: httpx.AsyncClient, logged_in_u
 # ---- 6단계: 4단계 화면 작업자가 찾은 문제 ----
 
 
-async def test_start_without_login_redirects_to_page(client: httpx.AsyncClient, fake_http: FakeHttp) -> None:
-    """브라우저 링크 이동으로 여는 주소라 JSON 401 대신 연결 화면으로 돌려보낸다(콜백과 같은 방식)."""
-    response = await client.get("/api/connections/google/start")
+async def test_start_requires_login(client: httpx.AsyncClient, fake_http: FakeHttp) -> None:
+    """4단계 보강: 시작은 상태를 만드는 POST라 로그인한 화면이 fetch로 부른다(로그인 안 했으면 401)."""
+    response = await client.post("/api/connections/google/start", json={})
 
-    assert response.status_code == 302
-    assert response.headers["location"] == error_redirect("not_logged_in")
+    assert response.status_code == 401
     assert fake_http.requests == []
 
 
@@ -281,11 +287,7 @@ async def test_connected_at_is_first_connection_time_not_token_refresh(
 
 
 async def start_mail(client: httpx.AsyncClient) -> dict[str, list[str]]:
-    response = await client.get("/api/connections/google/start", params={"scope": "mail"})
-    assert response.status_code == 302, response.text
-    location = urlsplit(response.headers["location"])
-    assert f"{location.scheme}://{location.netloc}{location.path}" == "https://accounts.google.com/o/oauth2/v2/auth"
-    return parse_qs(location.query)
+    return await start(client, scope="mail")
 
 
 async def test_default_start_never_requests_mail(
@@ -355,8 +357,76 @@ async def test_calendar_callback_does_not_report_mail(
 async def test_start_with_unknown_scope_is_rejected(
     client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp
 ) -> None:
-    response = await client.get("/api/connections/google/start", params={"scope": "gmail.send"})
+    response = await client.post("/api/connections/google/start", json={"scope": "gmail.send"})
 
-    assert response.status_code == 302
-    assert response.headers["location"] == error_redirect("invalid_request")
+    assert response.status_code == 422
     assert fake_http.requests == []
+
+
+# ---- 4단계 보강: state를 DB에 세션·만료·한 번 사용으로, 시작은 POST, 해제하면 대기 중 계획 무효화 ----
+
+
+async def test_start_by_get_is_not_allowed(client: httpx.AsyncClient, logged_in_user: User) -> None:
+    response = await client.get("/api/connections/google/start")
+
+    assert response.status_code == 405
+
+
+async def test_state_is_stored_hashed_and_verifier_encrypted(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp, db_session: AsyncSession
+) -> None:
+    state = (await start(client))["state"][0]
+
+    [row] = (await db_session.scalars(select(OAuthState).where(OAuthState.user_id == logged_in_user.id))).all()
+    assert row.state_hash != state and len(row.state_hash) == 64
+    assert row.used_at is None
+    assert row.add_mail is False
+    assert len(Fernet(TEST_FERNET_KEY.encode()).decrypt(row.encrypted_verifier.encode()).decode()) >= 43
+
+
+async def test_state_from_another_login_session_is_rejected(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp
+) -> None:
+    """같은 사용자라도 다른 로그인 세션(다른 기기·다시 로그인)에서 시작한 state는 받지 않는다."""
+    state = (await start(client))["state"][0]
+    await client.post("/api/auth/logout")
+    assert (await login(client, "me@example.com", "password-me")).status_code == 200
+
+    response = await callback(client, code="auth-code-123", state=state)
+
+    assert response.headers["location"] == error_redirect("invalid_state")
+    assert fake_http.requests == []
+
+
+async def test_expired_state_is_rejected(
+    client: httpx.AsyncClient, logged_in_user: User, fake_http: FakeHttp, db_session: AsyncSession
+) -> None:
+    state = (await start(client))["state"][0]
+    await db_session.execute(update(OAuthState).values(expires_at=datetime.now(UTC) - timedelta(seconds=1)))
+    await db_session.commit()
+
+    response = await callback(client, code="auth-code-123", state=state)
+
+    assert response.headers["location"] == error_redirect("invalid_state")
+    assert fake_http.requests == []
+
+
+async def test_disconnect_invalidates_pending_plans_of_that_connection(
+    client: httpx.AsyncClient, fake_http: FakeHttp, db_session: AsyncSession, tool_deps: AgentDeps
+) -> None:
+    await connect_google(tool_deps)
+    await approve_directly(db_session, tool_deps, "create_event", "call-oauth", CREATE_ARGS)
+    fake_http.route("POST", REVOKE_URL, httpx.Response(200))
+
+    response = await client.delete("/api/connections/google")
+
+    operation = await db_session.scalar(
+        select(Operation)
+        .join(ActionPlan, ActionPlan.id == Operation.plan_id)
+        .where(ActionPlan.tool_call_id == "call-oauth")
+        .execution_options(populate_existing=True)
+    )
+    assert response.status_code == 204
+    assert operation is not None
+    assert operation.status == OperationStatus.CANCELLED
+    assert operation.error_code == "connection_removed"

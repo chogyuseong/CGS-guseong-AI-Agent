@@ -164,7 +164,7 @@
 - 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.
 - 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
   (메일 결과는 steps.output·message_history에 500자만)와 `MEMORY_BLOCKING_TOOLS`(remember 검사: 외부 콘텐츠 + 메모·할 일 조회),
-  도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`/api/connections/google/start?scope=mail`)
+  도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`POST /api/connections/google/start` `{"scope": "mail"}`)
 - `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch)와 1분 검사 예약 등록
 
 ## 자동화 코드 지도 (apps/api/app/automation, 6단계)

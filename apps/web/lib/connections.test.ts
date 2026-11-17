@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api } from "@/lib/api/client";
 import {
   CALLBACK_REASONS,
   callbackNotice,
   formatConnectedDate,
-  GOOGLE_MAIL_START_URL,
-  GOOGLE_START_URL,
   hasCallbackParams,
+  startGoogleConnection,
 } from "./connections";
 
 const params = (query: string) => new URLSearchParams(query);
@@ -90,12 +90,47 @@ describe("콜백 안내(callbackNotice)", () => {
 });
 
 describe("연결 정보", () => {
-  it("연결 시작 주소는 API의 start 경로다(fetch가 아니라 링크로 이동)", () => {
-    expect(GOOGLE_START_URL).toBe("/api/connections/google/start");
+  afterEach(() => vi.restoreAllMocks());
+
+  it("연결 시작은 POST이고 서버가 준 Google 주소로 이동한다(4단계 보강)", async () => {
+    const post = vi.spyOn(api, "POST").mockResolvedValue({
+      data: { authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?x=1" },
+      response: new Response(null, { status: 200 }),
+    } as never);
+    const navigate = vi.fn();
+
+    await startGoogleConnection("mail", navigate);
+
+    expect(post).toHaveBeenCalledWith("/api/connections/google/start", { body: { scope: "mail" } });
+    expect(navigate).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth?x=1");
   });
 
-  it("메일 읽기 권한 추가는 같은 start 경로에 scope=mail을 붙인다", () => {
-    expect(GOOGLE_MAIL_START_URL).toBe("/api/connections/google/start?scope=mail");
+  it("기본 연결은 scope 없이 보낸다", async () => {
+    const post = vi.spyOn(api, "POST").mockResolvedValue({
+      data: { authorization_url: "https://accounts.google.com/o/oauth2/v2/auth" },
+      response: new Response(null, { status: 200 }),
+    } as never);
+
+    await startGoogleConnection(undefined, vi.fn());
+
+    expect(post).toHaveBeenCalledWith("/api/connections/google/start", { body: {} });
+  });
+
+  it("서버 설정이 없거나(409) 네트워크가 끊기면 한국어 오류를 던지고 이동하지 않는다", async () => {
+    const navigate = vi.fn();
+    vi.spyOn(api, "POST").mockResolvedValueOnce({
+      data: undefined,
+      error: { detail: { code: "not_configured", message: "x" } },
+      response: new Response(null, { status: 409 }),
+    } as never);
+    await expect(startGoogleConnection(undefined, navigate)).rejects.toThrow(
+      "서버에 Google 연결 설정이 없어",
+    );
+    vi.spyOn(api, "POST").mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(startGoogleConnection(undefined, navigate)).rejects.toThrow(
+      "네트워크를 확인해 주세요",
+    );
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("연결 날짜는 서울 기준 연·월·일", () => {

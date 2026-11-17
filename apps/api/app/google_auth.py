@@ -23,7 +23,6 @@ import hashlib
 import json
 import logging
 import secrets
-import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -36,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.deps import AgentDeps
 from app.config import Settings
-from app.models import Connection
+from app.models import Connection, OAuthState
 from app.security import token_cipher
 from app.tools import http
 from app.tools.http import ExternalApiError
@@ -56,7 +55,6 @@ CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned"
 # Google 분류상 restricted 범위다(docs/TOOLS.md). 점진적 권한 부여(include_granted_scopes=true)로 캘린더 권한과
 # 합친 토큰을 받는다. 합친 권한은 철회하면 한꺼번에 사라진다(메일만 따로 철회할 수 없다, 공식 문서).
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-SESSION_KEY = "google_oauth"
 STATE_TTL_SECONDS = 600
 REFRESH_MARGIN = timedelta(seconds=60)  # 만료 1분 전이면 미리 갱신한다
 
@@ -122,8 +120,8 @@ def code_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def new_authorization(settings: Settings, *, add_mail: bool = False) -> tuple[str, dict[str, Any]]:
-    """Google 동의 화면 주소와 세션에 넣을 값(state, code_verifier, 만든 시각, 메일 요청 여부)을 만든다.
+def new_authorization(settings: Settings, *, add_mail: bool = False) -> tuple[str, str, str]:
+    """Google 동의 화면 주소, state, PKCE code_verifier를 만든다. state·verifier는 save_state로 DB에 둔다.
 
     add_mail=True('메일 읽기 권한 추가')면 캘린더 범위와 gmail.readonly를 함께 요청한다. 이미 허용한 범위는
     include_granted_scopes=true로 합쳐지고(점진적 권한 부여), 처음 연결이어도 캘린더가 같이 요청되어 연결이 성립한다.
@@ -143,25 +141,62 @@ def new_authorization(settings: Settings, *, add_mail: bool = False) -> tuple[st
         "code_challenge": code_challenge(verifier),
         "code_challenge_method": "S256",
     }
-    pending = {"state": state, "verifier": verifier, "created_at": time.time(), "mail": add_mail}
-    return f"{AUTH_URL}?{urlencode(params)}", pending
+    return f"{AUTH_URL}?{urlencode(params)}", state, verifier
 
 
-def requested_mail(pending: object) -> bool:
-    """세션에 저장한 인증 요청이 '메일 읽기 권한 추가'였는가."""
-    return isinstance(pending, dict) and pending.get("mail") is True
+def hash_state(state: str) -> str:
+    return hashlib.sha256(state.encode("utf-8")).hexdigest()
 
 
-def verifier_for(pending: object, state: str | None) -> str | None:
-    """세션에 저장한 state와 같고 10분이 지나지 않았으면 code_verifier를, 아니면 None을 돌려준다."""
-    if not isinstance(pending, dict) or not state:
+async def save_state(
+    session: AsyncSession, *, user_id: int, session_id: int, state: str, verifier: str, add_mail: bool, cipher: Fernet
+) -> None:
+    """시작한 연결 요청을 남긴다(state는 해시, verifier는 암호화). 커밋은 호출한 쪽."""
+    session.add(
+        OAuthState(
+            user_id=user_id,
+            session_id=session_id,
+            state_hash=hash_state(state),
+            encrypted_verifier=cipher.encrypt(verifier.encode("ascii")).decode("ascii"),
+            add_mail=add_mail,
+            expires_at=datetime.now(UTC) + timedelta(seconds=STATE_TTL_SECONDS),
+        )
+    )
+
+
+@dataclass(frozen=True)
+class PendingAuthorization:
+    verifier: str
+    add_mail: bool
+
+
+async def consume_state(
+    session: AsyncSession, *, user_id: int, session_id: int, state: str | None, cipher: Fernet
+) -> PendingAuthorization | None:
+    """콜백의 state가 이 사용자·이 로그인 세션이 시작한 것이고, 만료 전이고, 처음 쓰는 것일 때만 verifier를 준다.
+
+    행을 잠그고 used_at을 채운다(같은 state로 두 번 들어와도 한 번만 통과). 커밋은 호출한 쪽.
+    """
+    if not state:
         return None
-    saved, verifier, created_at = pending.get("state"), pending.get("verifier"), pending.get("created_at")
-    if not (isinstance(saved, str) and isinstance(verifier, str) and isinstance(created_at, int | float)):
+    row = await session.scalar(
+        select(OAuthState)
+        .where(
+            OAuthState.state_hash == hash_state(state),
+            OAuthState.user_id == user_id,
+            OAuthState.session_id == session_id,
+        )
+        .with_for_update()
+    )
+    now = datetime.now(UTC)
+    if row is None or row.used_at is not None or row.expires_at <= now:
         return None
-    if time.time() - created_at > STATE_TTL_SECONDS or not secrets.compare_digest(saved, state):
+    row.used_at = now
+    try:
+        verifier = cipher.decrypt(row.encrypted_verifier.encode("ascii")).decode("ascii")
+    except InvalidToken:
         return None
-    return verifier
+    return PendingAuthorization(verifier=verifier, add_mail=row.add_mail)
 
 
 # ---- 2. 토큰 교환·갱신·철회 (Google 서버) ----
@@ -301,14 +336,35 @@ async def access_token(deps: AgentDeps, *, scope: str = CALENDAR_SCOPE, force_re
         raise GoogleNotConnectedError(MISSING_SCOPE_MESSAGES.get(scope, NOT_CONNECTED_MESSAGE))
     if not force_refresh and tokens.expires_at - REFRESH_MARGIN > datetime.now(UTC):
         return tokens.access_token
-    try:
-        refreshed = await refresh_tokens(deps.http, deps.settings, tokens)
-    except GoogleReconnectRequiredError:
-        async with deps.db() as session:
-            await delete_connection(session, deps.user_id)
-            await session.commit()
-        raise
+    return await refresh_locked(deps, cipher, used_access=tokens.access_token)
+
+
+async def refresh_locked(deps: AgentDeps, cipher: Fernet, *, used_access: str) -> str:
+    """연결 행을 잠근 채 갱신한다(4단계 보강, BUILD_SPEC 10.5 동시 갱신 충돌 방지).
+
+    기다리는 사이 다른 요청이 이미 갱신했으면(토큰이 바뀌었고 아직 유효) 그 토큰을 쓰고 Google에 다시 요청하지 않는다.
+    갱신이 invalid_grant면 연결을 지운다(다시 연결 필요).
+    """
     async with deps.db() as session:
+        row = await session.scalar(
+            select(Connection)
+            .where(Connection.user_id == deps.user_id, Connection.provider == PROVIDER)
+            .with_for_update()
+        )
+        if row is None:
+            raise GoogleNotConnectedError
+        try:
+            current = GoogleTokens.decrypt(row, cipher)
+        except (InvalidToken, ValueError, KeyError) as error:
+            raise GoogleReconnectRequiredError from error
+        if current.access_token != used_access and current.expires_at - REFRESH_MARGIN > datetime.now(UTC):
+            return current.access_token
+        try:
+            refreshed = await refresh_tokens(deps.http, deps.settings, current)
+        except GoogleReconnectRequiredError:
+            await session.delete(row)
+            await session.commit()
+            raise
         await save_tokens(session, deps.user_id, refreshed, cipher)
         await session.commit()
-    return refreshed.access_token
+        return refreshed.access_token

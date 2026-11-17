@@ -52,6 +52,9 @@ NOT_APPROVED_MESSAGE = "승인 기록이 없는 외부 도구 실행을 막았�
 TARGET_CHANGED = "target_changed"
 IN_PROGRESS = (OperationStatus.EXECUTING, OperationStatus.UNKNOWN, OperationStatus.RECONCILING)
 ALREADY_RUNNING_MESSAGE = "이 외부 작업은 이미 실행 중이거나 결과 확인이 필요합니다. 다시 실행하지 않았습니다."
+CONNECTION_REMOVED_MESSAGE = (
+    "외부 계정 연결이 해제되어 이 승인으로는 실행할 수 없습니다. 다시 연결한 뒤 새로 요청해 주세요."
+)
 CLOSED_MESSAGE = "이 외부 작업은 이미 끝났거나 실행할 수 없는 상태라 다시 실행하지 않았습니다."
 
 
@@ -139,6 +142,8 @@ async def early_result(session: AsyncSession, row: PlanRow) -> ToolResult | None
         return ToolResult.unknown(ALREADY_RUNNING_MESSAGE, error_code="already_executing")
     if status in (OperationStatus.PLANNED, OperationStatus.AWAITING_APPROVAL):
         raise PermissionError(NOT_APPROVED_MESSAGE)
+    if row.operation.error_code == "connection_removed":
+        return ToolResult.failure(CONNECTION_REMOVED_MESSAGE, error_code="connection_removed")
     return ToolResult.failure(CLOSED_MESSAGE, error_code="operation_closed")
 
 

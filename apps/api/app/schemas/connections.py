@@ -14,8 +14,29 @@ class ConnectionOut(BaseModel):
     # 캘린더 일정 권한이 있는가(세부 동의 화면에서 뺄 수 있다)
     calendar: bool
     # 7단계: 메일 읽기 권한(gmail.readonly)이 있는가.
-    # false면 '메일 읽기 권한 추가'(GET /api/connections/google/start?scope=mail 링크)를 보여 준다.
+    # false면 '메일 읽기 권한 추가'(POST /api/connections/google/start {scope: "mail"})를 보여 준다.
     # 메일 권한만 따로 끌 수는 없다(Google은 합친 권한을 한꺼번에 철회한다). 빼려면 연결 해제 후 다시 연결한다.
     mail: bool
     scopes: list[str] = Field(default_factory=list)
     connected_at: datetime | None = None
+
+
+class GoogleStartRequest(BaseModel):
+    """연결 시작(4단계 보강: POST). scope="mail"이면 '메일 읽기 권한 추가'(캘린더 + gmail.readonly)."""
+
+    scope: Literal["mail"] | None = None
+
+
+class GoogleStartOut(BaseModel):
+    """화면은 이 주소로 이동한다(window.location). state는 서버 DB에만 있다."""
+
+    authorization_url: str
+
+
+class ConnectionErrorDetail(BaseModel):
+    code: Literal["not_configured"]
+    message: str
+
+
+class ConnectionErrorOut(BaseModel):
+    detail: ConnectionErrorDetail

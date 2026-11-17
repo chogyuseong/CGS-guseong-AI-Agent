@@ -96,7 +96,7 @@
   (`gmail.send`, `gmail.modify`, `mail.google.com`)는 쓰지 않는다.
 - **restricted 범위다.** 공개 앱은 restricted 범위 검증(서버에 데이터를 저장·전송하면 보안 평가)이 필요하다. 개인용 '테스트' 게시
   상태에서는 테스트 사용자로 등록한 계정만 쓸 수 있고 동의 화면에 "확인되지 않은 앱" 경고가 뜬다.
-- 기본 연결(`GET /api/connections/google/start`)은 캘린더만 요청한다. `GET /api/connections/google/start?scope=mail`일 때만
+- 기본 연결(`POST /api/connections/google/start`, 본문 없음)은 캘린더만 요청한다. 본문이 `{"scope": "mail"}`일 때만
   `scope=calendar.events.owned gmail.readonly`, `include_granted_scopes=true`로 요청한다. 공식 문서: 합친 권한(combined
   authorization)의 토큰은 합친 모든 범위에 쓸 수 있고, 응답의 `scope`에 허용된 범위가 공백으로 구분되어 온다.
 - 세부 동의: 사용자가 메일만 빼고 허용할 수 있다(문서: 앱은 응답의 `scope`를 확인해 빠진 기능을 끈다). 이때 캘린더 연결은 저장하고

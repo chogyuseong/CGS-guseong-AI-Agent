@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 4단계 보강 진행 중(2026-11-17). (1) 일정 생성 중복 방지, (2) 수정·삭제 ETag·정책 끝. 다음은 (3) OAuth.
+현재 단계: BUILD_SPEC 기준 4단계 보강 진행 중(2026-11-17). (1) 일정 생성 중복 방지, (2) 수정·삭제 ETag·정책, (3) OAuth 끝. 다음은 (4) draft_message.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -93,7 +93,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] update/delete_event: ETag 조건부 요청, 대상 변경 시 stale → 재조회 → 재승인 — tests/test_gcal_change.py
 - [x] 참석자 있는 일정 수정·삭제 거부, 반복 일정 시리즈 변경 제외 — tests/test_gcal_change.py
 - [ ] draft_message 도구(INTERNAL, 초안만, 복사 버튼)
-- [ ] OAuth: 시작을 POST로, state를 DB에 세션·만료·단일 사용으로, 연결 해제 시 대기 중 계획 무효화
+- [x] OAuth: 시작을 POST로, state를 DB에 세션·만료·단일 사용으로, 연결 해제 시 대기 중 계획 무효화 — tests/test_google_connection.py, e2e/connections.spec.ts
 - [ ] 도구 정의에 데이터 전송 등급(public/user_private/mail_private/secret)과 정책
 - [ ] TOOL 규약을 BUILD_SPEC 17절 체크리스트로
 

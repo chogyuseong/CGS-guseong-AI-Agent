@@ -1,9 +1,10 @@
 // 외부 서비스 연결(4단계: Google) 화면이 쓰는 서버 호출과 문구. 타입은 pnpm gen:api가 만든 schema.d.ts에서 꺼낸다.
 //
-// 연결 흐름(apps/api/app/routers/connections.py):
-//   [Google 계정 연결] 링크 → GET /api/connections/google/start(링크 이동, fetch 아님) → Google 동의 화면
+// 연결 흐름(apps/api/app/routers/connections.py, 4단계 보강):
+//   [Google 계정 연결] 버튼 → POST /api/connections/google/start → {authorization_url} → 그 주소로 이동(Google 동의 화면)
 //   → 콜백 → /connections?google=connected 또는 /connections?google=error&reason=<코드>로 돌아온다.
-//   [메일 읽기 권한 추가] 링크 → GET /api/connections/google/start?scope=mail → 성공하면 ?google=connected&added=mail.
+//   state는 서버 DB에 이 로그인 세션·10분·한 번 사용으로 묶여 있다(화면은 state를 모른다).
+//   [메일 읽기 권한 추가] 버튼 → 같은 POST에 {scope: "mail"} → 성공하면 ?google=connected&added=mail.
 //   메일 권한만 끄는 방법은 없다(Google이 범위 일부 철회를 지원하지 않음). 빼려면 연결 해제 후 캘린더만 다시 연결한다.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
@@ -12,10 +13,9 @@ import type { components } from "@/lib/api/schema";
 export type Connection = components["schemas"]["ConnectionOut"];
 
 export const CONNECTIONS_PATH = "/connections";
-export const GOOGLE_START_URL = "/api/connections/google/start";
-// 7단계 '메일 읽기 권한 추가': 같은 start 경로에 scope=mail. 서버가 캘린더 + gmail.readonly를 함께 요청한다
-// (연결 전에 눌러도 캘린더와 메일이 함께 연결된다). 기본 연결(GOOGLE_START_URL)은 캘린더만 요청한다.
-export const GOOGLE_MAIL_START_URL = `${GOOGLE_START_URL}?scope=mail`;
+// 7단계 '메일 읽기 권한 추가'는 scope="mail". 서버가 캘린더 + gmail.readonly를 함께 요청한다
+// (연결 전에 눌러도 캘린더와 메일이 함께 연결된다). 기본 연결(scope 없음)은 캘린더만 요청한다.
+export type StartScope = "mail" | undefined;
 export const connectionKeys = { all: ["connections"] as const };
 
 export type Notice = { tone: "success" | "error"; text: string };
@@ -103,4 +103,27 @@ export function useDisconnectGoogle() {
     mutationFn: disconnectGoogle,
     onSettled: () => queryClient.invalidateQueries({ queryKey: connectionKeys.all }),
   });
+}
+
+const START_FALLBACK = "연결을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+const START_ERRORS: Record<number, string> = {
+  401: "로그인이 풀려 연결을 시작하지 못했습니다. 다시 로그인한 뒤 연결해 주세요.",
+  409: CALLBACK_REASONS.not_configured ?? START_FALLBACK,
+};
+const NETWORK_TEXT = "서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.";
+
+// 연결 시작(4단계 보강: POST). 서버가 준 Google 동의 화면 주소로 이동한다. 이동은 navigate로 받아 테스트에서 바꾼다.
+export async function startGoogleConnection(
+  scope: StartScope,
+  navigate: (url: string) => void = (url) => window.location.assign(url),
+): Promise<void> {
+  const result = await api
+    .POST("/api/connections/google/start", { body: scope ? { scope } : {} })
+    .catch(() => {
+      throw new Error(NETWORK_TEXT);
+    });
+  if (result.data === undefined) {
+    throw new Error(START_ERRORS[result.response.status] ?? START_FALLBACK);
+  }
+  navigate(result.data.authorization_url);
 }

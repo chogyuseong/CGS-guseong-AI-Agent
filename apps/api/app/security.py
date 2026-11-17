@@ -5,8 +5,8 @@ DB sessions 테이블에는 토큰의 SHA-256 해시만 저장한다. Django의 
 - 로그인할 때 지금 쿠키의 세션을 지우고 새 토큰을 만든다(세션 고정 방지).
 - 로그아웃하면 행을 지운다. 서명 쿠키 방식과 달리 복사해 둔 쿠키도 바로 무효가 된다.
 - 만료: 로그인 후 14일(고정). 만료된 행은 같은 사용자가 다시 로그인할 때 지운다.
-Google 연결의 OAuth state만 Starlette SessionMiddleware(서명 쿠키 myagent_oauth, 10분)에 둔다.
-4단계 보강에서 DB로 옮긴다(docs/DECISIONS.md).
+Google 연결의 OAuth state는 4단계 보강부터 DB(oauth_states)에 로그인 세션·만료·한 번 사용으로 묶어 둔다
+(app/google_auth.py). 예전 서명 쿠키(myagent_oauth)는 쓰지 않는다.
 
 CSRF: 상태를 바꾸는 요청(GET/HEAD/OPTIONS 외)은 Origin 헤더가 APP_ORIGIN과 정확히 같아야 한다.
 다르거나 없으면 403(Origin이 없는 요청도 거부한다). SameSite=Lax 쿠키와 함께 이중으로 막는다.
@@ -25,7 +25,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers
-from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -37,8 +36,6 @@ logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "myagent_session"
 SESSION_MAX_AGE = timedelta(days=14)
-OAUTH_STATE_COOKIE_NAME = "myagent_oauth"
-OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # bcrypt는 72바이트까지만 비밀번호로 쓴다. bcrypt 5.0부터는 넘으면 ValueError를 낸다.
 BCRYPT_MAX_BYTES = 72
@@ -110,15 +107,22 @@ async def end_session(db: AsyncSession, request: Request, response: Response, se
 
 async def user_from_request(request: Request, db: AsyncSession) -> User | None:
     """쿠키의 토큰으로 만료되지 않은 세션의 사용자를 찾는다. 없으면 None."""
+    found = await session_from_request(request, db)
+    return found[0] if found else None
+
+
+async def session_from_request(request: Request, db: AsyncSession) -> tuple[User, UserSession] | None:
+    """쿠키의 로그인 세션 행과 그 사용자. OAuth state를 이 세션에 묶을 때 쓴다(4단계 보강)."""
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
     query = (
-        select(User)
+        select(User, UserSession)
         .join(UserSession, UserSession.user_id == User.id)
         .where(UserSession.token_hash == hash_token(token), UserSession.expires_at > datetime.now(UTC))
     )
-    return await db.scalar(query)
+    row = (await db.execute(query)).one_or_none()
+    return (row[0], row[1]) if row else None
 
 
 async def get_current_user(request: Request, session: DbSession) -> User:
@@ -172,14 +176,5 @@ def token_cipher(settings: Settings) -> Fernet | None:
 
 
 def add_security_middleware(app: FastAPI, settings: Settings) -> None:
-    # 나중에 추가한 미들웨어가 바깥쪽에서 먼저 실행된다: Origin 검사 -> OAuth state 쿠키 -> 라우터.
-    # 로그인 세션은 미들웨어가 아니라 get_current_user가 DB에서 확인한다.
-    app.add_middleware(
-        SessionMiddleware,
-        secret_key=settings.session_secret.get_secret_value(),
-        session_cookie=OAUTH_STATE_COOKIE_NAME,
-        max_age=OAUTH_STATE_MAX_AGE_SECONDS,
-        same_site="lax",
-        https_only=settings.cookie_secure,
-    )
+    # 로그인 세션은 미들웨어가 아니라 get_current_user가 DB에서 확인한다. OAuth state도 DB(4단계 보강).
     app.add_middleware(OriginCheckMiddleware, allowed_origin=settings.app_origin)

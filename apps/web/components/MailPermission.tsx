@@ -1,8 +1,7 @@
 import { Mail } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { type Connection, GOOGLE_MAIL_START_URL } from "@/lib/connections";
-import { cn } from "@/lib/utils";
+import type { Connection } from "@/lib/connections";
+import { type StartConnection, StartConnectionButton } from "./StartConnectionButton";
 
 // 7단계: 연결 화면의 '메일 읽기 권한' 영역. 기본 연결(캘린더만)과 따로 둔다.
 // gmail.readonly는 사용자가 [메일 읽기 권한 추가]를 누를 때만 요청한다(명세 7단계 2번).
@@ -17,9 +16,13 @@ const NOT_CONNECTED_TEXT =
 // Google은 합쳐서 받은 권한 중 일부만 철회하는 방법을 제공하지 않는다(docs/DECISIONS.md 7단계 API 절).
 const REMOVE_TEXT =
   "메일 권한만 끄는 방법은 없습니다(Google이 권한 일부만 철회하는 기능을 제공하지 않습니다). 메일 권한을 빼려면 연결 해제 후 캘린더만 다시 연결하세요. 연결된 채로 [다시 연결]을 눌러도 메일 권한은 남습니다.";
-const BIG_BUTTON = "h-12 w-full min-w-0 text-base";
-
-export function MailPermission({ connection }: { connection: Connection }) {
+export function MailPermission({
+  connection,
+  onStart,
+}: {
+  connection: Connection;
+  onStart: StartConnection;
+}) {
   const granted = connection.connected && connection.mail;
   return (
     <section
@@ -43,29 +46,29 @@ export function MailPermission({ connection }: { connection: Connection }) {
       {granted ? (
         <p className="break-words text-sm">{REMOVE_TEXT}</p>
       ) : (
-        <AddMailAction connection={connection} />
+        <AddMailAction connection={connection} onStart={onStart} />
       )}
     </section>
   );
 }
 
-// 링크 이동(fetch 아님): 서버가 Google 동의 화면으로 302 한다. next/link를 쓰지 않는 이유는 GoogleConnection과 같다.
-function AddMailAction({ connection }: { connection: Connection }) {
+// 4단계 보강: POST로 시작해 서버가 준 Google 동의 화면 주소로 이동한다(StartConnectionButton).
+function AddMailAction({
+  connection,
+  onStart,
+}: {
+  connection: Connection;
+  onStart: StartConnection;
+}) {
   return (
     <>
       {!connection.connected && <p className="text-sm">{NOT_CONNECTED_TEXT}</p>}
-      {connection.available ? (
-        <a
-          href={GOOGLE_MAIL_START_URL}
-          className={cn(buttonVariants({ variant: "outline" }), BIG_BUTTON)}
-        >
-          메일 읽기 권한 추가
-        </a>
-      ) : (
-        <Button type="button" variant="outline" disabled className={BIG_BUTTON}>
-          메일 읽기 권한 추가
-        </Button>
-      )}
+      <StartConnectionButton
+        label="메일 읽기 권한 추가"
+        scope="mail"
+        available={connection.available}
+        onStart={onStart}
+      />
     </>
   );
 }

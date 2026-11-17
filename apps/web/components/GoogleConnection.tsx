@@ -3,16 +3,16 @@
 import { CalendarDays, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   type Connection,
   formatConnectedDate,
-  GOOGLE_START_URL,
+  startGoogleConnection,
   useConnections,
   useDisconnectGoogle,
 } from "@/lib/connections";
-import { cn } from "@/lib/utils";
 import { MailPermission } from "./MailPermission";
+import { type StartConnection, StartConnectionButton } from "./StartConnectionButton";
 
 const PERMISSION_LINES = [
   "기본 연결이 요청하는 권한: 내 캘린더의 일정 보기·만들기·고치기·지우기. 메일은 요청하지 않습니다(메일 읽기는 아래에서 따로 추가합니다).",
@@ -47,9 +47,16 @@ type ViewProps = {
   loadError: boolean;
   // 연결을 해제한다. 실패하면 한국어 문장을 담은 Error를 던진다.
   onDisconnect: () => Promise<void>;
+  // 연결을 시작한다(POST 후 Google 동의 화면으로 이동). 테스트는 가짜 함수를 넘긴다.
+  onStart?: StartConnection;
 };
 
-export function GoogleConnectionView({ connection, loadError, onDisconnect }: ViewProps) {
+export function GoogleConnectionView({
+  connection,
+  loadError,
+  onDisconnect,
+  onStart = startGoogleConnection,
+}: ViewProps) {
   const flow = useDisconnectFlow(onDisconnect);
   return (
     <section
@@ -68,7 +75,7 @@ export function GoogleConnectionView({ connection, loadError, onDisconnect }: Vi
           <li key={line}>{line}</li>
         ))}
       </ul>
-      <ConnectionBody connection={connection} loadError={loadError} flow={flow} />
+      <ConnectionBody connection={connection} loadError={loadError} flow={flow} onStart={onStart} />
       {flow.done && (
         <p role="status" className="text-sm">
           Google 연결을 해제했습니다.
@@ -127,9 +134,14 @@ function useDisconnectFlow(onDisconnect: ViewProps["onDisconnect"]) {
   return { confirming, busy, error, done, submit, ask, cancel: () => setConfirming(false) };
 }
 
-type BodyProps = { connection: Connection | undefined; loadError: boolean; flow: DisconnectFlow };
+type BodyProps = {
+  connection: Connection | undefined;
+  loadError: boolean;
+  flow: DisconnectFlow;
+  onStart: StartConnection;
+};
 
-function ConnectionBody({ connection, loadError, flow }: BodyProps) {
+function ConnectionBody({ connection, loadError, flow, onStart }: BodyProps) {
   if (connection === undefined) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -146,8 +158,14 @@ function ConnectionBody({ connection, loadError, flow }: BodyProps) {
     return (
       <>
         {notConfigured}
-        <ConnectAction available={connection.available} label="Google 계정 연결" primary />
-        <MailPermission connection={connection} />
+        <StartConnectionButton
+          label="Google 계정 연결"
+          scope={undefined}
+          available={connection.available}
+          onStart={onStart}
+          primary
+        />
+        <MailPermission connection={connection} onStart={onStart} />
       </>
     );
   }
@@ -155,8 +173,13 @@ function ConnectionBody({ connection, loadError, flow }: BodyProps) {
     <>
       <ConnectedDetails connection={connection} />
       {notConfigured}
-      <MailPermission connection={connection} />
-      <ConnectAction available={connection.available} label="다시 연결" />
+      <MailPermission connection={connection} onStart={onStart} />
+      <StartConnectionButton
+        label="다시 연결"
+        scope={undefined}
+        available={connection.available}
+        onStart={onStart}
+      />
       <DisconnectArea flow={flow} />
     </>
   );
@@ -179,24 +202,6 @@ function ConnectedDetails({ connection }: { connection: Connection }) {
       </dl>
       {!connection.calendar && <p className="text-sm text-destructive">{NO_CALENDAR_TEXT}</p>}
     </>
-  );
-}
-
-// 연결은 fetch가 아니라 링크 이동이다(서버가 Google 동의 화면으로 302). next/link를 쓰지 않는 이유:
-// 미리 가져오기(prefetch)나 클라이언트 이동이 API 주소를 건드리지 않게 하려는 것이다.
-function ConnectAction(props: { available: boolean; label: string; primary?: boolean }) {
-  const variant = props.primary ? "default" : "outline";
-  if (!props.available) {
-    return (
-      <Button type="button" variant={variant} disabled className={BIG_BUTTON}>
-        {props.label}
-      </Button>
-    );
-  }
-  return (
-    <a href={GOOGLE_START_URL} className={cn(buttonVariants({ variant }), BIG_BUTTON)}>
-      {props.label}
-    </a>
   );
 }
 
@@ -239,7 +244,8 @@ function DisconnectConfirm({ flow }: { flow: DisconnectFlow }) {
       <p className="text-sm font-medium text-destructive">Google 연결을 해제할까요?</p>
       <p className="text-sm">
         해제하면 채팅에서 캘린더 일정을 보거나 만들 수 없고 메일도 읽을 수 없습니다. Google 쪽 권한
-        철회도 함께 요청합니다.
+        철회도 함께 요청합니다. 승인을 기다리던 일정 작업은 실행되지 않습니다. 대화와 작업 기록은
+        지워지지 않습니다(연결 해제는 기록 삭제와 다릅니다).
       </p>
       <div className="grid grid-cols-2 gap-2">
         <Button type="button" onClick={flow.submit} disabled={flow.busy} className={BIG_BUTTON}>

@@ -295,15 +295,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
          * Google Start
-         * @description 화면이 링크 이동으로 여는 주소라 로그인하지 않았으면 JSON 401 대신 연결 화면으로 돌려보낸다(6단계).
-         *
-         *     scope=mail이면 '메일 읽기 권한 추가'(7단계): 캘린더 + gmail.readonly를 요청한다. 다른 값은 invalid_request.
+         * @description Google 동의 화면 주소를 만든다. state를 이 로그인 세션에 묶어 DB에 남긴다(만료 10분, 한 번 사용).
          */
-        get: operations["google_start_api_connections_google_start_get"];
-        put?: never;
-        post?: never;
+        post: operations["google_start_api_connections_google_start_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -581,6 +579,20 @@ export interface components {
             task_id: number;
             status: components["schemas"]["TaskStatus"];
         };
+        /** ConnectionErrorDetail */
+        ConnectionErrorDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "not_configured";
+            /** Message */
+            message: string;
+        };
+        /** ConnectionErrorOut */
+        ConnectionErrorOut: {
+            detail: components["schemas"]["ConnectionErrorDetail"];
+        };
         /** ConnectionOut */
         ConnectionOut: {
             /**
@@ -622,6 +634,22 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * GoogleStartOut
+         * @description 화면은 이 주소로 이동한다(window.location). state는 서버 DB에만 있다.
+         */
+        GoogleStartOut: {
+            /** Authorization Url */
+            authorization_url: string;
+        };
+        /**
+         * GoogleStartRequest
+         * @description 연결 시작(4단계 보강: POST). scope="mail"이면 '메일 읽기 권한 추가'(캘린더 + gmail.readonly).
+         */
+        GoogleStartRequest: {
+            /** Scope */
+            scope?: "mail" | null;
         };
         /**
          * GuardOut
@@ -1711,23 +1739,36 @@ export interface operations {
             };
         };
     };
-    google_start_api_connections_google_start_get: {
+    google_start_api_connections_google_start_post: {
         parameters: {
-            query?: {
-                scope?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["GoogleStartRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
-            302: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["GoogleStartOut"];
+                };
+            };
+            /** @description detail.code가 not_configured(서버에 Google 설정이 없음) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionErrorOut"];
+                };
             };
             /** @description Validation Error */
             422: {

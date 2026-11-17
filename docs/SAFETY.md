@@ -279,7 +279,7 @@ EXTERNAL 도구는 서로 독립된 두 장치를 모두 통과해야 실행된�
 ### 권한은 읽기만, 요청은 버튼을 눌렀을 때만
 - 범위는 `gmail.readonly` 하나다. 보내기·답장·삭제·라벨 변경·읽음 표시 도구는 없고(테스트 `test_no_mail_write_tools_exist`),
   그런 Gmail 엔드포인트를 부르는 코드도 없다. 첨부 내용은 내려받지 않는다(이름만).
-- 기본 연결은 캘린더만 요청한다. '메일 읽기 권한 추가'(`/api/connections/google/start?scope=mail`)에서만 gmail.readonly를 요청한다.
+- 기본 연결은 캘린더만 요청한다. '메일 읽기 권한 추가'(`POST /api/connections/google/start` `{"scope": "mail"}`)에서만 gmail.readonly를 요청한다.
 - 메일 권한만 따로 철회할 수 없다(Google은 합친 권한을 한꺼번에 철회). 빼려면 연결 해제 후 캘린더만 다시 연결한다.
 
 ### 메일 본문 취급

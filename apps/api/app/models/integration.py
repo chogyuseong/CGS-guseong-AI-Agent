@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -51,3 +51,21 @@ class Notification(TimestampedTable):
         enum_type(NotificationStatus, "notification_status"), server_default=NotificationStatus.PENDING.value
     )
     sent_count: Mapped[int] = mapped_column(Integer, server_default="0")
+
+
+class OAuthState(TimestampedTable):
+    """Google 연결 시작 한 번의 state(4단계 보강, BUILD_SPEC 10.5). 로그인 세션·만료(10분)·한 번 사용에 묶는다.
+
+    state는 SHA-256 해시만, PKCE code_verifier는 Fernet으로 암호화해 둔다. 콜백이 쓰면 used_at을 채운다.
+    로그인 세션을 지우면(로그아웃) 함께 지워진다.
+    """
+
+    __tablename__ = "oauth_states"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    encrypted_verifier: Mapped[str] = mapped_column(Text)
+    add_mail: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

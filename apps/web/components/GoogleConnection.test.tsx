@@ -25,11 +25,20 @@ const CONNECTED = makeConnection({
 
 const neverResolves = () => new Promise<never>(() => {});
 
-function renderView(connection: Connection | undefined, onDisconnect = vi.fn(neverResolves)) {
+function renderView(
+  connection: Connection | undefined,
+  onDisconnect = vi.fn(neverResolves),
+  onStart = vi.fn(neverResolves),
+) {
   render(
-    <GoogleConnectionView connection={connection} loadError={false} onDisconnect={onDisconnect} />,
+    <GoogleConnectionView
+      connection={connection}
+      loadError={false}
+      onDisconnect={onDisconnect}
+      onStart={onStart}
+    />,
   );
-  return { region: screen.getByRole("region", { name: "Google 계정" }), onDisconnect };
+  return { region: screen.getByRole("region", { name: "Google 계정" }), onDisconnect, onStart };
 }
 
 describe("Google 연결 영역(상태별 표시)", () => {
@@ -41,27 +50,26 @@ describe("Google 연결 영역(상태별 표시)", () => {
   it("상태를 읽지 못하면 안내하고 연결 버튼을 보여 주지 않는다", () => {
     render(<GoogleConnectionView connection={undefined} loadError onDisconnect={vi.fn()} />);
     expect(screen.getByText(/연결 상태를 확인하지 못했습니다/)).toBeInTheDocument();
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Google 계정 연결" })).not.toBeInTheDocument();
   });
 
-  it("연결 안 됨: 요청 권한과 승인 안내, start 주소로 가는 '연결' 링크를 보여 준다", () => {
-    const { region } = renderView(makeConnection());
+  it("연결 안 됨: 요청 권한과 승인 안내, 누르면 캘린더만 요청하는 '연결' 버튼을 보여 준다", () => {
+    const { region, onStart } = renderView(makeConnection());
     expect(within(region).getByText("연결 안 됨")).toBeInTheDocument();
     expect(region).toHaveTextContent("내 캘린더의 일정 보기·만들기·고치기·지우기");
     expect(region).toHaveTextContent("메일은 요청하지 않습니다");
     expect(region).toHaveTextContent("만들기·고치기·지우기 전에는 매번 승인을 묻습니다");
-    const link = within(region).getByRole("link", { name: "Google 계정 연결" });
-    expect(link).toHaveAttribute("href", "/api/connections/google/start");
+    fireEvent.click(within(region).getByRole("button", { name: "Google 계정 연결" }));
+    expect(onStart).toHaveBeenCalledWith(undefined);
     expect(within(region).queryByRole("button", { name: "연결 해제" })).not.toBeInTheDocument();
   });
 
-  it("연결됨: 캘린더 권한, 연결한 날짜, 다시 연결 링크와 연결 해제 버튼을 보여 준다", () => {
+  it("연결됨: 캘린더 권한, 연결한 날짜, 다시 연결 버튼과 연결 해제 버튼을 보여 준다", () => {
     const { region } = renderView(CONNECTED);
     expect(within(region).getByText("연결됨")).toBeInTheDocument();
     expect(region).toHaveTextContent("캘린더 권한있음");
     expect(region).toHaveTextContent("2026년 11월 17일");
-    const relink = within(region).getByRole("link", { name: "다시 연결" });
-    expect(relink).toHaveAttribute("href", "/api/connections/google/start");
+    expect(within(region).getByRole("button", { name: "다시 연결" })).toBeEnabled();
     expect(within(region).getByRole("button", { name: "연결 해제" })).toBeEnabled();
   });
 
@@ -71,33 +79,28 @@ describe("Google 연결 영역(상태별 표시)", () => {
     expect(region).toHaveTextContent("캘린더 권한이 없어 일정 도구를 쓸 수 없습니다");
   });
 
-  it("서버 설정이 없으면 '서버 설정 없음'을 보여 주고 연결 버튼을 막는다(링크 없음)", () => {
+  it("서버 설정이 없으면 '서버 설정 없음'을 보여 주고 연결 버튼을 막는다", () => {
     const { region } = renderView(makeConnection({ available: false }));
     expect(within(region).getByText("서버 설정 없음")).toBeInTheDocument();
     expect(region).toHaveTextContent(".env");
-    expect(within(region).queryByRole("link")).not.toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Google 계정 연결" })).toBeDisabled();
   });
 });
-
-const MAIL_START = "/api/connections/google/start?scope=mail";
 
 function mailRegion() {
   return screen.getByRole("region", { name: "메일 읽기 권한" });
 }
 
 describe("메일 읽기 권한(7단계)", () => {
-  it("연결됐지만 메일 권한이 없으면 '없음'과 scope=mail 추가 링크를 보여 준다. 기본 연결 링크는 캘린더만", () => {
-    renderView(CONNECTED);
+  it("연결됐지만 메일 권한이 없으면 '없음'과 scope=mail 추가 버튼을 보여 준다. 기본 연결은 캘린더만", () => {
+    const { onStart } = renderView(CONNECTED);
     const mail = mailRegion();
     expect(within(mail).getByText("없음")).toBeInTheDocument();
-    const add = within(mail).getByRole("link", { name: "메일 읽기 권한 추가" });
-    expect(add).toHaveAttribute("href", MAIL_START);
-    // [다시 연결]은 메일을 요청하지 않는 기본 주소 그대로다.
-    expect(screen.getByRole("link", { name: "다시 연결" })).toHaveAttribute(
-      "href",
-      "/api/connections/google/start",
-    );
+    fireEvent.click(within(mail).getByRole("button", { name: "메일 읽기 권한 추가" }));
+    expect(onStart).toHaveBeenLastCalledWith("mail");
+    // [다시 연결]은 메일을 요청하지 않는다.
+    fireEvent.click(screen.getByRole("button", { name: "다시 연결" }));
+    expect(onStart).toHaveBeenLastCalledWith(undefined);
   });
 
   it("무엇을 하는지 안내한다(읽기만, 4,000자·첨부 이름, 자동 작업 제외, 확인되지 않은 앱 경고)", () => {
@@ -111,31 +114,29 @@ describe("메일 읽기 권한(7단계)", () => {
     expect(mail).toHaveTextContent("Google 동의 화면에 '확인되지 않은 앱' 경고가 뜰 수 있습니다");
   });
 
-  it("연결 전이어도 추가 링크를 보여 주고, 캘린더와 함께 연결된다고 알린다", () => {
+  it("연결 전이어도 추가 버튼을 보여 주고, 캘린더와 함께 연결된다고 알린다", () => {
     renderView(makeConnection());
     const mail = mailRegion();
     expect(within(mail).getByText("없음")).toBeInTheDocument();
-    expect(within(mail).getByRole("link", { name: "메일 읽기 권한 추가" })).toHaveAttribute(
-      "href",
-      MAIL_START,
-    );
+    expect(within(mail).getByRole("button", { name: "메일 읽기 권한 추가" })).toBeEnabled();
     expect(mail).toHaveTextContent("캘린더 권한과 함께 요청해 연결합니다");
   });
 
-  it("메일 권한이 있으면 '있음'을 보여 주고 추가 링크 대신 빼는 방법을 안내한다", () => {
+  it("메일 권한이 있으면 '있음'을 보여 주고 추가 버튼 대신 빼는 방법을 안내한다", () => {
     renderView({ ...CONNECTED, mail: true });
     const mail = mailRegion();
     expect(within(mail).getByText("있음")).toBeInTheDocument();
-    expect(within(mail).queryByRole("link")).not.toBeInTheDocument();
+    expect(
+      within(mail).queryByRole("button", { name: "메일 읽기 권한 추가" }),
+    ).not.toBeInTheDocument();
     expect(mail).toHaveTextContent("메일 권한만 끄는 방법은 없습니다");
     expect(mail).toHaveTextContent("연결 해제 후 캘린더만 다시 연결");
     expect(mail).toHaveTextContent("[다시 연결]을 눌러도 메일 권한은 남습니다");
   });
 
-  it("서버 설정이 없으면 추가 버튼을 막는다(링크 없음)", () => {
+  it("서버 설정이 없으면 추가 버튼을 막는다", () => {
     renderView(makeConnection({ available: false }));
     const mail = mailRegion();
-    expect(within(mail).queryByRole("link")).not.toBeInTheDocument();
     expect(within(mail).getByRole("button", { name: "메일 읽기 권한 추가" })).toBeDisabled();
   });
 
@@ -190,5 +191,37 @@ describe("연결 해제 확인 흐름", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("연결을 해제하지 못했습니다.");
     expect(screen.getByRole("button", { name: "해제하기" })).toBeEnabled();
+  });
+});
+
+describe("연결 시작 버튼(4단계 보강: POST)", () => {
+  it("누르면 한 번만 시작하고, 이동하는 동안 버튼을 막는다", () => {
+    const { region, onStart } = renderView(makeConnection());
+    const button = within(region).getByRole("button", { name: "Google 계정 연결" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(button).toBeDisabled();
+    expect(region).toHaveTextContent("Google 동의 화면으로 이동하는 중");
+  });
+
+  it("시작이 실패하면 한국어 오류를 보여 주고 다시 누를 수 있다", async () => {
+    const onStart = vi
+      .fn()
+      .mockRejectedValue(new Error("서버에 Google 연결 설정이 없어 연결할 수 없습니다."));
+    const { region } = renderView(makeConnection(), vi.fn(neverResolves), onStart);
+    const button = within(region).getByRole("button", { name: "Google 계정 연결" });
+    fireEvent.click(button);
+    expect(await within(region).findByRole("alert")).toHaveTextContent(
+      "서버에 Google 연결 설정이 없어",
+    );
+    expect(button).toBeEnabled();
+  });
+
+  it("해제 확인에서 기록은 지워지지 않고 대기 중인 일정 작업은 실행되지 않는다고 알린다", () => {
+    const { region } = renderView(CONNECTED);
+    fireEvent.click(within(region).getByRole("button", { name: "연결 해제" }));
+    expect(region).toHaveTextContent("승인을 기다리던 일정 작업은 실행되지 않습니다");
+    expect(region).toHaveTextContent("연결 해제는 기록 삭제와 다릅니다");
   });
 });
