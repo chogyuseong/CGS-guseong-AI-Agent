@@ -155,7 +155,8 @@
    들어 있으면 StepTracking이 실행하지 않는다(failed, data_policy).
 
 ## 에이전트 코드 지도 (apps/api/app/agent)
-- `workflows.py` DBOS 워크플로(run_task, resume_task), 워크플로 ID, 시작기(app.state.launcher), DBOS 시작·복구
+- `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch), 워크플로 ID,
+  시작기(app.state.launcher), DBOS 시작·복구, 1분 검사 예약 등록
 - `durable.py` durable_step(워크플로 안이면 DBOS 단계, 밖이면 그냥 실행)
 - `runner.py` `run_task`·`resume_task`를 단계로 구성(claim → prepare → agent.run → finish → notify). 하루 비용 검사, 이전 기록,
   사용량 이어받기. 승인 대기면 preview·감시 검사 후 승인 요청을 저장한다
@@ -166,14 +167,20 @@
   DB 변경과 같은 트랜잭션에 남기고 API 커밋 직후·서버 시작·1분 검사 때 처리), 장애 결과 표 docs/FAULTS.md
 - `guard.py` 감시 에이전트(입력 4가지만, 실패는 unsure)
 - `agent.py` Agent 정의(DBOSDurability 포함) / `tracking.py` Step 기록 hook·복구 재생 / `toolsets.py` 등급별 도구 묶음, 문구(LABELS), 승인 카드 문장(PREVIEWS)
-- `model_choice.py` FAST→SMART 전환 / `budget.py` 상한과 비용 / `history.py` 이전 기록 이어받기 / `prompts.py` 시스템 프롬프트
+- `model_choice.py` 모델 문자열 해석·호출 설정(FAST→SMART 자동 전환은 1단계 보강에서 제거) / `budget.py` 호출별 예산 예약·정산 / `history.py` 이전 기록 이어받기
+- `prompts.py` 시스템 프롬프트와 동적 지시문(오늘·이번 주 날짜표, 기억 최근 30줄)
+- `deps.py` AgentDeps(user_id, task_id, origin, db, settings, http)
+- `results.py` ToolResult, 외부 콘텐츠 감싸기, `EXTERNAL_CONTENT_TOOLS`(외부 글을 돌려주는 도구를 만들면 여기에 넣는다)
+- 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사: 기억 요청·원문 인용·인용/가정·남의 정보·새 사실),
+  API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어"
+- 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)
+- Google 연결: `app/google_auth.py`(OAuth·토큰 암호화 저장·갱신), `app/routers/connections.py`(start·callback·상태·해제)
 - 8단계: `app/observability.py` Logfire 설정·가리기(내용 미포함, 쿼리·예외 메시지 지움) / `app/usage_report.py` 비용 화면 합계
   (`GET /api/usage`) / `evals/` eval 데이터·평가기·실행기(승인하지 않음, 가짜 외부 API, 버리는 DB)
 - 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.
 - 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
   (메일 결과는 steps.output·message_history에 500자만). remember 검사는 5단계 보강부터 사용자 메시지 원문 인용(quote) 검증이다(`app/tools/memories.py`의 `quote_problem`),
   도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`POST /api/connections/google/start` `{"scope": "mail"}`)
-- `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch)와 1분 검사 예약 등록
 
 ## 자동화 코드 지도 (apps/api/app/automation, 6단계)
 - `check.py` 1분 검사(만료 승인 정리, 만료 감시 끄기, 할 일 찾기) / 예약 실행 / 감시 실행 본문
@@ -183,10 +190,4 @@
 - `watchable.py` 감시에 쓸 수 있는 도구(read_tools, 메일 제외) 검사와 실행 / `watch.py` 감시 판정 에이전트 / `rules.py` 제한 값·서울 시각
 - 도구는 `app/tools/automation.py`, 화면 API는 `app/routers/automations.py`. 자동 작업에는 READ 도구만 간다(절대 원칙 4).
 - 시간이 걸린 테스트는 `run_check(services, now)`에 시각을 넣는다. 테스트에서 DBOS 예약(`apply_schedules`)을 등록하지 않는다
-  (테스트 DB에서 매분 검사가 돌게 된다).와 동적 지시문(날짜, 기억 최근 30줄)
-- `results.py` ToolResult, 외부 콘텐츠 감싸기, `EXTERNAL_CONTENT_TOOLS`(remember 검사가 쓰는 목록. 외부 글을 돌려주는 도구를 만들면 여기에 넣는다)
-- 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사: 기억 요청·원문 인용·인용/가정·남의 정보·새 사실), API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어",
-  동적 지시문(오늘·이번 주 날짜표)
-- `deps.py` AgentDeps(user_id, task_id, origin, db, settings, http) / `results.py` ToolResult, 외부 콘텐츠 감싸기
-- 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)
-- Google 연결: `app/google_auth.py`(OAuth·토큰 암호화 저장·갱신), `app/routers/connections.py`(start·callback·상태·해제)
+  (테스트 DB에서 매분 검사가 돌게 된다).
