@@ -8,12 +8,14 @@
 
 import time
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 
 MESSAGES_PER_MINUTE = 20
 
 
 class SlidingWindowRateLimiter:
+    """키별 슬라이딩 윈도. 메시지는 user_id(int), 로그인은 이메일(str)을 키로 쓴다."""
+
     def __init__(
         self,
         limit: int = MESSAGES_PER_MINUTE,
@@ -23,15 +25,22 @@ class SlidingWindowRateLimiter:
         self.limit = limit
         self.window_seconds = window_seconds
         self._clock = clock
-        self._hits: defaultdict[int, deque[float]] = defaultdict(deque)
+        self._hits: defaultdict[Hashable, deque[float]] = defaultdict(deque)
 
-    def allow(self, key: int) -> bool:
+    def allow(self, key: Hashable) -> bool:
         """이번 요청을 허용하면 기록하고 True, 한도를 넘으면 기록하지 않고 False."""
+        if self.blocked(key):
+            return False
+        self.record(key)
+        return True
+
+    def blocked(self, key: Hashable) -> bool:
+        """창 안의 기록이 한도에 닿았는지만 본다(기록하지 않는다). 로그인은 실패만 기록하므로 따로 쓴다."""
         now = self._clock()
         hits = self._hits[key]
         while hits and now - hits[0] >= self.window_seconds:
             hits.popleft()
-        if len(hits) >= self.limit:
-            return False
-        hits.append(now)
-        return True
+        return len(hits) >= self.limit
+
+    def record(self, key: Hashable) -> None:
+        self._hits[key].append(self._clock())

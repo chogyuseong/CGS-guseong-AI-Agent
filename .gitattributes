@@ -1,0 +1,4 @@
+# 줄바꿈은 어느 PC에서 받아도 LF로 맞춘다(Biome·ruff 포맷 검사 기준). core.autocrlf=true인 PC 대비.
+* text=auto eol=lf
+*.png binary
+*.ico binary

@@ -39,7 +39,7 @@ from app.db import DbSession
 from app.google_auth import GoogleTokens
 from app.models import User
 from app.schemas.connections import ConnectionOut
-from app.security import SESSION_USER_KEY, CurrentUser, token_cipher
+from app.security import CurrentUser, token_cipher, user_from_request
 from app.tools.http import ExternalApiError
 
 logger = logging.getLogger(__name__)
@@ -99,8 +99,7 @@ async def google_start(request: Request, session: DbSession, scope: str | None =
 
 async def session_user(request: Request, session: DbSession) -> User | None:
     """로그인하지 않았으면 401 대신 None(콜백은 화면으로 리디렉션해야 한다)."""
-    user_id = request.session.get(SESSION_USER_KEY)
-    return await session.get(User, user_id) if isinstance(user_id, int) else None
+    return await user_from_request(request, session)
 
 
 def callback_problem(

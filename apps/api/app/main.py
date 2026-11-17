@@ -32,6 +32,7 @@ from app.observability import configure_observability, instrument_app
 from app.push import send_with_pywebpush
 from app.rate_limit import SlidingWindowRateLimiter
 from app.routers import api_router
+from app.routers.auth import build_login_rate_limiter
 from app.security import add_security_middleware
 from app.tools.http import build_http_client
 
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     # 감시 판정 에이전트(6단계, 도구 없음, AGENT_MODEL_FAST). 조건 감시가 도구 결과로 조건 충족을 판정한다.
     app.state.watch_agent = build_watch_agent(settings)
     app.state.message_rate_limiter = SlidingWindowRateLimiter()
+    app.state.login_rate_limiter = build_login_rate_limiter()
     # 워크플로 시작기와 푸시 전송기. 테스트는 기다리는 시작기와 가짜 전송기로 바꿔 끼운다.
     app.state.launcher = workflows.WorkflowLauncher()
     app.state.push_sender = send_with_pywebpush

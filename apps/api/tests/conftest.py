@@ -41,6 +41,7 @@ from alembic import command
 from alembic.config import Config
 from cryptography.fernet import Fernet
 from dbos import DBOS, WorkflowHandleAsync
+from dotenv import dotenv_values
 from fastapi import FastAPI
 from pydantic import SecretStr
 from pydantic_ai import RunContext, models
@@ -66,12 +67,13 @@ from app.agent.toolsets import (
 from app.agent.workflows import DBOS_SYSTEM_SCHEMA, WorkflowLauncher, automation_services_from_state
 from app.automation.check import AutomationServices
 from app.automation.watch import WatchAgent
-from app.config import Settings
+from app.config import REPO_ROOT, Settings
 from app.db import get_session
 from app.main import create_app
 from app.models import Conversation, Task, User
 from app.models.enums import TaskOrigin, TaskStatus
 from app.security import hash_password
+from tests.db_guard import check_test_database
 from tests.fake_http import FakeHttp
 from tests.fake_push import FakePushSender
 from tests.fake_tools import COUNTER, FakeExternalCounter, fake_external, preview_fake_external
@@ -96,11 +98,15 @@ def anyio_backend() -> tuple[str, dict[str, object]]:
     return ("asyncio", {"loop_factory": asyncio.SelectorEventLoop})
 
 
+def app_database_url() -> str | None:
+    """앱이 쓰는 DATABASE_URL(환경변수 우선, 없으면 루트 .env). 테스트 DB와 같은지 비교하는 데만 쓴다."""
+    return os.environ.get("DATABASE_URL") or dotenv_values(REPO_ROOT / ".env").get("DATABASE_URL")
+
+
 def recreate_database(url: str) -> None:
-    """테스트 DB를 지우고 다시 만든다. 이름이 _test로 끝나지 않으면 거부한다(실수로 개발 DB를 지우지 않게)."""
+    """테스트 DB를 지우고 다시 만든다. 지우면 안 되는 DB면 거부한다(tests/db_guard.py)."""
+    check_test_database(url, app_database_url())
     db_name = make_url(url).database or ""
-    if not db_name.endswith("_test"):
-        raise RuntimeError(f"테스트 DB 이름은 _test로 끝나야 한다: {db_name}")
     admin_url = make_url(url).set(database="postgres")
     engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     with engine.connect() as connection:

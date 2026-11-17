@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal, Self
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # apps/api/app/config.py 기준으로 세 단계 위가 저장소 루트다.
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     session_secret: SecretStr
     app_origin: str
 
+    # 실행 환경(BUILD_SPEC 12.2). production이면 APP_ORIGIN이 https여야 하고 쿠키에 늘 Secure를 붙인다.
+    app_env: Literal["development", "test", "production"] = "development"
+
     # LLM. 모델 문자열은 Pydantic AI 형식('공급자:모델 ID')이다.
     # 모델 ID 출처: https://platform.claude.com/docs/en/about-claude/models/overview (2026-11-16 확인)
     anthropic_api_key: SecretStr = SecretStr("")
@@ -83,6 +87,12 @@ class Settings(BaseSettings):
 
     # 관찰 (8단계). 비어 있으면 아무것도 보내지 않는다.
     logfire_token: SecretStr = SecretStr("")
+
+    @model_validator(mode="after")
+    def require_https_in_production(self) -> Self:
+        if self.app_env == "production" and not self.app_origin.startswith("https://"):
+            raise ValueError("APP_ENV=production이면 APP_ORIGIN은 https://로 시작해야 한다")
+        return self
 
     @property
     def cookie_secure(self) -> bool:

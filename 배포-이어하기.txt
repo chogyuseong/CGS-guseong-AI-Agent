@@ -1,15 +1,34 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-17 새벽 (밤사이 2~9단계를 혼자 진행한 뒤의 상태)
+마지막 갱신 2026-11-17 오전 (명세를 BUILD_SPEC으로 바꾸고 0단계 보강을 마친 상태)
 
-이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내이자, 밤사이 작업의 최종 보고다.
-자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 전체 명세는 SPEC.md, 소개는 README.md에 있다.
+이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
+자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
+전체 명세는 docs/BUILD_SPEC.md(예전 SPEC.md는 참고용), 소개는 README.md에 있다.
 
 
 ========================================
-1. 지금 어디까지 했나
+0. 명세가 바뀌었다 (2026-11-17)
 ========================================
 
-명세의 0~9단계 구현이 끝났다. 남은 것은 직접 확인하고 정하실 일이다(아래 "직접 하실 일").
+명세가 docs/BUILD_SPEC.md(개정본)로 바뀌었다. 승인을 "고정된 실행 계획 + 영수증"으로,
+비용을 "호출마다 예약·정산"으로, 기억을 "원문 인용 검증"으로 다시 짜는 등 1~7단계 핵심 구조가 달라졌다.
+새로 시작하지 않고 지금 코드를 0단계부터 단계별로 보강한다(사용자 결정, A안).
+
+  0단계 보강   완료  서버 저장형 세션(sessions 테이블), 로그인 실패 제한(1분 5회),
+                     APP_ENV, 테스트 DB 보호 확대, .gitattributes(LF), STATUS·VERSIONS 문서
+  1~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
+
+검사(2026-11-17, 두 번째 PC): API pytest 371개, ruff·pyright 0건, alembic check 차이 없음,
+웹 Biome 0건, tsc, Vitest 253개, Playwright 37개 통과.
+
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 1단계 보강을 진행해라"
+
+
+========================================
+1. 예전 명세 기준으로 어디까지 했나
+========================================
+
+예전 명세의 0~9단계 구현이 끝났다. 남은 것은 직접 확인하고 정하실 일이다(아래 "직접 하실 일").
 
   0단계 뼈대          완료  DB 테이블, 로그인, 하단 탭, 테스트 환경
   1단계 에이전트      완료  내부 도구(메모, 할 일), 채팅 화면, 단계 타임라인, 작업 기록 탭
@@ -113,6 +132,8 @@
       (SESSION_SECRET은 새로 만들어도 된다. 로그인이 풀릴 뿐이다.
        TOKEN_ENCRYPTION_KEY를 바꾸면 저장된 Google 연결을 다시 해야 한다.)
     - .env.django는 옮기지 않아도 된다. 필요한 값은 이미 .env에 들어 있다.
+    - Django판 형식의 .env(SECRET_KEY, TASK_MAX_STEPS 등)를 옮겼다면 DATABASE_URL, SESSION_SECRET, APP_ORIGIN을
+      채우고 모델 이름 앞에 anthropic: 을 붙인다(두 번째 PC에서 이렇게 고쳤다. docs/STATUS.md)
 
 (3) DB 데이터: 옮기지 않는다. 개발용 데이터뿐이라 새로 만든다. 계정은 새 컴퓨터에서 다시 만든다.
 
@@ -166,7 +187,7 @@ PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 �
 
 잘 옮겨졌는지 확인:
 
-  pnpm api:test                    357개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:test                    371개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
   pnpm api:check                   ruff, pyright 문제 0건
   pnpm --dir apps/web lint
   pnpm --dir apps/web typecheck
