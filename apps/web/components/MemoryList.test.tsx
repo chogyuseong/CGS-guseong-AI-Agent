@@ -301,3 +301,17 @@ describe("오류", () => {
     expect(screen.getByRole("button", { name: "모두 지우기" })).toBeEnabled();
   });
 });
+
+describe("출처 대화를 지운 기억(5단계 보강)", () => {
+  it("근거 인용은 보여 주고, 원래 메시지 보기 대신 '원래 대화 지워짐'을 보여 준다", async () => {
+    serve([{ ...SPICY, source: null }]);
+    renderList();
+
+    const item = await findItem("매운 음식을 못 먹는다");
+    expect(item).toHaveTextContent("근거: “나 매운 거 못 먹어”");
+    expect(within(item).getByRole("button", { name: "원래 대화 지워짐" })).toBeDisabled();
+    expect(
+      within(item).queryByRole("button", { name: "원래 메시지 보기" }),
+    ).not.toBeInTheDocument();
+  });
+});

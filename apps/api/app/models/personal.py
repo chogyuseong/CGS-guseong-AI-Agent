@@ -15,7 +15,8 @@ class Memory(TimestampedTable):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(String(300))
-    source_message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    # 5단계 보강: 대화를 지워도 기억은 남긴다(사용자가 명시적으로 남긴 것). 출처 링크만 끊고 근거 인용은 유지한다.
+    source_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), index=True)
     # 5단계 보강: 근거가 된 사용자 메시지 부분(그대로 옮긴 것, 서버가 원문에 있는지 확인). 보강 전 기억은 비어 있다.
     source_quote: Mapped[str | None] = mapped_column(Text)
 

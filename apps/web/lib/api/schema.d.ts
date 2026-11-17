@@ -93,6 +93,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Conversation
+         * @description 대화와 그 메시지·작업·단계·승인·실행 계획·영수증, DBOS 워크플로 기록을 지운다(BUILD_SPEC 5.5).
+         *
+         *     이 대화에서 만든 기억은 지우지 않는다(출처 링크만 끊긴다). 비용 기록은 작업 연결만 끊긴다.
+         *     백업에서는 바로 지워지지 않는다(docs/DATA_POLICY.md).
+         */
+        delete: operations["delete_conversation_api_conversations__conversation_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/conversations/{conversation_id}/messages": {
         parameters: {
             query?: never;
@@ -725,7 +748,7 @@ export interface components {
             created_at: string;
             /** Source Quote */
             source_quote?: string | null;
-            source: components["schemas"]["MemorySourceOut"];
+            source: components["schemas"]["MemorySourceOut"] | null;
         };
         /**
          * MemorySourceOut
@@ -1320,6 +1343,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConversationOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_conversation_api_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 내 대화 중에 이 id가 없다 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 진행 중인 작업(대기·실행·승인 대기·취소 요청·재조회)이 있다 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

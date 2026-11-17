@@ -125,6 +125,43 @@ export function useCreateConversation() {
   });
 }
 
+// 5단계 보강: 대화 삭제. 진행 중인 작업이 있으면 서버가 409와 한국어 문장(detail)을 준다.
+const DELETE_CONVERSATION_FALLBACK = "대화를 지우지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
+export async function deleteConversation(conversationId: number): Promise<void> {
+  const result = await api
+    .DELETE("/api/conversations/{conversation_id}", {
+      params: { path: { conversation_id: conversationId } },
+    })
+    .catch(() => {
+      throw new Error("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
+    });
+  if (result.response.ok) return;
+  const detail = (result.error as { detail?: unknown } | undefined)?.detail;
+  throw new Error(
+    result.response.status === 409 && typeof detail === "string"
+      ? detail
+      : DELETE_CONVERSATION_FALLBACK,
+  );
+}
+
+export function useDeleteConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteConversation,
+    // 기다리지 않는다: 지운 대화의 작업 조회는 404로 재시도해 화면 이동이 늦어진다.
+    onSuccess: (_data, conversationId) => {
+      queryClient.removeQueries({ queryKey: chatKeys.messages(conversationId) });
+      // /chat이 새 목록을 받기 전에 지운 대화로 다시 보내지 않게 캐시에서 먼저 뺀다.
+      queryClient.setQueryData<{ id: number }[]>(chatKeys.conversations, (list) =>
+        list?.filter((conversation) => conversation.id !== conversationId),
+      );
+      void queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
+      void queryClient.invalidateQueries({ queryKey: ["memories"] });
+    },
+  });
+}
+
 export function useMessages(conversationId: number) {
   return useQuery({
     queryKey: chatKeys.messages(conversationId),

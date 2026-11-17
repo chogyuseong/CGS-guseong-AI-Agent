@@ -14,14 +14,16 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { isAutomationRoom } from "@/lib/automations";
-import { useConversations, useCreateConversation } from "@/lib/chat";
+import { useConversations, useCreateConversation, useDeleteConversation } from "@/lib/chat";
 import { cn } from "@/lib/utils";
+import { DeleteConversation } from "./DeleteConversation";
 
 // 왼쪽에서 열리는 대화 목록. 대화를 고르거나 새로 만든다.
 export function ConversationSheet({ currentId }: { currentId: number }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const create = useCreateConversation();
+  const remove = useDeleteConversation();
 
   function handleCreate() {
     create.mutate(undefined, {
@@ -51,6 +53,13 @@ export function ConversationSheet({ currentId }: { currentId: number }) {
             <Plus aria-hidden="true" />새 대화
           </Button>
           <ConversationLinks currentId={currentId} onPick={() => setOpen(false)} />
+          <DeleteConversation
+            onDelete={async () => {
+              await remove.mutateAsync(currentId);
+              setOpen(false);
+              router.replace("/chat");
+            }}
+          />
         </div>
       </SheetContent>
     </Sheet>

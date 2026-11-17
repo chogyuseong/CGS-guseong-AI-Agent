@@ -22,19 +22,25 @@ from app.tools.memories import MAX_MEMORIES, delete_memory
 router = APIRouter(prefix="/memories", tags=["memories"])
 
 
-def memory_out(memory: Memory, source: Message) -> MemoryOut:
+def source_out(source: Message | None) -> MemorySourceOut | None:
+    if source is None:  # 출처 대화를 지웠다(기억은 남는다)
+        return None
+    return MemorySourceOut(
+        message_id=source.id,
+        conversation_id=source.conversation_id,
+        task_id=source.task_id,
+        content=source.content,
+        created_at=source.created_at,
+    )
+
+
+def memory_out(memory: Memory, source: Message | None) -> MemoryOut:
     return MemoryOut(
         id=memory.id,
         content=memory.content,
         created_at=memory.created_at,
         source_quote=memory.source_quote,
-        source=MemorySourceOut(
-            message_id=source.id,
-            conversation_id=source.conversation_id,
-            task_id=source.task_id,
-            content=source.content,
-            created_at=source.created_at,
-        ),
+        source=source_out(source),
     )
 
 
@@ -42,7 +48,7 @@ def memory_out(memory: Memory, source: Message) -> MemoryOut:
 async def list_memories(user: CurrentUser, session: DbSession) -> MemoryListOut:
     rows = await session.execute(
         select(Memory, Message)
-        .join(Message, Memory.source_message_id == Message.id)
+        .outerjoin(Message, Memory.source_message_id == Message.id)
         .where(Memory.user_id == user.id)
         .order_by(Memory.created_at.desc(), Memory.id.desc())
     )

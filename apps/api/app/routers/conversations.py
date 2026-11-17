@@ -4,16 +4,20 @@
 (403이면 그 id가 존재한다는 사실이 드러난다).
 """
 
-from fastapi import APIRouter, HTTPException, Request, status
+import logging
+
+from dbos import DBOS
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import outbox
+from app.agent.outbox import run_workflow_id
 from app.agent.workflows import WorkflowLauncher
 from app.db import DbSession
-from app.models import Conversation, Message, Task
-from app.models.enums import MessageRole, TaskOrigin
+from app.models import AgentRun, Conversation, Message, OutboxEvent, Task
+from app.models.enums import MessageRole, TaskOrigin, TaskStatus
 from app.rate_limit import SlidingWindowRateLimiter
 from app.schemas.conversations import (
     DEFAULT_CONVERSATION_TITLE,
@@ -25,6 +29,8 @@ from app.schemas.conversations import (
     TaskCreated,
 )
 from app.security import CurrentUser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -76,6 +82,68 @@ def message_out(message: Message, task_origin: TaskOrigin | None) -> MessageOut:
         origin=message_origin(message, task_origin),
         sources=list(message.sources or []),
     )
+
+
+# 5단계 보강: 끝나지 않은 작업이 있으면 대화를 지우지 않는다(실행 중인 워크플로 기록을 지워 복구를 망가뜨리지 않게).
+IN_PROGRESS_STATUSES = (
+    TaskStatus.QUEUED,
+    TaskStatus.RUNNING,
+    TaskStatus.WAITING_APPROVAL,
+    TaskStatus.CANCEL_REQUESTED,
+    TaskStatus.RECONCILING,
+)
+DELETE_BUSY = "진행 중인 작업이 있어 대화를 지울 수 없습니다. 작업을 취소하거나 끝난 뒤 다시 시도해 주세요."
+
+
+async def conversation_workflow_ids(session: AsyncSession, conversation_id: int) -> list[str]:
+    """이 대화의 task들이 쓴 DBOS 워크플로 ID(첫 실행·재개 회차·outbox 요청)."""
+    task_ids = select(Task.id).where(Task.conversation_id == conversation_id)
+    runs = await session.scalars(select(AgentRun.workflow_id).where(AgentRun.task_id.in_(task_ids)))
+    queued = await session.scalars(select(OutboxEvent.workflow_id).where(OutboxEvent.task_id.in_(task_ids)))
+    tasks = await session.scalars(task_ids)
+    return sorted({*filter(None, runs), *queued, *(run_workflow_id(task_id) for task_id in tasks)})
+
+
+async def forget_workflows(workflow_ids: list[str]) -> None:
+    """DBOS 시스템 테이블의 워크플로 기록(입력의 사용자 메시지, 단계 결과의 모델 기록)을 지운다.
+
+    실패해도 대화 삭제는 이미 끝났다. 남은 기록은 보관 기간 정리(automation/retention.py)가 다시 지운다.
+    """
+    if not workflow_ids:
+        return
+    try:
+        await DBOS.delete_workflows_async(workflow_ids)
+    except Exception:
+        logger.warning(
+            "대화 삭제 뒤 워크플로 기록을 지우지 못함: %d건(보관 기간 정리가 다시 지운다)", len(workflow_ids)
+        )
+
+
+@router.delete(
+    "/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        404: {"description": "내 대화 중에 이 id가 없다"},
+        409: {"description": "진행 중인 작업(대기·실행·승인 대기·취소 요청·재조회)이 있다"},
+    },
+)
+async def delete_conversation(conversation_id: int, user: CurrentUser, session: DbSession) -> Response:
+    """대화와 그 메시지·작업·단계·승인·실행 계획·영수증, DBOS 워크플로 기록을 지운다(BUILD_SPEC 5.5).
+
+    이 대화에서 만든 기억은 지우지 않는다(출처 링크만 끊긴다). 비용 기록은 작업 연결만 끊긴다.
+    백업에서는 바로 지워지지 않는다(docs/DATA_POLICY.md).
+    """
+    conversation = await get_owned_conversation(session, conversation_id, user.id)
+    busy = await session.scalar(
+        select(Task.id).where(Task.conversation_id == conversation.id, Task.status.in_(IN_PROGRESS_STATUSES)).limit(1)
+    )
+    if busy is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=DELETE_BUSY)
+    workflow_ids = await conversation_workflow_ids(session, conversation.id)
+    await session.delete(conversation)
+    await session.commit()
+    await forget_workflows(workflow_ids)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{conversation_id}/messages")

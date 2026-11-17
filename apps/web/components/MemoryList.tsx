@@ -289,16 +289,23 @@ function MemoryItem({ memory, locked, onDelete }: ItemProps) {
         저장한 날짜 {formatMemoryDate(memory.created_at)}
       </p>
       <div className="grid grid-cols-2 gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          aria-expanded={open}
-          aria-controls={open ? sourceId : undefined}
-          onClick={() => setOpen((value) => !value)}
-          className={ITEM_BUTTON}
-        >
-          {open ? "원래 메시지 접기" : "원래 메시지 보기"}
-        </Button>
+        {memory.source ? (
+          <Button
+            type="button"
+            variant="outline"
+            aria-expanded={open}
+            aria-controls={open ? sourceId : undefined}
+            onClick={() => setOpen((value) => !value)}
+            className={ITEM_BUTTON}
+          >
+            {open ? "원래 메시지 접기" : "원래 메시지 보기"}
+          </Button>
+        ) : (
+          // 5단계 보강: 출처 대화를 지웠다(기억은 남는다). 근거 인용은 위에 그대로 보인다.
+          <Button type="button" variant="outline" disabled className={ITEM_BUTTON}>
+            원래 대화 지워짐
+          </Button>
+        )}
         <Button
           type="button"
           variant="destructive"
@@ -310,12 +317,12 @@ function MemoryItem({ memory, locked, onDelete }: ItemProps) {
           {busy ? "지우는 중…" : "삭제"}
         </Button>
       </div>
-      {open && <SourceMessage id={sourceId} source={memory.source} />}
+      {open && memory.source && <SourceMessage id={sourceId} source={memory.source} />}
     </li>
   );
 }
 
-function SourceMessage({ id, source }: { id: string; source: Memory["source"] }) {
+function SourceMessage({ id, source }: { id: string; source: NonNullable<Memory["source"]> }) {
   return (
     <div id={id} className="flex min-w-0 flex-col gap-1 rounded-lg bg-muted p-3 text-sm">
       <p className="text-xs font-medium text-muted-foreground">
