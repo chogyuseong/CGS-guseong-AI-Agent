@@ -59,7 +59,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import func, select
 
 from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
-from app.agent.data_policy import outbound_refusal
+from app.agent.data_policy import refusal_before_run
 from app.agent.deps import AgentDeps
 from app.agent.executor import reconcile_step
 from app.agent.results import MAIL_TOOLS, ToolResult, ToolStatus, output_for_storage
@@ -248,7 +248,8 @@ class StepTracking(AbstractCapability[AgentDeps]):
     ) -> Any:
         started = time.perf_counter()
         # 4단계 보강: 공개 검색 도구에 개인 데이터(메일·일정 내용)가 실려 나가면 실행하지 않는다(data_policy.py).
-        refusal = await outbound_refusal(ctx.deps, tool_name, args)
+        # 7단계 보강: 메일을 읽은 문맥에서는 예약·감시를 만들지 않는다(모델에게 숨긴 도구를 불러도 여기서 막힘).
+        refusal = await refusal_before_run(ctx, tool_name, args)
         if refusal is not None:
             stored = refusal.model_dump(mode="json")
             await finish_step(ctx.deps, step_id, output=stored, result=refusal, duration_ms=elapsed_ms(started))

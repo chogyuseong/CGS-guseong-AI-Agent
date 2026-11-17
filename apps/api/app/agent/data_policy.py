@@ -8,9 +8,12 @@
 (tests/test_data_policy.py가 빠진 도구를 잡는다).
 
 도구 목록 거르기(visible_tool, 7단계 보강): 메일 기능 플래그가 꺼져 있으면 메일 도구를, 문맥에 읽어 온 메일이
-있으면 공개 검색·장소·날씨 도구를 모델에게 보이지 않는다(runner가 toolsets.run_toolsets로 건다).
+있으면 공개 검색·장소·날씨 도구와 자동화 생성 도구(create_schedule·create_watch)를 모델에게 보이지 않는다
+(runner가 toolsets.run_toolsets로 건다).
 
-실행 전 검사(outbound_refusal, StepTracking이 도구 실행 직전에 부른다):
+실행 전 검사(refusal_before_run, StepTracking이 도구 실행 직전에 부른다):
+- 자동화 생성 도구는 메일을 읽은 문맥(이전 기록 포함)이거나 이번 작업에서 메일을 읽었으면 실행하지 않는다
+  (automation_refusal, failed(data_policy)와 "새 대화에서 직접 요청" 안내).
 - public만 받는 외부 도구(공개 검색·장소·날씨)는, 같은 작업에서 메일을 읽었으면 실행하지 않는다
   (메일 내용을 검색어로 외부에 보내는 행동을 자동 허용하지 않음).
 - 같은 작업에서 조회한 일정 제목(2자 이상)이 인자에 들어 있으면 실행하지 않는다.
@@ -146,6 +149,13 @@ PRIVATE_REFUSAL = (
     "개인 일정 내용이 검색어에 들어 있어 외부 검색에 보내지 않았습니다. "
     "검색이 필요하면 공개해도 되는 검색어를 직접 입력해 주세요."
 )
+# 7단계 보강(사용자 결정 a): 메일을 읽은 문맥에서는 자동화를 만드는 도구를 주지 않는다
+# (메일 속 지시로 예약·감시 생성 금지).
+# 조회(list_*)와 지우기(delete_*)는 새 자동 실행을 만들지 않아 그대로 둔다(docs/DECISIONS.md 7단계 보강).
+AUTOMATION_CREATE_TOOLS = ("create_schedule", "create_watch")
+AUTOMATION_REFUSAL = (
+    "이 대화에서 메일을 읽었기 때문에 예약·감시를 만들지 않았습니다. 필요하면 새 대화에서 직접 요청해 주세요."
+)
 
 
 def needs_check(tool_name: str) -> bool:
@@ -186,19 +196,57 @@ def mail_read_in(messages: Sequence[ModelMessage]) -> bool:
     )
 
 
+def hidden_after_mail(tool_name: str) -> bool:
+    """메일을 읽은 문맥이면 주지 않는 도구: 공개 검색·장소·날씨와 자동화 생성(예약·감시)."""
+    return needs_check(tool_name) or tool_name in AUTOMATION_CREATE_TOOLS
+
+
 def visible_tool(ctx: RunContext[AgentDeps], tool_def: ToolDefinition) -> bool:
     """모델 요청마다 도구 목록을 거른다(BUILD_SPEC 2.2, 13절 7단계 "메일 작업의 도구 범위 제한").
 
     - 메일 도구: 메일 기능 플래그(PAYLOAD_ENCRYPTION_KEY)가 꺼져 있으면 보이지 않는다.
-    - 공개 검색·장소·날씨(public만 받는 외부 도구): 문맥에 읽어 온 메일이 있으면(이번 작업이든 같은 대화의 이전
-      작업이든) 보이지 않는다. 메일 처리 작업에는 공개 검색 도구를 함께 주지 않는다. 실행 직전 검사
-      (outbound_refusal)는 두 번째 방어선으로 남긴다.
+    - 공개 검색·장소·날씨(public만 받는 외부 도구)와 자동화 생성(create_schedule·create_watch): 문맥에 읽어 온
+      메일이 있으면(이번 작업이든 같은 대화의 이전 작업이든) 보이지 않는다. 메일 처리 작업에는 공개 검색 도구를
+      함께 주지 않고, 메일 속 지시로 예약·감시가 생기지 않게 한다. 실행 직전 검사(outbound_refusal,
+      automation_refusal)는 두 번째 방어선으로 남긴다.
     """
     if tool_def.name in MAIL_TOOLS:
         return mail_enabled(ctx.deps.settings)
-    if needs_check(tool_def.name):
+    if hidden_after_mail(tool_def.name):
         return not mail_read_in(ctx.messages)
     return True
+
+
+async def mail_read_in_task(deps: AgentDeps) -> bool:
+    """이번 task에서 끝난(성공한) 메일 단계가 있는가. 한 응답에서 메일 읽기와 함께 부른 호출은 아직 문맥에 결과가
+    없으므로 steps로 본다."""
+    async with deps.db() as session:
+        found = await session.scalar(
+            select(Step.id)
+            .where(Step.task_id == deps.task_id, Step.status == StepStatus.DONE, Step.tool_name.in_(MAIL_TOOLS))
+            .limit(1)
+        )
+    return found is not None
+
+
+async def automation_refusal(deps: AgentDeps, messages: Sequence[ModelMessage], tool_name: str) -> ToolResult | None:
+    """자동화 생성 도구의 실행 직전 검사(두 번째 방어선). 메일을 읽은 문맥이면 실패 결과, 아니면 None.
+
+    판정은 visible_tool과 같다(문맥의 성공한 메일 결과). 여기에 이번 task의 끝난 메일 단계를 더한다.
+    """
+    if tool_name not in AUTOMATION_CREATE_TOOLS:
+        return None
+    if mail_read_in(messages) or await mail_read_in_task(deps):
+        return ToolResult.failure(AUTOMATION_REFUSAL, error_code="data_policy")
+    return None
+
+
+async def refusal_before_run(ctx: RunContext[AgentDeps], tool_name: str, args: dict[str, Any]) -> ToolResult | None:
+    """StepTracking이 도구 실행 직전에 부르는 데이터 정책 검사. 막아야 하면 실패 결과, 아니면 None."""
+    refusal = await automation_refusal(ctx.deps, ctx.messages, tool_name)
+    if refusal is not None:
+        return refusal
+    return await outbound_refusal(ctx.deps, tool_name, args)
 
 
 async def outbound_refusal(deps: AgentDeps, tool_name: str, args: dict[str, Any]) -> ToolResult | None:

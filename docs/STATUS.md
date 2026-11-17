@@ -20,11 +20,12 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - 5·6단계 보강(2026-11-17): 아래 차이 목록 참고
 - 7단계 보강(2026-11-17): 음성 최초 사용 안내, 메일 데이터 처리 동의, 메일 작업의 공개 검색 제외, 복구 payload 암호화
   (PAYLOAD_ENCRYPTION_KEY: DBOS 기록 전체·모델 기록 속 메일, 키 없으면 메일 기능 꺼짐), steps에 메일 내용 없음,
-  재연결 필요 상태·Gmail 범위 부족 처리. 마이그레이션 11dcb5772dd1
+  재연결 필요 상태·Gmail 범위 부족 처리. 마이그레이션 11dcb5772dd1. 이어서 메일을 읽은 문맥의 예약·감시 생성 제외(사용자 결정 a)
 
 실제 검증한 항목(2026-11-17, 7단계 보강 끝): API pytest 568개, ruff·pyright 0건, 새 마이그레이션 11dcb5772dd1 업·다운·업과
 `alembic check` 차이 없음, 웹 Biome 0건·tsc 통과·Vitest 288개, Playwright 40개(실제 API 서버 + Chrome 360px).
 실제 Gmail 계정·실제 모델로는 확인하지 않았다(가짜 HTTP·FunctionModel).
+이어서 예약·감시 생성 제외(사용자 결정 a) 뒤: API pytest 575개, ruff·pyright 0건(웹·마이그레이션 변경 없음).
 
 실제 검증한 항목(2026-11-17, 두 번째 PC, 4단계 보강 끝):
 - API pytest 498개(`uv run python -m pytest`), ruff·pyright 0건, 새 마이그레이션 f4bbe5621c5e(oauth_states) 업·다운·업과 check 차이 없음
@@ -53,8 +54,8 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 8단계 보강(아래 차이 목록의 8단계). 사용자 확인: 개발·배포 .env에 PAYLOAD_ENCRYPTION_KEY를 넣어야 메일 기능이
-켜진다(docs/DECISIONS.md "7단계 보강: 사용자 판단이 필요한 것"). DBOS 기록은 7단계 보강부터 키가 있으면 암호문이다(docs/DATA_POLICY.md)
+다음 시작 지점: 8단계 보강(아래 차이 목록의 8단계). 개발 .env에는 사용자가 PAYLOAD_ENCRYPTION_KEY를 넣었다(2026-11-17).
+배포 환경변수에도 넣어야 메일 기능이 켜진다. DBOS 기록은 7단계 보강부터 키가 있으면 암호문이다(docs/DATA_POLICY.md)
 관련 커밋: (이 파일을 커밋한 커밋)
 
 ---
@@ -141,10 +142,15 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   기록에서 뺌, 화면 안내) — tests/test_google_reconnect.py, components/GoogleConnection.test.tsx "다시 연결 필요", e2e/connections.spec.ts
 - 완료 증거(BUILD_SPEC 13절 7단계): 음성 자동 전송 없음(ChatInput.test·voice.spec), 메일 본문이 검색어로 유출되지 않음(검색 도구 숨김 +
   test_data_policy), 메일 내 지시로 외부 행동·기억 생성 불가(test_mail_flow: 일정 삭제는 승인 대기·감시 mismatch, remember 거부),
-  **예약 생성은 막지 않음**(create_schedule·create_watch는 INTERNAL이라 메일을 읽은 대화에서도 승인 없이 만들어진다. 막는 방식은
-  사용자 판단, docs/DECISIONS.md "7단계 보강: 사용자 판단이 필요한 것"), steps·로그·트레이스에 원문 없음(test_mail_privacy,
+  메일 내 지시로 예약 생성 불가(test_mail_automation: 예약·감시 0건), steps·로그·트레이스에 원문 없음(test_mail_privacy,
   test_observability), 복구 저장소의 민감 payload 정책(test_mail_privacy의 dbos 스키마 검사, test_payload_crypto)
-- 사용자 판단으로 남긴 것: docs/DECISIONS.md "7단계 보강: 사용자 판단이 필요한 것"
+- [x] 메일 내 지시로 예약·감시 생성 불가(2026-11-17 사용자 결정 a): 메일을 읽은 문맥(같은 대화의 이전 기록 포함)이면 create_schedule·
+  create_watch를 모델에게 주지 않고(visible_tool), 실행 직전 서버 검사(automation_refusal)가 숨긴 도구 호출을 failed(data_policy)로 끝낸다.
+  조회·지우기는 그대로 — tests/test_mail_automation.py(test_mail_instruction_cannot_create_schedule: FunctionModel이 메일을 읽고
+  create_schedule·create_watch를 불러도 0건, test_server_refuses_schedule_called_together_with_read_mail,
+  test_server_refuses_schedule_when_history_has_mail, test_automation_tools_stay_hidden_in_the_same_conversation_only)
+- 사용자 판단 5개는 2026-11-17 사용자 답으로 정함(docs/DECISIONS.md "7단계 보강"의 "사용자 결정" 줄). 남은 제안: 검색 결과 문맥의
+  예약 생성(BUILD_SPEC 15절 30번)은 미충족(docs/DECISIONS.md "7단계 보강: 남은 것")
 
 ### 8단계 — 평가와 관찰
 - [ ] TELEMETRY_ENABLED(명시적 설정 없으면 전송 안 함), LOGFIRE_TOKEN 없을 때 OTLP 우회 전송 확인
