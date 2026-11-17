@@ -7,23 +7,20 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import FastAPI
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
-from pydantic_ai.models.function import AgentInfo
+from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.agent import MyAgent
 from app.agent.deps import AgentDeps
 from app.agent.prompts import MEMORY_NOTICE
-from app.agent.results import EXTERNAL_NOTICE
 from app.agent.tracking import UNCERTAIN_MESSAGE
 from app.models import Conversation, Memory, Message, Task, User
 from app.models.enums import MessageRole, RiskLevel, StepStatus, TaskOrigin, TaskStatus
 from app.tools import memories
 from tests.conftest import UserFactory, make_client, payload, tool_context
-from tests.fake_http import FakeHttp, fixture_json, json_response
-from tests.fake_tools import FakeExternalCounter
-from tests.model_scripts import call, current_run_messages, registered, scripted, text
+from tests.fake_http import fixture_json, json_response
+from tests.model_scripts import call, scripted, text
 from tests.test_agent_run import send
 from tests.test_workflows import add_step, count, fixed_call, make_queued_task, run_directly
 
@@ -52,13 +49,13 @@ def last_instructions(messages: list[ModelMessage]) -> str:
     return request.instructions or ""
 
 
-# ---- 테스트 13: 외부 콘텐츠 도구를 쓴 task와 origin이 chat이 아닌 task에서는 remember가 거부된다 ----
+# ---- 테스트 13: origin이 chat이 아닌 task에서는 remember가 거부된다(외부 글은 tests/test_memory_quotes.py) ----
 
 
 async def test_remember_saves_memory_linked_to_trigger_message(
     client: httpx.AsyncClient, agent: MyAgent, conversation: int, db_session: AsyncSession, logged_in_user: User
 ) -> None:
-    model = scripted(call("remember", content="매운 거 못 먹음"), text("기억했습니다."))
+    model = scripted(call("remember", content="매운 거 못 먹음", quote="나 매운 거 못 먹어"), text("기억했습니다."))
 
     with agent.override(model=model.model()):
         task = await send(client, conversation, "나 매운 거 못 먹어, 기억해")
@@ -72,148 +69,6 @@ async def test_remember_saves_memory_linked_to_trigger_message(
     trigger = await db_session.get_one(Message, memory.source_message_id)
     assert trigger.content == "나 매운 거 못 먹어, 기억해"
     assert trigger.task_id == task["id"]
-
-
-async def test_remember_refused_after_external_content_tool_in_same_task(
-    client: httpx.AsyncClient,
-    agent: MyAgent,
-    conversation: int,
-    db_session: AsyncSession,
-    logged_in_user: User,
-    fake_http: FakeHttp,
-) -> None:
-    """테스트 13(1): 같은 task에서 검색 결과를 읽은 뒤에는 모델이 remember를 불러도 서버가 거부한다."""
-    fake_http.route("GET", WEBKR, injected_search_response())
-    model = scripted(call("web_search", query="성수동 맛집"), call("remember", content=INJECTION), text("끝"))
-
-    with agent.override(model=model.model()):
-        task = await send(client, conversation, "성수동 맛집 찾아줘")
-
-    assert step_named(task, "web_search")["output"]["data"]["notice"] == EXTERNAL_NOTICE
-    step = step_named(task, "remember")
-    assert step["ok"] is False
-    assert step["output"]["user_message"].startswith(memories.ONLY_USER_WORDS)
-    assert await memories_of(db_session, logged_in_user) == []
-
-
-async def test_remember_refused_even_if_external_tool_failed(
-    client: httpx.AsyncClient,
-    agent: MyAgent,
-    conversation: int,
-    db_session: AsyncSession,
-    logged_in_user: User,
-    fake_http: FakeHttp,
-) -> None:
-    """외부 콘텐츠 도구를 "부른 것"만으로 거부한다(결과가 실패여도). 판단을 결과 내용에 맡기지 않는다."""
-    fake_http.route("GET", WEBKR, httpx.ReadTimeout("느림"))
-    model = scripted(call("web_search", query="성수동"), call("remember", content="성수동 좋아함"), text("끝"))
-
-    with agent.override(model=model.model()):
-        task = await send(client, conversation, "성수동 좋아해. 성수동 검색해줘")
-
-    assert step_named(task, "remember")["ok"] is False
-    assert await memories_of(db_session, logged_in_user) == []
-
-
-async def test_remember_refused_when_called_in_same_response_after_external_tool(
-    client: httpx.AsyncClient,
-    agent: MyAgent,
-    conversation: int,
-    db_session: AsyncSession,
-    logged_in_user: User,
-    fake_http: FakeHttp,
-) -> None:
-    """한 응답에서 web_search와 remember를 함께 불러도(차례로 실행) remember는 거부된다."""
-    fake_http.route("GET", WEBKR, injected_search_response())
-
-    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        if any(isinstance(m, ModelResponse) for m in current_run_messages(messages)):
-            return ModelResponse(parts=[TextPart("끝")])
-        return ModelResponse(
-            parts=[
-                ToolCallPart("web_search", {"query": "성수동"}, "call-search"),
-                ToolCallPart("remember", {"content": "성수동 좋아함"}, "call-remember"),
-            ]
-        )
-
-    with agent.override(model=registered(respond)):
-        task = await send(client, conversation, "성수동 좋아해. 성수동 검색해줘")
-
-    assert step_named(task, "remember")["ok"] is False
-    assert await memories_of(db_session, logged_in_user) == []
-
-
-async def test_remember_refused_when_earlier_task_in_conversation_used_external_content(
-    client: httpx.AsyncClient,
-    agent: MyAgent,
-    conversation: int,
-    db_session: AsyncSession,
-    logged_in_user: User,
-    fake_http: FakeHttp,
-) -> None:
-    """이전 task의 검색 결과는 기록 이어받기로 이번 run의 문맥에 남는다. 그 문맥에서는 기억을 만들지 않는다."""
-    fake_http.route("GET", WEBKR, injected_search_response())
-    first = scripted(call("web_search", query="성수동 맛집"), text("찾았습니다."))
-    with agent.override(model=first.model()):
-        await send(client, conversation, "성수동 맛집 찾아줘")
-
-    second = scripted(call("remember", content="매운 거 못 먹음"), text("끝"))
-    with agent.override(model=second.model()):
-        task = await send(client, conversation, "나 매운 거 못 먹어, 기억해")
-
-    assert step_named(task, "remember")["ok"] is False
-    assert await memories_of(db_session, logged_in_user) == []
-
-
-async def test_remember_allowed_in_new_conversation_after_external_content_elsewhere(
-    client: httpx.AsyncClient,
-    agent: MyAgent,
-    conversation: int,
-    db_session: AsyncSession,
-    logged_in_user: User,
-    fake_http: FakeHttp,
-) -> None:
-    """다른 대화에서 검색했더라도 새 대화(외부 콘텐츠가 문맥에 없음)에서는 기억할 수 있다."""
-    fake_http.route("GET", WEBKR, injected_search_response())
-    with agent.override(model=scripted(call("web_search", query="성수동"), text("찾았습니다.")).model()):
-        await send(client, conversation, "성수동 검색해줘")
-    other = (await client.post("/api/conversations", json={"title": "새 대화"})).json()["id"]
-
-    with agent.override(model=scripted(call("remember", content="매운 거 못 먹음"), text("끝")).model()):
-        task = await send(client, other, "나 매운 거 못 먹어, 기억해")
-
-    assert step_named(task, "remember")["ok"] is True
-    assert len(await memories_of(db_session, logged_in_user)) == 1
-
-
-async def test_remember_refused_after_resume_when_external_content_came_before_approval(
-    client: httpx.AsyncClient,
-    agent: MyAgent,
-    conversation: int,
-    db_session: AsyncSession,
-    logged_in_user: User,
-    fake_http: FakeHttp,
-    fake_external_counter: FakeExternalCounter,
-) -> None:
-    """승인으로 나뉜 run도 같은 task다. 승인 전 run에서 검색했다면 재개한 run의 remember도 거부된다."""
-    fake_http.route("GET", WEBKR, injected_search_response())
-    model = scripted(
-        call("web_search", query="성수동"),
-        call("fake_external", value=1),
-        call("remember", content="성수동 좋아함"),
-        text("끝"),
-    )
-    with agent.override(model=model.model()):
-        task = await send(client, conversation, "성수동 좋아해. 검색하고 외부 도구 실행해줘")
-        assert task["status"] == "waiting_approval"
-        approval_id = task["approvals"][0]["id"]
-        response = await client.post(f"/api/approvals/{approval_id}/approve")
-        assert response.status_code == 200, response.text
-
-    detail = (await client.get(f"/api/tasks/{task['id']}")).json()
-    assert detail["status"] == "done"
-    assert step_named(detail, "remember")["ok"] is False
-    assert await memories_of(db_session, logged_in_user) == []
 
 
 async def make_task(db_session: AsyncSession, user: User, origin: TaskOrigin, *, with_message: bool) -> Task:
@@ -248,8 +103,8 @@ def deps_for_task(tool_deps: AgentDeps, task: Task, origin: TaskOrigin) -> Agent
     )
 
 
-async def remember_directly(deps: AgentDeps, content: str = "매운 거 못 먹음"):
-    return await memories.remember(tool_context(deps, "remember"), content=content)
+async def remember_directly(deps: AgentDeps, content: str = "매운 거 못 먹음", quote: str = "나 매운 거 못 먹어"):
+    return await memories.remember(tool_context(deps, "remember"), content=content, quote=quote)
 
 
 async def test_remember_refused_for_schedule_and_watch_tasks(
@@ -294,19 +149,6 @@ async def test_remember_refused_for_other_users_task(
     )
 
     assert (await remember_directly(deps)).ok is False
-
-
-async def test_remember_refused_when_task_has_external_content_step(
-    tool_deps: AgentDeps, db_session: AsyncSession, logged_in_user: User
-) -> None:
-    """메시지 기록과 별개로 DB의 steps도 본다(이 task에서 외부 콘텐츠 도구를 부른 기록)."""
-    task = await make_task(db_session, logged_in_user, TaskOrigin.CHAT, with_message=True)
-    await add_step(db_session, task, "list_events", RiskLevel.READ, StepStatus.DONE)
-
-    result = await remember_directly(deps_for_task(tool_deps, task, TaskOrigin.CHAT))
-
-    assert result.ok is False
-    assert await memories_of(db_session, logged_in_user) == []
 
 
 # ---- 저장 규칙: 길이, 개수, 중복, 저장하면 안 되는 것 ----
@@ -355,7 +197,7 @@ async def test_remember_refuses_when_200_memories_exist(
     )
     await db_session.commit()
 
-    result = await remember_directly(deps, "새 기억")
+    result = await remember_directly(deps)
 
     assert result.ok is False
     assert "200개" in (result.error or "")
@@ -383,7 +225,9 @@ async def test_remember_rejects_content_over_300_chars(
     client: httpx.AsyncClient, agent: MyAgent, conversation: int, db_session: AsyncSession, logged_in_user: User
 ) -> None:
     """301자 이상은 인자 검증에서 막혀 도구가 실행되지 않는다(모델에게 다시 시도하라고 알린다)."""
-    model = scripted(call("remember", content="가" * 301), text("너무 길어 저장하지 못했습니다."))
+    model = scripted(
+        call("remember", content="가" * 301, quote="나 매운 거 못 먹어"), text("너무 길어 저장하지 못했습니다.")
+    )
 
     with agent.override(model=model.model()):
         task = await send(client, conversation, "긴 내용 기억해")
@@ -420,8 +264,26 @@ async def test_list_memories_returns_own_memories_newest_first(
     tool_deps: AgentDeps, db_session: AsyncSession, logged_in_user: User
 ) -> None:
     deps = await chat_deps(tool_deps, db_session, logged_in_user)
-    await remember_directly(deps, "매운 거 못 먹음")
-    await remember_directly(deps, "커피는 디카페인")
+    task = await db_session.get_one(Task, deps.task_id)
+    assert task.trigger_message_id is not None
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            Memory(
+                user_id=logged_in_user.id,
+                content="매운 거 못 먹음",
+                source_message_id=task.trigger_message_id,
+                created_at=now - timedelta(minutes=1),
+            ),
+            Memory(
+                user_id=logged_in_user.id,
+                content="커피는 디카페인",
+                source_message_id=task.trigger_message_id,
+                created_at=now,
+            ),
+        ]
+    )
+    await db_session.commit()
 
     result = await memories.list_memories(tool_context(deps, "list_memories"))
 
@@ -435,9 +297,14 @@ async def test_interrupted_remember_is_not_executed_again(
     """remember는 INTERNAL이라 3단계 복구 규칙(at-most-once)을 따른다: 도중에 끊긴 호출은 다시 실행하지 않는다."""
     task = await make_queued_task(db_session, logged_in_user, content="나 매운 거 못 먹어, 기억해")
     step = await add_step(
-        db_session, task, "remember", RiskLevel.INTERNAL, StepStatus.RUNNING, input={"content": "매운 거 못 먹음"}
+        db_session,
+        task,
+        "remember",
+        RiskLevel.INTERNAL,
+        StepStatus.RUNNING,
+        input={"content": "매운 거 못 먹음", "quote": "나 매운 거 못 먹어"},
     )
-    respond, _ = fixed_call("remember", {"content": "매운 거 못 먹음"}, "call-fixed")
+    respond, _ = fixed_call("remember", {"content": "매운 거 못 먹음", "quote": "나 매운 거 못 먹어"}, "call-fixed")
 
     await run_directly(app, agent, task, respond)
 
@@ -531,7 +398,7 @@ async def test_deleted_memory_is_gone_from_next_run(
     client: httpx.AsyncClient, agent: MyAgent, conversation: int, db_session: AsyncSession, logged_in_user: User
 ) -> None:
     """SPEC 5단계 3): 기억 화면에서 지운 기억은 다음 run의 지시문에서 빠진다."""
-    model = scripted(call("remember", content="매운 거 못 먹음"), text("기억했습니다."))
+    model = scripted(call("remember", content="매운 거 못 먹음", quote="나 매운 거 못 먹어"), text("기억했습니다."))
     with agent.override(model=model.model()):
         await send(client, conversation, "나 매운 거 못 먹어, 기억해")
 
@@ -552,7 +419,7 @@ async def test_deleted_memory_is_gone_from_next_run(
 async def test_memory_saved_in_run_appears_in_next_request_instructions(
     client: httpx.AsyncClient, agent: MyAgent, conversation: int
 ) -> None:
-    model = scripted(call("remember", content="매운 거 못 먹음"), text("기억했습니다."))
+    model = scripted(call("remember", content="매운 거 못 먹음", quote="나 매운 거 못 먹어"), text("기억했습니다."))
 
     with agent.override(model=model.model()):
         await send(client, conversation, "나 매운 거 못 먹어, 기억해")
@@ -569,7 +436,9 @@ async def test_memory_saved_in_run_appears_in_next_request_instructions(
 async def test_list_memories_api_returns_own_memories_with_source_message(
     client: httpx.AsyncClient, agent: MyAgent, conversation: int, db_session: AsyncSession, make_user: UserFactory
 ) -> None:
-    with agent.override(model=scripted(call("remember", content="매운 거 못 먹음"), text("네")).model()):
+    with agent.override(
+        model=scripted(call("remember", content="매운 거 못 먹음", quote="나 매운 거 못 먹어"), text("네")).model()
+    ):
         task = await send(client, conversation, "나 매운 거 못 먹어, 기억해")
     other = await make_user("other@example.com", "password-other")
     await add_memories(db_session, other, ["남의 기억"])

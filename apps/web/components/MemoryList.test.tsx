@@ -14,11 +14,17 @@ vi.mock("@/lib/api/client", () => ({
   },
 }));
 
-function makeMemory(id: number, content: string, sourceText = `${content}, 기억해`): Memory {
+function makeMemory(
+  id: number,
+  content: string,
+  sourceText = `${content}, 기억해`,
+  quote: string | null = null,
+): Memory {
   return {
     id,
     content,
     created_at: "2026-11-16T16:30:00Z",
+    source_quote: quote,
     source: {
       message_id: id * 10,
       conversation_id: 7,
@@ -29,7 +35,12 @@ function makeMemory(id: number, content: string, sourceText = `${content}, 기�
   };
 }
 
-const SPICY = makeMemory(1, "매운 음식을 못 먹는다", "나 매운 거 못 먹어, 기억해");
+const SPICY = makeMemory(
+  1,
+  "매운 음식을 못 먹는다",
+  "나 매운 거 못 먹어, 기억해",
+  "나 매운 거 못 먹어",
+);
 const COFFEE = makeMemory(2, "아침에 커피를 마신다");
 
 type FakeServer = { memories: Memory[]; deleteOne: number; deleteAll: number };
@@ -87,10 +98,11 @@ describe("기억 목록", () => {
 
     const item = await findItem("매운 음식을 못 먹는다");
     expect(item).toHaveTextContent("저장한 날짜 2026년 11월 17일");
+    expect(item).toHaveTextContent("근거: “나 매운 거 못 먹어”");
     expect(screen.getByText("아침에 커피를 마신다")).toBeInTheDocument();
     expect(screen.getByText("저장된 기억 2개 / 최대 200개")).toBeInTheDocument();
     expect(
-      screen.getByText(/지운 기억은 다음 대화부터 에이전트가 쓰지 않습니다/),
+      screen.getByText(/지운 기억은 바로 다음 답변부터 에이전트가 쓰지 않습니다/),
     ).toBeInTheDocument();
   });
 
@@ -101,7 +113,9 @@ describe("기억 목록", () => {
     expect(await screen.findByText("아직 저장된 기억이 없습니다.")).toBeInTheDocument();
     const main = document.body;
     expect(main).toHaveTextContent("'나 매운 거 못 먹어, 기억해'처럼 말하면 저장됩니다");
-    expect(main).toHaveTextContent("검색·날씨·장소·일정 조회를 쓴 대화에서는 저장되지 않습니다");
+    expect(main).toHaveTextContent(
+      "내가 '기억해'라고 한 말만, 그 말을 그대로 근거로 남겨 저장합니다",
+    );
     expect(main).toHaveTextContent("비밀번호·카드 번호는 저장하지 않습니다");
     expect(main).toHaveTextContent("저장된 기억 0개 / 최대 200개");
     expect(screen.queryByRole("button", { name: "전체 삭제" })).not.toBeInTheDocument();

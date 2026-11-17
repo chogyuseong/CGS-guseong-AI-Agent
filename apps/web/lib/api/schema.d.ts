@@ -723,6 +723,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Source Quote */
+            source_quote?: string | null;
             source: components["schemas"]["MemorySourceOut"];
         };
         /**

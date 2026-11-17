@@ -17,6 +17,8 @@ class MemoryOut(BaseModel):
     id: int
     content: str
     created_at: datetime
+    # 5단계 보강: 근거가 된 사용자 메시지 부분(서버가 원문에 있는지 확인한 인용). 보강 전 기억은 null.
+    source_quote: str | None = None
     source: MemorySourceOut
 
 

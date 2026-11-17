@@ -7,6 +7,7 @@ type FakeMemory = {
   id: number;
   content: string;
   created_at: string;
+  source_quote: string | null;
   source: {
     message_id: number;
     conversation_id: number;
@@ -24,6 +25,7 @@ const MEMORIES: FakeMemory[] = [
     id: 1,
     content: "매운 음식을 못 먹는다",
     created_at: "2026-11-16T16:30:00Z",
+    source_quote: "나 매운 거 못 먹어",
     source: {
       message_id: 10,
       conversation_id: 7,
@@ -36,6 +38,7 @@ const MEMORIES: FakeMemory[] = [
     id: 2,
     content: `좋아하는 말: ${LONG_WORD}`,
     created_at: "2026-11-15T01:00:00Z",
+    source_quote: null,
     source: {
       message_id: 20,
       conversation_id: 8,
@@ -104,9 +107,10 @@ test("360px 기억 화면: 목록과 개수를 보여 주고, 원래 메시지�
   const region = await openMemory(page);
 
   await expect(region).toContainText("저장된 기억 2개 / 최대 200개");
-  await expect(region).toContainText("지운 기억은 다음 대화부터 에이전트가 쓰지 않습니다");
+  await expect(region).toContainText("지운 기억은 바로 다음 답변부터 에이전트가 쓰지 않습니다");
   const first = region.getByRole("listitem").filter({ hasText: "매운 음식을 못 먹는다" });
   await expect(first).toContainText("저장한 날짜 2026년 11월 17일");
+  await expect(first).toContainText("근거: “나 매운 거 못 먹어”");
   const toggle = first.getByRole("button", { name: "원래 메시지 보기" });
   await expectTappable(toggle);
   await expectTappable(first.getByRole("button", { name: "삭제", exact: true }));
@@ -146,7 +150,9 @@ test("360px 기억 화면: 전체 삭제는 화면 안에서 한 번 묻고, 지
   await expect(region).toContainText("아직 저장된 기억이 없습니다.");
   await expect(region.getByRole("status")).toContainText("기억 2개를 모두 지웠습니다");
   await expect(region).toContainText("'나 매운 거 못 먹어, 기억해'처럼 말하면 저장됩니다");
-  await expect(region).toContainText("검색·날씨·장소·일정 조회를 쓴 대화에서는 저장되지 않습니다");
+  await expect(region).toContainText(
+    "내가 '기억해'라고 한 말만, 그 말을 그대로 근거로 남겨 저장합니다",
+  );
   await expect(region).toContainText("비밀번호·카드 번호는 저장하지 않습니다");
   await expect(region).toContainText("저장된 기억 0개 / 최대 200개");
   expect(server.deleteAll).toBe(1);

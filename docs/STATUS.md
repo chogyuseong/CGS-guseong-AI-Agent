@@ -2,7 +2,7 @@
 
 BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
-현재 단계: BUILD_SPEC 기준 4단계 보강 완료(2026-11-17, 실제 Google 계정 확인은 사용자 몫으로 남음). 다음은 5단계 보강(기억과 데이터 삭제).
+현재 단계: BUILD_SPEC 기준 5단계 보강 진행 중(2026-11-17). (1) 기억 원문 인용 검증 끝, 다음은 (2) 대화 삭제.
 
 완료한 항목:
 - 예전 명세(SPEC.md) 기준 0~9단계 구현(배포 제외). 기능 목록은 README.md
@@ -96,9 +96,9 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] TOOL 규약을 BUILD_SPEC 17절 체크리스트로 — AGENTS.md 도구 규약
 
 ### 5단계 — 기억과 데이터 삭제
-- [ ] memories에 source_message_id, source_quote. 원문에 실제로 있는지 서버 검사
-- [ ] "외부 도구를 썼으면 저장 금지"(MEMORY_BLOCKING_TOOLS) 제거(BUILD_SPEC 5.4가 금지)
-- [ ] 활성 기억 최대 200개, 한 줄 300자
+- [x] memories에 source_message_id, source_quote. 원문에 실제로 있는지 서버 검사 — tests/test_memory_quotes.py
+- [x] "외부 도구를 썼으면 저장 금지"(MEMORY_BLOCKING_TOOLS) 제거(BUILD_SPEC 5.4가 금지)
+- [x] 활성 기억 최대 200개, 한 줄 300자 — 이미 있었음(tests/test_memories.py)
 - [ ] 대화 삭제(DELETE /conversations/{id})와 관련 기록 정리
 - [ ] 실행 기록 보관 기간(EXECUTION_RETENTION_DAYS 7, RECEIPT_RETENTION_DAYS 90)과 정리
 - [ ] docs/DATA_POLICY.md(저장소별 보관·삭제 범위, 백업 지연)

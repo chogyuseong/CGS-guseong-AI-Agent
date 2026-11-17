@@ -184,7 +184,9 @@ function MemorySummary({ count, limit }: { count: number; limit: number }) {
         </p>
       )}
       <p className="text-muted-foreground">
-        지운 기억은 다음 대화부터 에이전트가 쓰지 않습니다. 지운 기억은 되돌릴 수 없습니다.
+        지운 기억은 바로 다음 답변부터 에이전트가 쓰지 않습니다. 지운 기억은 되돌릴 수 없습니다.
+        예전 대화에 같은 내용이 남아 있으면 그 대화를 이어갈 때 참고될 수 있으니, 그 대화도 지우려면
+        대화 목록에서 삭제하세요.
       </p>
     </div>
   );
@@ -192,7 +194,8 @@ function MemorySummary({ count, limit }: { count: number; limit: number }) {
 
 const GUIDE_LINES = [
   "채팅에서 '나 매운 거 못 먹어, 기억해'처럼 말하면 저장됩니다.",
-  "검색·날씨·장소·일정 조회를 쓴 대화에서는 저장되지 않습니다. 그때는 새 대화에서 다시 말해 주세요.",
+  "내가 '기억해'라고 한 말만, 그 말을 그대로 근거로 남겨 저장합니다. 검색 결과·메일·메모의 글은 기억이 되지 않습니다.",
+  "남의 말을 옮기거나 가정하는 말(만약 ~라면)은 저장하기 전에 다시 묻습니다.",
   "비밀번호·카드 번호는 저장하지 않습니다.",
 ];
 
@@ -235,7 +238,10 @@ function DeleteAllConfirm({ flow, count }: { flow: DeleteAllFlow; count: number 
       className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3"
     >
       <p className="text-sm font-medium text-destructive">기억 {count}개를 모두 지울까요?</p>
-      <p className="text-sm">지운 기억은 되돌릴 수 없고, 다음 대화부터 에이전트가 쓰지 않습니다.</p>
+      <p className="text-sm">
+        지운 기억은 되돌릴 수 없고, 바로 다음 답변부터 에이전트가 쓰지 않습니다. 예전 대화에 남은
+        같은 내용은 지워지지 않습니다.
+      </p>
       <div className="grid grid-cols-2 gap-2">
         <Button type="button" onClick={flow.submit} disabled={flow.busy} className={BIG_BUTTON}>
           모두 지우기
@@ -276,6 +282,9 @@ function MemoryItem({ memory, locked, onDelete }: ItemProps) {
       <p id={contentId} className="whitespace-pre-wrap text-base wrap-anywhere">
         {memory.content}
       </p>
+      {memory.source_quote && (
+        <p className="text-sm text-muted-foreground wrap-anywhere">근거: “{memory.source_quote}”</p>
+      )}
       <p className="text-xs text-muted-foreground">
         저장한 날짜 {formatMemoryDate(memory.created_at)}
       </p>

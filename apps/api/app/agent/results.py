@@ -39,13 +39,8 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
 # 7단계: 메일 도구. 감시에 쓸 수 없고(명세), 저장분(steps.output, tasks.message_history)을 500자로 자른다(명세 [보안]).
 MAIL_TOOLS = frozenset({"list_mail", "read_mail"})
 STORED_MAIL_CHARS = 500
-# 7단계: 모델이 예전에 쓴 글(메모·할 일 제목·예약 프롬프트·감시 조건)을 문맥으로 다시 가져오는 도구.
-# 그 글은 외부 검색 결과를 옮겨 적은 것일 수 있다(예: web_search → save_note → 다른 대화에서 list_notes).
-# 출처를 따로 기록하지 않으므로 remember 검사는 이 도구들도 외부 콘텐츠처럼 본다(docs/DECISIONS.md 7단계).
-STORED_TEXT_TOOLS = frozenset({"list_notes", "list_todos", "complete_todo", "list_schedules", "list_watches"})
-# remember 서버 검사(app/tools/memories.py)가 쓰는 목록:
-# 이 도구의 호출이 문맥이나 이 task의 steps에 있으면 기억을 만들지 않는다.
-MEMORY_BLOCKING_TOOLS = EXTERNAL_CONTENT_TOOLS | STORED_TEXT_TOOLS
+# 5단계 보강: remember의 "외부 콘텐츠·메모를 읽었으면 저장 금지" 목록(MEMORY_BLOCKING_TOOLS)은 없앴다.
+# BUILD_SPEC 5.4가 그 규칙을 금지한다. 대신 remember가 사용자 메시지 원문 인용(quote)을 확인한다(app/tools/memories.py).
 
 
 def is_wrapped_external(content: object) -> bool:

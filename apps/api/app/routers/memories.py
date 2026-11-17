@@ -27,6 +27,7 @@ def memory_out(memory: Memory, source: Message) -> MemoryOut:
         id=memory.id,
         content=memory.content,
         created_at=memory.created_at,
+        source_quote=memory.source_quote,
         source=MemorySourceOut(
             message_id=source.id,
             conversation_id=source.conversation_id,

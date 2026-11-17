@@ -9,7 +9,7 @@
 
 지금 코드는 예전 명세로 0~9단계를 만든 뒤, BUILD_SPEC 기준으로 0단계부터 단계별로 보강하는 중이다(A안).
 아래 "도구 규약"과 "코드 지도"는 지금 코드의 설명이다. STATUS.md의 차이 목록에 있는 항목
-(예: ToolResult.ok, MEMORY_BLOCKING_TOOLS, FAST→SMART 전환, [제안] 파싱)은 해당 단계 보강 때 BUILD_SPEC대로 바꾼다.
+(예: [제안] 파싱. ToolResult.ok·MEMORY_BLOCKING_TOOLS·FAST→SMART 전환은 보강을 마쳤다)은 해당 단계 보강 때 BUILD_SPEC대로 바꾼다.
 
 ## 절대 원칙 (BUILD_SPEC 18절)
 1. 공식 API만 사용한다. 브라우저 자동화, 크롤링 금지.
@@ -170,7 +170,7 @@
   (`GET /api/usage`) / `evals/` eval 데이터·평가기·실행기(승인하지 않음, 가짜 외부 API, 버리는 DB)
 - 새 계측(httpx, DB 등)을 켜거나 트레이스에 값을 직접 남길 때는 `tests/test_observability.py`처럼 메모리 exporter로 내용이 없는지 먼저 확인한다.
 - 7단계 메일: toolsets의 `mail_tools`(list_mail, read_mail. READ지만 chat 전용), `results.py`의 `output_for_storage`
-  (메일 결과는 steps.output·message_history에 500자만)와 `MEMORY_BLOCKING_TOOLS`(remember 검사: 외부 콘텐츠 + 메모·할 일 조회),
+  (메일 결과는 steps.output·message_history에 500자만). remember 검사는 5단계 보강부터 사용자 메시지 원문 인용(quote) 검증이다(`app/tools/memories.py`의 `quote_problem`),
   도구는 `app/tools/gmail.py`·`mail_text.py`, 권한은 `app/google_auth.py`의 `GMAIL_SCOPE`(`POST /api/connections/google/start` `{"scope": "mail"}`)
 - `workflows.py` DBOS 워크플로(run_task, resume_task, 6단계 automation_check·run_schedule·run_watch)와 1분 검사 예약 등록
 
@@ -182,7 +182,7 @@
 - 시간이 걸린 테스트는 `run_check(services, now)`에 시각을 넣는다. 테스트에서 DBOS 예약(`apply_schedules`)을 등록하지 않는다
   (테스트 DB에서 매분 검사가 돌게 된다).와 동적 지시문(날짜, 기억 최근 30줄)
 - `results.py` ToolResult, 외부 콘텐츠 감싸기, `EXTERNAL_CONTENT_TOOLS`(remember 검사가 쓰는 목록. 외부 글을 돌려주는 도구를 만들면 여기에 넣는다)
-- 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사), API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어",
+- 기억(5단계): 도구 `app/tools/memories.py`(remember 서버 검사: 기억 요청·원문 인용·인용/가정·남의 정보·새 사실), API `app/routers/memories.py`. 규칙은 docs/SAFETY.md "기억 오염 방어",
   동적 지시문(오늘·이번 주 날짜표)
 - `deps.py` AgentDeps(user_id, task_id, origin, db, settings, http) / `results.py` ToolResult, 외부 콘텐츠 감싸기
 - 도구(`app/tools`): `notes.py`, `http.py`(외부 호출 규칙), `weather.py`, `places.py`, `websearch.py`, `gcal.py`(일정 4개 + preview)

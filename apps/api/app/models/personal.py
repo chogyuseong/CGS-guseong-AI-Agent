@@ -16,6 +16,8 @@ class Memory(TimestampedTable):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(String(300))
     source_message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    # 5단계 보강: 근거가 된 사용자 메시지 부분(그대로 옮긴 것, 서버가 원문에 있는지 확인). 보강 전 기억은 비어 있다.
+    source_quote: Mapped[str | None] = mapped_column(Text)
 
 
 class Note(TimestampedTable):
