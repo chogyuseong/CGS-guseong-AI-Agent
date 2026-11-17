@@ -532,4 +532,4 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 - 2026-11-17 실행 도중 서버가 멈춰 실행 여부를 모르는 INTERNAL·EXTERNAL 호출은 이제 failed가 아니라 unknown(step 상태 `unknown`, 화면 "결과 확인 필요")으로 닫는다. 확실히 실행하지 않은 단계(취소, 실행 전 작업 종료)는 failed + error_code `not_executed`로 구분한다.
 - 2026-11-17 시스템 프롬프트의 "ok가 false면" 줄을 status 기준으로 바꾸고 "unknown이면 같은 행동을 다시 하지 말고 확인을 부탁한다"를 더했다.
 - 2026-11-17 AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력은 6단계 보강으로 미룬다. 출력 형식을 바꾸면 모든 가짜 모델 대본과 eval이 함께 바뀌고, needs_clarification(waiting_input)의 쓸모는 실제 모델로 되묻기 품질을 봐야 판단할 수 있다. suggestions 구조화가 6단계 일이라 그때 한 번에 바꾼다. 1단계의 "결과 상태와 모델 설명 분리"는 task 상태를 서버가 정하고(모델 문장과 별개), 실패·취소·한도 초과 답변을 서버 고정 문구로 남기는 지금 구조와 ToolResult.status로 갖춘다.
-- 2026-11-17 화면: 전송 직후 "보내는 중" 판단 함수(pendingBubbleText)는 lib/chat.ts에 있다. onMutate 컨텍스트 방식을 시도했으나 치환 실수로 적용되지 않았고, ref 방식이 더 단순해 그대로 쓴다.
+- 2026-11-17 화면: 전송 직후 "보내는 중" 판단 함수(pendingBubbleText)는 lib/chat.ts에 있다. onMutate 컨텍스트 방식을 시도했으나 치환 실수로 적용되지 않았고, ref 방식이 더 단순해 그대로 쓴다.- 2026-11-17 (사용자 확인) AgentReply 구조화 출력을 6단계 보강으로 미루는 것을 사용자가 승인했다.

@@ -51,7 +51,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 - [x] FAST→SMART 자동 전환 제거(BUILD_SPEC 6.1: 도구 호출 횟수만으로 전환 금지). `app/agent/model_choice.py`
 - [x] task 상태 12개, 취소 API `POST /tasks/{id}/cancel` — tests/test_cancel.py
 - [x] ToolResult를 status(succeeded/failed/unknown)·error_code·retryable·operation_id·receipt_id·truncated 구조로 — tests/test_tool_result.py
-- [ ] (6단계로 옮김) AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력 — 이유는 DECISIONS 1단계 보강
+- [ ] (6단계로 옮김, 사용자 승인) AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력 — 이유는 DECISIONS 1단계 보강
 - [x] 내부 DB 변경(todo 등)의 중복 방지 확인 — test_client_request_id(재전송), test_workflows(복구 재생·끊긴 호출 미실행)
 - [x] MODEL_CALL_TIMEOUT_SECONDS
 
