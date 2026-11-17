@@ -3,12 +3,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useEffect } from "react";
+import { Button } from "@/components/ui/button";
 import {
+  CANCELLABLE_PHASES,
   chatKeys,
   isTaskFinished,
   PHASE_TEXT,
   type TaskPhase,
   taskPhase,
+  useCancelTask,
   useTask,
 } from "@/lib/chat";
 import { StepTimeline } from "./StepTimeline";
@@ -33,9 +36,11 @@ export function PendingTask({ taskId }: { taskId: number }) {
   if (isError && task === undefined) {
     return <p className="text-sm text-destructive">진행 상황을 불러오지 못했습니다.</p>;
   }
+  const phase = taskPhase(task);
   return (
     <>
-      <PhaseLine phase={taskPhase(task)} />
+      <PhaseLine phase={phase} />
+      {CANCELLABLE_PHASES.includes(phase) && <CancelButton taskId={taskId} />}
       {task && <StepTimeline steps={task.steps} />}
       {task && <TaskApprovals task={task} />}
     </>
@@ -57,5 +62,28 @@ function PhaseLine({ phase }: { phase: TaskPhase }) {
       <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin" />
       {PHASE_TEXT[phase]}
     </p>
+  );
+}
+
+// 작업 취소 버튼. 이미 끝난 단계는 되돌리지 않고, 다음 단계부터 멈춘다.
+function CancelButton({ taskId }: { taskId: number }) {
+  const cancel = useCancelTask(taskId);
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-11"
+        disabled={cancel.isPending}
+        onClick={() => cancel.mutate()}
+      >
+        작업 취소
+      </Button>
+      {cancel.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          취소하지 못했습니다. 이미 끝났을 수 있습니다.
+        </p>
+      )}
+    </div>
   );
 }

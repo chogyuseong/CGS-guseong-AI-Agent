@@ -25,6 +25,7 @@ const DECIDED_LABELS: Record<Exclude<ApprovalStatus, "pending">, string> = {
   approved: "승인함",
   rejected: "거절함",
   expired: "만료됨",
+  cancelled: "작업 취소로 닫힘",
 };
 
 // 승인 카드 하나. 외부에 흔적을 남기는 도구 호출 한 건을 실행 전에 보여 주고 사용자가 승인·거절한다.

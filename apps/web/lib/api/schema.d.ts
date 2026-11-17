@@ -158,6 +158,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Task
+         * @description 작업 취소. 대기 중이면 바로 cancelled, 실행 중이면 cancel_requested(다음 단계 전에 멈춘다).
+         *
+         *     이미 끝난 단계(할 일 추가, 승인된 외부 행동)는 되돌리지 않는다.
+         */
+        post: operations["cancel_task_api_tasks__task_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/approvals/{approval_id}/approve": {
         parameters: {
             query?: never;
@@ -514,7 +536,7 @@ export interface components {
          * ApprovalStatus
          * @enum {string}
          */
-        ApprovalStatus: "pending" | "approved" | "rejected" | "expired";
+        ApprovalStatus: "pending" | "approved" | "rejected" | "expired" | "cancelled";
         /**
          * ApproveRequest
          * @description 승인 요청 본문(생략 가능).
@@ -540,6 +562,15 @@ export interface components {
          */
         AutomationErrorOut: {
             detail: components["schemas"]["AutomationErrorDetail"];
+        };
+        /**
+         * CancelOut
+         * @description 취소 요청 결과. status는 cancelled(바로 취소됨) 또는 cancel_requested(실행 중이라 곧 멈춤).
+         */
+        CancelOut: {
+            /** Task Id */
+            task_id: number;
+            status: components["schemas"]["TaskStatus"];
         };
         /** ConnectionOut */
         ConnectionOut: {
@@ -870,9 +901,10 @@ export interface components {
         TaskOrigin: "chat" | "schedule" | "watch";
         /**
          * TaskStatus
+         * @description BUILD_SPEC 9.2의 12가지. 1단계 보강에서 늘렸다. 표시·전이 규칙은 docs/STATE_MACHINES.md(9단계)에 정리한다.
          * @enum {string}
          */
-        TaskStatus: "queued" | "running" | "waiting_approval" | "done" | "failed" | "cancelled" | "budget_exceeded";
+        TaskStatus: "queued" | "running" | "waiting_input" | "waiting_approval" | "cancel_requested" | "reconciling" | "done" | "partially_done" | "failed" | "cancelled" | "budget_exceeded" | "needs_review";
         /**
          * TaskSummary
          * @description 작업 기록 탭의 한 줄.
@@ -1383,6 +1415,51 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TaskDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_task_api_tasks__task_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelOut"];
+                };
+            };
+            /** @description 없거나 남의 작업 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 이미 끝난 작업 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

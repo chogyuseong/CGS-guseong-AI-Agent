@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Approval } from "@/lib/approvals";
 import type { Task, TaskStatus } from "@/lib/chat";
@@ -7,8 +7,12 @@ import { PendingTask } from "./PendingTask";
 
 // 서버 호출(api.GET)을 가짜로 바꾼다. 테스트마다 돌려줄 task를 차례로 정한다.
 const getMock = vi.fn();
+const postMock = vi.fn();
 vi.mock("@/lib/api/client", () => ({
-  api: { GET: (...args: unknown[]) => getMock(...args), POST: vi.fn() },
+  api: {
+    GET: (...args: unknown[]) => getMock(...args),
+    POST: (...args: unknown[]) => postMock(...args),
+  },
 }));
 
 function makeTask(status: TaskStatus, overrides: Partial<Task> = {}): Task {
@@ -111,4 +115,44 @@ describe("PendingTask(즉시 응답 뒤 진행 표시)", () => {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     expect(taskCalls()).toBe(3);
   }, 8000);
+});
+
+describe("PendingTask 작업 취소(1단계 보강)", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    postMock.mockReset();
+  });
+
+  it("진행 중이면 '작업 취소' 버튼이 있고, 누르면 취소를 요청한다", async () => {
+    serveTasks(makeTask("running"));
+    postMock.mockResolvedValue({
+      data: { task_id: 41, status: "cancel_requested" },
+      response: { status: 200 },
+    });
+    renderPending();
+
+    fireEvent.click(await screen.findByRole("button", { name: "작업 취소" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/api/tasks/{task_id}/cancel", {
+        params: { path: { task_id: 41 } },
+      }),
+    );
+  });
+
+  it("취소를 요청했으면 곧 멈춘다고 알리고 버튼은 없다", async () => {
+    serveTasks(makeTask("cancel_requested"));
+    renderPending();
+
+    expect(await screen.findByText(/취소 요청을 받았습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "작업 취소" })).not.toBeInTheDocument();
+  });
+
+  it("끝난 작업에는 취소 버튼이 없다", async () => {
+    serveTasks(makeTask("done"));
+    renderPending();
+
+    await waitFor(() => expect(taskCalls()).toBeGreaterThan(0));
+    expect(screen.queryByRole("button", { name: "작업 취소" })).not.toBeInTheDocument();
+  });
 });

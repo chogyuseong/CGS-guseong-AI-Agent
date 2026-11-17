@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Approval } from "./approvals";
 import {
+  countUserMessages,
+  pendingBubbleText,
   SEND_ATTEMPTS,
   sendWithRetry,
   isTaskFinished,
@@ -159,5 +161,32 @@ describe("sendWithRetry: 네트워크 오류면 같은 client_request_id로 다�
 
     expect(await sendWithRetry(post, "req-3")).toBe(refused);
     expect(post).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("pendingBubbleText: '보내는 중' 말풍선", () => {
+  const user = (id: number, content: string) => ({
+    id,
+    role: "user" as const,
+    content,
+    task_id: id,
+    created_at: "2026-11-17T03:00:00Z",
+    origin: "chat" as const,
+    sources: [],
+  });
+
+  it("보내는 중이고 아직 목록에 새 내 메시지가 없으면 보낸 문장을 보여 준다", () => {
+    const messages = [user(1, "어제 말")];
+    expect(pendingBubbleText(true, "새 말", countUserMessages(messages), messages)).toBe("새 말");
+  });
+
+  it("목록을 다시 받아 내 메시지가 늘었으면 숨긴다(같은 문장이 두 번 보이지 않게)", () => {
+    const before = [user(1, "어제 말")];
+    const after = [...before, user(2, "새 말")];
+    expect(pendingBubbleText(true, "새 말", countUserMessages(before), after)).toBeUndefined();
+  });
+
+  it("보내는 중이 아니면 보여 주지 않는다", () => {
+    expect(pendingBubbleText(false, "새 말", 0, [])).toBeUndefined();
   });
 });

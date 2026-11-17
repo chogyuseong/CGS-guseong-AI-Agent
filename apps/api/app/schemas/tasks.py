@@ -115,3 +115,10 @@ class TaskSummary(BaseModel):
     step_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class CancelOut(BaseModel):
+    """취소 요청 결과. status는 cancelled(바로 취소됨) 또는 cancel_requested(실행 중이라 곧 멈춤)."""
+
+    task_id: int
+    status: TaskStatus

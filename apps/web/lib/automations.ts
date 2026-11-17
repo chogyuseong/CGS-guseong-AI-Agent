@@ -117,11 +117,16 @@ export function shortText(value: string, max: number): string {
 export const TASK_STATUS_TEXT: Record<Schemas["TaskStatus"], string> = {
   queued: "곧 실행",
   running: "실행 중",
+  waiting_input: "되물음",
   waiting_approval: "승인 대기",
+  cancel_requested: "취소 중",
+  reconciling: "결과 확인 중",
   done: "완료",
+  partially_done: "일부 완료",
   failed: "실패",
   cancelled: "취소됨",
   budget_exceeded: "비용 한도로 중단",
+  needs_review: "확인 필요",
 };
 
 export const WATCH_STATUS_TEXT: Record<WatchStatus, string> = {

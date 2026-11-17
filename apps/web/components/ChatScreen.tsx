@@ -1,8 +1,11 @@
 "use client";
 
+import { useRef } from "react";
 import { isAutomationRoom } from "@/lib/automations";
 import {
+  countUserMessages,
   openScheduleTaskIds,
+  pendingBubbleText,
   useConversations,
   useMessages,
   useSendMessage,
@@ -50,13 +53,23 @@ function ChatMessages({ conversationId, automationRoom, send }: ChatMessagesProp
   const messages = useMessages(conversationId);
   // 예약 task는 내 메시지 없이 시작하므로 작업 목록에서 진행 중인 것을 찾는다(이 대화방에서만 가져온다).
   const tasks = useTasks({ enabled: automationRoom });
-  // 서버가 답할 때까지(1단계는 몇 초) 내가 보낸 문장을 "보내는 중"으로 먼저 보여 준다.
-  const pendingText = send.isPending ? send.variables : undefined;
+  // 보내기 시작한 순간의 내 메시지 수. 다시 받은 목록에서 이 수가 늘면 "보내는 중" 말풍선을 숨긴다.
+  // (렌더 중에 ref를 바꾸지만 처음 한 번만 정하고 같은 값을 유지하므로 여러 번 렌더돼도 결과가 같다)
+  const sentFrom = useRef<number | undefined>(undefined);
+  if (!send.isPending) sentFrom.current = undefined;
+  else sentFrom.current ??= countUserMessages(messages.data ?? []);
   if (messages.isPending)
     return <p className="m-auto text-sm text-muted-foreground">불러오는 중…</p>;
   if (messages.isError) {
     return <p className="m-auto text-sm text-destructive">메시지를 불러오지 못했습니다.</p>;
   }
+  // 서버가 답할 때까지 내가 보낸 문장을 "보내는 중"으로 먼저 보여 준다. 다시 받은 목록에 들어오면 숨긴다.
+  const pendingText = pendingBubbleText(
+    send.isPending,
+    send.variables,
+    sentFrom.current,
+    messages.data,
+  );
   return (
     <MessageList
       messages={messages.data}

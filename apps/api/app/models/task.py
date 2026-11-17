@@ -16,6 +16,7 @@ from app.models.base import TimestampedTable, enum_type
 from app.models.enums import (
     ApprovalStatus,
     RiskLevel,
+    RunKind,
     StepStatus,
     TaskOrigin,
     TaskStatus,
@@ -45,6 +46,26 @@ class Task(TimestampedTable):
     total_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
     final_answer: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class AgentRun(TimestampedTable):
+    """task의 실행 회차 하나(1단계 보강, BUILD_SPEC 9.1). 처음 실행이 1회차, 승인 뒤 재개마다 1씩 는다.
+
+    claim 단계에서 만들고 finish 단계에서 결과 상태·요청 수·토큰을 채운다. 같은 워크플로가 복구로 claim을 다시 해도
+    (task_id, workflow_id)가 같아 행이 하나만 생긴다.
+    """
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (UniqueConstraint("task_id", "round"), UniqueConstraint("task_id", "workflow_id"))
+
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    round: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[RunKind] = mapped_column(enum_type(RunKind, "run_kind"))
+    workflow_id: Mapped[str | None] = mapped_column(String(200))
+    status: Mapped[TaskStatus | None] = mapped_column(enum_type(TaskStatus, "task_status"))  # 끝난 뒤 채운다
+    request_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    total_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Step(TimestampedTable):

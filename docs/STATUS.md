@@ -43,11 +43,11 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 
 ### 1단계 — 작업 실행과 내부 도구
 - [x] client_request_id로 메시지·task 중복 방지(사용자 범위 고유) — tests/test_client_request_id.py
-- [ ] agent_runs(최초 실행·재개 회차) 분리. 지금은 tasks에 모델 기록
+- [x] agent_runs(최초 실행·재개 회차) 기록 — tests/test_cancel.py. (메시지 기록은 아직 tasks.message_history)
 - [x] 예산: 모델 호출마다 예약 → 정산(budget_reservations, daily_budgets 잠금) — tests/test_budget_reservations.py
 - [x] 가격 미등록 모델은 호출 차단
 - [x] FAST→SMART 자동 전환 제거(BUILD_SPEC 6.1: 도구 호출 횟수만으로 전환 금지). `app/agent/model_choice.py`
-- [ ] task 상태 12개(cancel_requested, partially_done, needs_review, waiting_input 등), 취소 API `POST /tasks/{id}/cancel`
+- [x] task 상태 12개, 취소 API `POST /tasks/{id}/cancel` — tests/test_cancel.py
 - [ ] ToolResult를 status(succeeded/failed/unknown)·error_code·retryable·operation_id·receipt_id·truncated 구조로
 - [ ] AgentReply(text, sources, suggestions, needs_clarification) 구조화 출력
 - [ ] 내부 DB 변경(todo 등)의 호출 키 기반 중복 방지 확인

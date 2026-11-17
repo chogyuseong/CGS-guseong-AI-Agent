@@ -15,13 +15,27 @@ class TaskOrigin(StrEnum):
 
 
 class TaskStatus(StrEnum):
+    """BUILD_SPEC 9.2의 12가지. 1단계 보강에서 늘렸다. 표시·전이 규칙은 docs/STATE_MACHINES.md(9단계)에 정리한다."""
+
     QUEUED = "queued"
     RUNNING = "running"
+    WAITING_INPUT = "waiting_input"  # 모델이 사용자에게 되물었다(승인 요청과 다름)
     WAITING_APPROVAL = "waiting_approval"
+    CANCEL_REQUESTED = "cancel_requested"  # 실행 중 취소 요청. 다음 모델 호출·도구 실행 직전에 멈춘다
+    RECONCILING = "reconciling"  # 결과를 모르는 외부 행동을 다시 조회하는 중(3단계)
     DONE = "done"
+    PARTIALLY_DONE = "partially_done"  # 일부 외부 행동만 확인됨(2~3단계)
     FAILED = "failed"
     CANCELLED = "cancelled"
     BUDGET_EXCEEDED = "budget_exceeded"
+    NEEDS_REVIEW = "needs_review"  # 결과를 확인할 수 없어 사용자가 봐야 함(3단계)
+
+
+class RunKind(StrEnum):
+    """agent_runs 한 회차가 처음 실행인지, 승인 뒤 재개인지."""
+
+    RUN = "run"
+    RESUME = "resume"
 
 
 class RiskLevel(StrEnum):
@@ -45,6 +59,7 @@ class ApprovalStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"  # 결정 전에 작업을 취소했다(1단계 보강)
 
 
 class VerdictKind(StrEnum):

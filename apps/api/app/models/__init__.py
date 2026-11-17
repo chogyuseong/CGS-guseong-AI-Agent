@@ -6,10 +6,11 @@ from app.models.budget import BudgetReservation, DailyBudget
 from app.models.chat import Conversation, Message
 from app.models.integration import Connection, PushSubscription
 from app.models.personal import Memory, Note, Todo
-from app.models.task import Approval, GuardCheck, Step, Task, UsageLog
+from app.models.task import AgentRun, Approval, GuardCheck, Step, Task, UsageLog
 from app.models.user import User, UserSession
 
 __all__ = [
+    "AgentRun",
     "Approval",
     "Base",
     "BudgetReservation",

@@ -51,6 +51,7 @@ from app.agent.budget import (
     calculate_cost,
     daily_cost_exceeded,
 )
+from app.agent.cancel import RUN_CANCELLED_MESSAGE, TaskCancelledError
 from app.agent.deps import AgentDeps
 from app.agent.durable import current_workflow_id, durable_step
 from app.agent.guard import GuardAgent, GuardReview, check_action
@@ -63,8 +64,8 @@ from app.agent.history import (
 )
 from app.agent.toolsets import label_for, preview_for, toolsets_for
 from app.config import Settings
-from app.models import Conversation, Message, Step, Task, UsageLog
-from app.models.enums import MessageRole, StepStatus, TaskOrigin, TaskStatus, UsagePurpose
+from app.models import AgentRun, Conversation, Message, Step, Task, UsageLog
+from app.models.enums import MessageRole, RunKind, StepStatus, TaskOrigin, TaskStatus, UsagePurpose
 from app.push import PushKind, PushNotifier
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,8 @@ NOT_EXECUTED_MESSAGE = "작업이 이 단계 전에 멈춰 실행하지 않았�
 # 명세: task_done 푸시는 20초 넘게 걸렸거나 origin이 schedule·watch일 때만.
 TASK_DONE_NOTIFY_AFTER_SECONDS = 20.0
 FAILED_STATUSES = (TaskStatus.FAILED, TaskStatus.BUDGET_EXCEEDED)
+# finish가 결과를 저장할 수 있는 상태. 실행 중 취소 요청이 와도 끝난 결과는 저장한다.
+IN_PROGRESS = (TaskStatus.RUNNING, TaskStatus.CANCEL_REQUESTED)
 
 
 @dataclass(frozen=True)
@@ -166,7 +169,7 @@ async def claim_run(services: RunServices, task_id: int, workflow_id: str | None
         task = await lock_task(session, task_id)
         if task is None or not (task.status == TaskStatus.QUEUED or reclaimed(task, workflow_id)):
             return None
-        return await mark_claimed(session, task, workflow_id)
+        return await mark_claimed(session, task, workflow_id, RunKind.RUN)
 
 
 async def claim_resume(services: RunServices, task_id: int, workflow_id: str | None) -> TaskInfo | None:
@@ -176,19 +179,53 @@ async def claim_resume(services: RunServices, task_id: int, workflow_id: str | N
         if task is None:
             return None
         if reclaimed(task, workflow_id):
-            return await mark_claimed(session, task, workflow_id)
+            return await mark_claimed(session, task, workflow_id, RunKind.RESUME)
         if task.status != TaskStatus.WAITING_APPROVAL or await approvals.pending_count(session, task_id) > 0:
             return None
-        return await mark_claimed(session, task, workflow_id)
+        return await mark_claimed(session, task, workflow_id, RunKind.RESUME)
 
 
-async def mark_claimed(session: AsyncSession, task: Task, workflow_id: str | None) -> TaskInfo:
+async def mark_claimed(session: AsyncSession, task: Task, workflow_id: str | None, kind: RunKind) -> TaskInfo:
     task.status = TaskStatus.RUNNING
     if workflow_id is not None:
         task.workflow_id = workflow_id
+    await record_run_start(session, task.id, workflow_id, kind)
     info = await task_info(session, task)
     await session.commit()
     return info
+
+
+async def record_run_start(session: AsyncSession, task_id: int, workflow_id: str | None, kind: RunKind) -> None:
+    """이번 회차의 agent_runs 행을 만든다. 같은 워크플로가 복구로 다시 claim하면 새로 만들지 않는다.
+
+    task 행을 잠근 채 부르므로 같은 task의 회차 번호가 겹치지 않는다.
+    """
+    if workflow_id is not None:
+        existing = await session.scalar(
+            select(AgentRun.id).where(AgentRun.task_id == task_id, AgentRun.workflow_id == workflow_id)
+        )
+        if existing is not None:
+            return
+    last_round = await session.scalar(select(func.max(AgentRun.round)).where(AgentRun.task_id == task_id))
+    session.add(AgentRun(task_id=task_id, round=(last_round or 0) + 1, kind=kind, workflow_id=workflow_id))
+
+
+async def record_run_finish(
+    session: AsyncSession, task_id: int, status: TaskStatus, responses: list[ModelResponse]
+) -> None:
+    """아직 끝나지 않은 마지막 회차에 결과 상태·요청 수·토큰을 채운다."""
+    run = await session.scalar(
+        select(AgentRun)
+        .where(AgentRun.task_id == task_id, AgentRun.finished_at.is_(None))
+        .order_by(AgentRun.round.desc())
+        .limit(1)
+    )
+    if run is None:
+        return
+    run.status = status
+    run.finished_at = func.now()
+    run.request_count = len(responses)
+    run.total_tokens = sum(r.usage.total_tokens for r in responses)
 
 
 # ---- agent.run ----
@@ -230,6 +267,9 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
                 usage=run_input.usage,
             )
             return outcome_of(result.output, captured[len(history) :])
+        except TaskCancelledError:
+            # 사용자가 실행 중 취소했다. 다음 모델 호출·도구 실행을 시작하지 않고 멈췄다.
+            return Outcome(TaskStatus.CANCELLED, error=RUN_CANCELLED_MESSAGE, new_messages=captured[len(history) :])
         except UsageLimitExceeded:
             return Outcome(TaskStatus.BUDGET_EXCEEDED, error=TASK_BUDGET_MESSAGE, new_messages=captured[len(history) :])
         except DailyBudgetExceededError:
@@ -343,6 +383,7 @@ async def save_outcome(
     task = await session.get_one(Task, info.id)
     responses = [m for m in outcome.new_messages if isinstance(m, ModelResponse)]
     task.status = outcome.status
+    await record_run_finish(session, info.id, outcome.status, responses)
     task.final_answer = outcome.final_answer
     task.error = outcome.error
     task.request_count = (task.request_count or 0) + len(responses)
@@ -392,8 +433,12 @@ async def finish(
         requests, reviews = await prepare_requests(services, info, outcome.deferred)
     async with services.session_factory() as session:
         task = await lock_task(session, info.id)
-        if task is None or task.status != TaskStatus.RUNNING:
+        if task is None or task.status not in IN_PROGRESS:
             return None
+        if task.status == TaskStatus.CANCEL_REQUESTED and outcome.status == TaskStatus.WAITING_APPROVAL:
+            # 취소 요청 뒤에는 승인 요청을 만들지 않는다.
+            requests = []
+            outcome = Outcome(TaskStatus.CANCELLED, error=RUN_CANCELLED_MESSAGE, new_messages=outcome.new_messages)
         if requests:
             await approvals.save_requests(session, task_id=info.id, origin=info.origin, requests=requests)
         session.add_all(guard_usage_rows(info, reviews))

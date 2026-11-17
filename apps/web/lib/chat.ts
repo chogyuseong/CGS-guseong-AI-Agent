@@ -21,7 +21,16 @@ export const chatKeys = {
   task: (taskId: number) => ["tasks", taskId] as const,
 };
 
-const FINISHED_STATUSES: readonly TaskStatus[] = ["done", "failed", "cancelled", "budget_exceeded"];
+// 더 바뀌지 않는 상태. cancel_requested·reconciling은 곧 바뀌므로 넣지 않는다.
+const FINISHED_STATUSES: readonly TaskStatus[] = [
+  "done",
+  "partially_done",
+  "failed",
+  "cancelled",
+  "budget_exceeded",
+  "needs_review",
+  "waiting_input",
+];
 
 // task가 더 바뀌지 않는 상태인지. waiting_approval은 승인 뒤 이어지므로 끝나지 않은 것으로 본다.
 export function isTaskFinished(status: TaskStatus): boolean {
@@ -57,6 +66,7 @@ export type TaskPhase =
   | "running"
   | "waiting_approval"
   | "resuming"
+  | "cancelling"
   | "finished";
 
 export const PHASE_TEXT: Record<Exclude<TaskPhase, "finished">, string> = {
@@ -65,6 +75,7 @@ export const PHASE_TEXT: Record<Exclude<TaskPhase, "finished">, string> = {
   running: "작업하는 중…",
   waiting_approval: "승인이 필요한 작업이 있습니다. 건마다 승인하거나 거절해 주세요.",
   resuming: "결정을 반영해 이어서 처리하는 중…",
+  cancelling: "취소 요청을 받았습니다. 지금 단계가 끝나면 멈춥니다…",
 };
 
 export function taskPhase(
@@ -75,6 +86,7 @@ export function taskPhase(
   if (task.status === "waiting_approval") {
     return hasPendingApproval(task.approvals) ? "waiting_approval" : "resuming";
   }
+  if (task.status === "cancel_requested") return "cancelling";
   return task.status === "queued" ? "queued" : "running";
 }
 
@@ -227,4 +239,39 @@ export function useTasks({ enabled = true }: { enabled?: boolean } = {}) {
     refetchInterval: (query) =>
       query.state.data?.some((task) => !isTaskFinished(task.status)) ? 3000 : false,
   });
+}
+
+// 작업 취소(1단계 보강). 대기 중이면 서버가 바로 cancelled, 실행 중이면 cancel_requested로 답한다.
+// 이미 끝난 단계는 되돌리지 않는다. 결과는 task를 다시 가져와 보여 준다.
+export const CANCELLABLE_PHASES: readonly TaskPhase[] = ["queued", "running", "waiting_approval"];
+
+export function useCancelTask(taskId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, response } = await api.POST("/api/tasks/{task_id}/cancel", {
+        params: { path: { task_id: taskId } },
+      });
+      return requireData(data, response, "작업 취소");
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: chatKeys.task(taskId) }),
+  });
+}
+
+export function countUserMessages(messages: readonly Pick<Message, "role">[]): number {
+  return messages.filter((message) => message.role === "user").length;
+}
+
+// "보내는 중" 말풍선에 보여 줄 문장. 전송 뒤처리(목록·작업 다시 가져오기)가 끝날 때까지 전송은 진행 중이지만,
+// 그사이 다시 받은 목록에 내 메시지가 이미 들어왔으면 숨긴다(같은 문장이 두 번 보이지 않게).
+export function pendingBubbleText(
+  isPending: boolean,
+  text: string | undefined,
+  userCountAtSend: number | undefined,
+  messages: readonly Pick<Message, "role">[],
+): string | undefined {
+  if (!isPending) return undefined;
+  if (userCountAtSend !== undefined && countUserMessages(messages) > userCountAtSend)
+    return undefined;
+  return text;
 }

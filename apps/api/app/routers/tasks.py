@@ -1,7 +1,7 @@
 """작업(task) 조회. 화면의 진행 타임라인과 작업 기록 탭이 쓴다.
 
 모든 조회에 user_id 조건을 걸고, 남의 작업은 404로 답한다.
-작업 취소(POST /tasks/{id}/cancel)는 실행이 백그라운드로 옮겨지는 3단계에서 만든다.
+작업 취소(POST /tasks/{id}/cancel)는 1단계 보강에서 만들었다(규칙은 app/agent/cancel.py).
 """
 
 from typing import Annotated
@@ -9,10 +9,11 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
+from app.agent.cancel import CancelNotAllowedError, request_cancel
 from app.db import DbSession
 from app.models import Message, Step, Task
 from app.routers.approvals import approvals_of_task
-from app.schemas.tasks import StepOut, TaskDetail, TaskSummary
+from app.schemas.tasks import CancelOut, StepOut, TaskDetail, TaskSummary
 from app.security import CurrentUser
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -70,3 +71,21 @@ async def get_task(task_id: int, user: CurrentUser, session: DbSession) -> TaskD
         steps=[StepOut.model_validate(step) for step in steps],
         approvals=await approvals_of_task(session, task.id),
     )
+
+
+@router.post(
+    "/{task_id}/cancel",
+    responses={404: {"description": "없거나 남의 작업"}, 409: {"description": "이미 끝난 작업"}},
+)
+async def cancel_task(task_id: int, user: CurrentUser, session: DbSession) -> CancelOut:
+    """작업 취소. 대기 중이면 바로 cancelled, 실행 중이면 cancel_requested(다음 단계 전에 멈춘다).
+
+    이미 끝난 단계(할 일 추가, 승인된 외부 행동)는 되돌리지 않는다.
+    """
+    try:
+        current = await request_cancel(session, task_id, user.id)
+    except CancelNotAllowedError:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="이미 끝난 작업이라 취소할 수 없습니다.") from None
+    if current is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="작업을 찾을 수 없습니다.")
+    return CancelOut(task_id=task_id, status=current)

@@ -16,15 +16,15 @@
 
   0단계 보강   완료  서버 저장형 세션(sessions 테이블), 로그인 실패 제한(1분 5회),
                      APP_ENV, 테스트 DB 보호 확대, .gitattributes(LF), STATUS·VERSIONS 문서
-  1단계 보강   진행 중  (1) client_request_id (2) SMART 전환 제거·호출 제한 시간 (3) 호출별 예산 예약·정산 완료.
-                     남은 것:
-                     task 상태·취소, ToolResult 구조
+  1단계 보강   진행 중  완료: (1) client_request_id 중복 방지 (2) SMART 전환 제거·호출 제한 시간
+                     (3) 호출별 예산 예약·정산 (4) task 상태 12개·취소 API·실행 회차(agent_runs)
+                     남은 것: (5) ToolResult 구조(status succeeded/failed/unknown)와 답변 상태 분리
   2~9단계 보강 남음  단계별 차이 목록은 docs/STATUS.md 아래쪽
 
-검사(2026-11-17, 두 번째 PC): API pytest 371개, ruff·pyright 0건, alembic check 차이 없음,
-웹 Biome 0건, tsc, Vitest 253개, Playwright 37개 통과.
+검사(2026-11-17, 두 번째 PC, 1단계 (4)까지): API pytest 391개, ruff·pyright 0건, alembic check 차이 없음,
+웹 Biome 0건, tsc, Vitest 262개, Playwright 37개 통과.
 
-다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 1단계 보강을 진행해라"
+다음 할 일: "AGENTS.md와 docs/BUILD_SPEC.md, docs/STATUS.md를 읽고 1단계 보강 (5)부터 진행해라"
 
 
 ========================================

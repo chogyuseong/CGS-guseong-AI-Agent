@@ -49,10 +49,12 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.capabilities.abstract import WrapToolExecuteHandler
 from pydantic_ai.exceptions import ApprovalRequired, CallDeferred, ModelRetry, SkipToolExecution, ToolFailed
 from pydantic_ai.messages import ToolCallPart
+from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic_core import to_jsonable_python
 from sqlalchemy import func, select
 
+from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
 from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
@@ -64,7 +66,16 @@ logger = logging.getLogger(__name__)
 # 이 예외들은 ok=false로 바꾸지 않고 그대로 올려 보낸다.
 # - PermissionError: 2단계 assert_approved의 두 번째 방어선. 삼키면 승인 없는 실행을 숨기게 된다.
 # - 나머지: Pydantic AI가 흐름 제어에 쓰는 예외(재시도 요청, 승인 대기, 실행 건너뛰기 등).
-PASS_THROUGH_ERRORS = (PermissionError, ModelRetry, ApprovalRequired, CallDeferred, SkipToolExecution, ToolFailed)
+# - TaskCancelledError: 1단계 보강. 취소 요청을 발견하면 도구를 실행하지 않고 run 전체를 멈춘다.
+PASS_THROUGH_ERRORS = (
+    PermissionError,
+    TaskCancelledError,
+    ModelRetry,
+    ApprovalRequired,
+    CallDeferred,
+    SkipToolExecution,
+    ToolFailed,
+)
 UNEXPECTED_ERROR_MESSAGE = "도구를 실행하는 중 예상하지 못한 오류가 발생했습니다."
 # 서버가 도구 실행 도중 멈춘 뒤 복구했을 때. 모델에게도 이 문장이 도구 결과로 간다.
 UNCERTAIN_MESSAGE = (
@@ -153,7 +164,16 @@ def elapsed_ms(started: float) -> int:
 
 @dataclass
 class StepTracking(AbstractCapability[AgentDeps]):
-    """도구 실행을 감싸 steps에 기록하고, 예상 못 한 예외를 ok=false 결과로 바꾸는 capability."""
+    """도구 실행을 감싸 steps에 기록하고, 예상 못 한 예외를 ok=false 결과로 바꾸는 capability.
+
+    1단계 보강: 모델 호출·새 도구 실행 직전에 취소 요청을 확인한다.
+    """
+
+    async def before_model_request(
+        self, ctx: RunContext[AgentDeps], request_context: ModelRequestContext
+    ) -> ModelRequestContext:
+        await raise_if_cancel_requested(ctx.deps)
+        return request_context
 
     async def wrap_tool_execute(
         self,
@@ -166,6 +186,8 @@ class StepTracking(AbstractCapability[AgentDeps]):
     ) -> Any:
         recorded = await find_step(ctx.deps, call.tool_call_id)
         if recorded is None:
+            # 1단계 보강: 취소 요청 뒤에는 새 도구를 시작하지 않는다(실행 직전 확인, BUILD_SPEC 4.6).
+            await raise_if_cancel_requested(ctx.deps)
             step_id = await start_step(ctx.deps, call, tool_def, args)
         else:
             replayed = recorded_result(recorded)

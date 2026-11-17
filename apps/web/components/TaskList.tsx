@@ -10,11 +10,16 @@ import { TaskSteps } from "./TaskSteps";
 const STATUS_LABELS: Record<TaskStatus, string> = {
   queued: "대기",
   running: "진행 중",
+  waiting_input: "답변 필요",
   waiting_approval: "승인 대기",
+  cancel_requested: "취소 중",
+  reconciling: "결과 확인 중",
   done: "완료",
+  partially_done: "일부 완료",
   failed: "실패",
   cancelled: "취소됨",
   budget_exceeded: "상한 초과",
+  needs_review: "확인 필요",
 };
 
 function formatTime(iso: string): string {
@@ -45,7 +50,7 @@ export function TaskList() {
 
 function TaskItem({ task }: { task: TaskSummary }) {
   const [open, setOpen] = useState(false);
-  const failed = ["failed", "budget_exceeded"].includes(task.status);
+  const failed = ["failed", "budget_exceeded", "needs_review"].includes(task.status);
   return (
     <li className="rounded-lg border">
       <button
