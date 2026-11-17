@@ -18,10 +18,15 @@ https://pydantic.dev/docs/ai/logfire/ , https://logfire.pydantic.dev/docs/how-to
 5. 그래도 새어 나온 값을 위해 Logfire 기본 가리기(password, secret, api key, session, cookie, token 이름 등)에
    이 앱의 키·토큰 모양(Anthropic 키, Google 토큰, Fernet 암호문, 카카오 헤더 등)을 더한다.
 
+6. 3단계 보강: 앱 로그(app.* 로거)도 같은 규칙이다. 예외를 함께 남기는 로그(exc_info, logger.exception)는
+   레코드를 만들 때 예외 메시지를 지우고 종류와 코드 위치만 남긴다(install_log_redaction). 외부 API 오류 문장,
+   푸시 서버 응답, DB 오류에 사용자 글·외부 콘텐츠가 섞여 와도 서버 로그 파일에 남지 않게.
+
 로그(logging 모듈)는 Logfire로 보내지 않는다(LogfireLoggingHandler를 붙이지 않음). DBOS의 자체 OTLP 내보내기도
 켜지 않는다(DBOS 설정 enable_otlp 기본 False). 트레이스에서 작업 하나가 어떻게 보이는지는 docs/OBSERVABILITY.md.
 """
 
+import logging
 import traceback
 from collections.abc import Sequence
 from typing import Any
@@ -124,6 +129,34 @@ def frames_only(error: BaseException) -> str:
     """코드 위치(파일·줄·함수)와 예외 종류만. 예외 메시지는 넣지 않는다."""
     frames = "".join(traceback.format_list(traceback.extract_tb(error.__traceback__)))
     return f"Traceback (most recent call last):\n{frames}{type(error).__qualname__}: {HIDDEN_MESSAGE}"
+
+
+APP_LOGGER_PREFIX = "app"
+
+
+def redact_record_exception(record: logging.LogRecord) -> None:
+    """앱 로그 레코드의 예외를 '종류 + 코드 위치'로 바꾼다. 포매터는 exc_text를 그대로 붙인다."""
+    if not (record.name == APP_LOGGER_PREFIX or record.name.startswith(f"{APP_LOGGER_PREFIX}.")):
+        return
+    error = record.exc_info[1] if record.exc_info else None
+    if error is not None:
+        record.exc_text = frames_only(error)
+        record.exc_info = None
+
+
+def install_log_redaction() -> None:
+    """레코드 공장을 감싸 앱 로그의 예외 메시지를 지운다. 여러 번 불러도 한 번만 감싼다."""
+    current = logging.getLogRecordFactory()
+    if getattr(current, "_myagent_redacting", False):
+        return
+
+    def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+        record = current(*args, **kwargs)
+        redact_record_exception(record)
+        return record
+
+    factory._myagent_redacting = True  # type: ignore[attr-defined]
+    logging.setLogRecordFactory(factory)
 
 
 def hide_exception_details(helper: Any) -> None:

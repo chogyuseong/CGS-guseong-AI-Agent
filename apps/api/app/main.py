@@ -28,7 +28,7 @@ from app.agent.guard import build_guard_agent
 from app.automation.watch import build_watch_agent
 from app.config import Settings, get_settings
 from app.db import create_engine_for, create_session_factory
-from app.observability import configure_observability, instrument_app
+from app.observability import configure_observability, install_log_redaction, instrument_app
 from app.push import send_with_pywebpush
 from app.rate_limit import SlidingWindowRateLimiter
 from app.routers import api_router
@@ -61,6 +61,7 @@ def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, M
     # 8단계: Logfire. 토큰이 없으면 아무것도 보내지 않고, 내용(프롬프트·도구 결과)은 넣지 않는다(app/observability.py).
     # 에이전트를 만들기 전에 설정해야 Agent 계측이 처음부터 적용된다.
     configure_observability(settings)
+    install_log_redaction()  # 3단계 보강: 앱 로그에 예외 메시지(사용자 글·외부 문장)를 남기지 않는다
     engine = create_engine_for(settings.database_url)
     app = FastAPI(
         title="마이에이전트 API",
