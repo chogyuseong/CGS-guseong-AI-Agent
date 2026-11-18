@@ -10,6 +10,9 @@
 엔드포인트(모두 로그인 필요, POST라 앱 전체 Origin 검사 미들웨어를 거친다):
     POST /api/approvals/{id}/approve  본문 {confirm_mismatch?} → 200 ApprovalDecisionOut / 404 / 409 / 410
     POST /api/approvals/{id}/reject                            → 200 ApprovalDecisionOut / 404 / 409 / 410
+    POST /api/approvals/{id}/revise   본문 {note}              → 200 ApprovalDecisionOut / 404 / 409 / 410 / 422
+         '고쳐서 다시'(요구사항 밖, 2026-11-18 사용자 결정): 메모를 붙인 거절. 모델이 고친 인자로 다시 계획하면
+         평소처럼 새 승인 카드가 생긴다. 서버는 인자를 직접 고치지 않는다(DECISIONS "요구사항 밖 기능").
 승인 카드 목록은 이 라우터가 아니라 GET /api/tasks/{id}의 approvals로 나간다(approvals_of_task를 tasks.py가 부른다).
 
 근거: BUILD_SPEC 4.2(operation 상태), DECISIONS 2026-11-17(decide 잠금 순서 task → 승인, mismatch 409 강제,
@@ -20,7 +23,8 @@
   (approve·reject 호출, approvalErrorCode 분기, applyDecision)를 같이 고친다.
 - 오류 code 목록은 app/schemas/tasks.py의 ApprovalErrorCode와 app/agent/approvals.py의 예외 code가 같아야 한다.
 - 재개 시작 경로(outbox.dispatch, start_resume_if_waiting)를 바꾸면 docs/STATE_MACHINES.md·docs/FAULTS.md도 본다.
-- 관련 테스트: tests/test_approvals.py, test_approval_card_api.py, test_faults.py, test_workflows.py, test_openapi.py.
+- 관련 테스트: tests/test_approvals.py, test_approval_revise.py, test_approval_card_api.py, test_faults.py,
+  test_workflows.py, test_openapi.py.
 """
 
 import logging
@@ -36,7 +40,14 @@ from app.agent.workflows import start_resume_if_waiting
 from app.db import DbSession
 from app.models import ActionPlan, Approval, ExecutionReceipt, GuardCheck, Operation, Step, Task
 from app.models.enums import VerdictKind
-from app.schemas.tasks import ApprovalDecisionOut, ApprovalErrorOut, ApprovalOut, ApproveRequest, GuardOut
+from app.schemas.tasks import (
+    ApprovalDecisionOut,
+    ApprovalErrorOut,
+    ApprovalOut,
+    ApproveRequest,
+    GuardOut,
+    ReviseRequest,
+)
 from app.security import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -137,6 +148,7 @@ def approval_view(row: CardRow) -> ApprovalOut:
         execute_before=approval.execute_before,
         operation_status=row.operation.status if row.operation else None,
         receipt_confirmed=row.receipt_id is not None,
+        revision_note=approval.revision_note,
     )
 
 
@@ -176,7 +188,14 @@ async def decision_view(session: AsyncSession, decision: approvals.Decision) -> 
 
 
 async def decide_and_resume(
-    request: Request, session: AsyncSession, approval_id: int, user_id: int, *, approve: bool, confirm: bool
+    request: Request,
+    session: AsyncSession,
+    approval_id: int,
+    user_id: int,
+    *,
+    approve: bool,
+    confirm: bool,
+    revision_note: str | None = None,
 ) -> ApprovalDecisionOut:
     """승인·거절 공통 처리: 결정(잠금·커밋은 approvals.decide 안) → 마지막 결정이면 재개 시작 → 카드 응답.
 
@@ -185,7 +204,9 @@ async def decide_and_resume(
     결정과 같은 트랜잭션에 남은 outbox 요청을 1분 검사·서버 시작이 다시 처리하므로 사용자가 다시 누를 필요가 없다.
     """
     try:
-        decision = await approvals.decide(session, approval_id, user_id, approve=approve, confirm_mismatch=confirm)
+        decision = await approvals.decide(
+            session, approval_id, user_id, approve=approve, confirm_mismatch=confirm, revision_note=revision_note
+        )
     except approvals.ApprovalError as error:
         await session.rollback()
         detail = {"code": error.code, "message": ERROR_MESSAGES.get(type(error), "승인을 처리할 수 없습니다.")}
@@ -222,3 +243,16 @@ async def reject_action(
 ) -> ApprovalDecisionOut:
     """거절. 모델은 '사용자가 거절함'을 도구 결과로 받고 다른 방법을 찾는다."""
     return await decide_and_resume(request, session, approval_id, user.id, approve=False, confirm=False)
+
+
+# '고쳐서 다시'. 상태로는 거절과 같아서(새 상태 없음) 오류 응답도 거절과 같다. mismatch 확인도 필요 없다(실행하지 않음).
+# 메모는 decide가 pending일 때만 남긴다(두 번째 요청은 changed=false, 첫 메모 유지). 아래 docstring은 OpenAPI 설명이다.
+@router.post("/{approval_id}/revise", responses=REJECT_ERROR_RESPONSES)
+async def revise_action(
+    approval_id: int, body: ReviseRequest, request: Request, user: CurrentUser, session: DbSession
+) -> ApprovalDecisionOut:
+    """고쳐서 다시. 이 카드는 거절되고, 모델은 '사용자가 거절함. 고쳐 달라는 내용: …'을 받아
+    고친 계획으로 새 승인을 요청한다."""
+    return await decide_and_resume(
+        request, session, approval_id, user.id, approve=False, confirm=False, revision_note=body.note
+    )

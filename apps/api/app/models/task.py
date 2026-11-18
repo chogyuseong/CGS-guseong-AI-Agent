@@ -141,6 +141,10 @@ class Approval(TimestampedTable):
         DateTime(timezone=True), server_default=text("now() + interval '30 minutes'")
     )
     execute_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # '고쳐서 다시'(요구사항 밖, 2026-11-18 사용자 결정): 거절과 함께 사용자가 적은 고칠 내용. 그냥 거절·승인이면 None.
+    # 300자는 schemas/tasks.py ReviseRequest와 같다.
+    # 모델에게는 거절 결과 문장에 붙어 간다(approvals.denial_message).
+    revision_note: Mapped[str | None] = mapped_column(String(300))
 
 
 class GuardCheck(TimestampedTable):

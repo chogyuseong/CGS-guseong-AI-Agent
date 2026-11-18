@@ -30,6 +30,7 @@ function approvalWith(status: Approval["status"]): Approval {
     execute_before: null,
     operation_status: null,
     receipt_confirmed: false,
+    revision_note: null,
   };
 }
 

@@ -2,7 +2,7 @@
 //
 // 쓰는 곳: components/ApprovalCard.tsx(문구·만료 시각·실행 결과 한 줄), components/TaskApprovals.tsx
 // (useDecideApproval), PendingTask·TaskSteps·작업 기록 탭이 같은 카드를 그린다(DECISIONS 2026-11-17 화면).
-// 맞물린 API: POST /api/approvals/{approval_id}/approve(본문 confirm_mismatch)·/reject,
+// 맞물린 API: POST /api/approvals/{approval_id}/approve(본문 confirm_mismatch)·/reject·/revise(본문 note),
 // 결과는 GET /api/tasks/{id}의 approvals와 같은 ApprovalOut 모양이다.
 // 근거: BUILD_SPEC 절대 원칙 3·4·10(승인·고정 인자·영수증 근거 성공 표시), DECISIONS 2026-11-17
 // "승인 API 오류는 detail: {code, message}", "mismatch 승인은 confirm_mismatch 없으면 409".
@@ -13,6 +13,9 @@
 // - operation_status 값(EXECUTION_TEXTS)은 서버 operation 상태(docs/STATE_MACHINES.md)와 맞물린다.
 // - 캐시 키는 lib/chat.ts의 chatKeys를 쓴다. 키 모양을 바꾸면 onMutate·onSettled도 같이 본다.
 // - 테스트: lib/approvals.test.ts, components/ApprovalCard.test.tsx, components/PendingTask.test.tsx, e2e/approval.spec.ts.
+// 변경 이력:
+// - 2026-11-18 '고쳐서 다시'(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18): Decision.revisionNote가 있으면 /revise로
+//   보낸다(메모를 붙인 거절). 서버가 인자를 고치지 않고 모델이 다시 계획해 새 카드를 만든다.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -27,7 +30,10 @@ type ApprovalErrorOut = Schemas["ApprovalErrorOut"];
 type ApprovalErrorCode = Schemas["ApprovalErrorCode"];
 
 // 카드가 서버에 보내는 결정. confirmMismatch는 mismatch 승인을 사용자가 한 번 더 확인했다는 표시다.
-export type Decision = { approve: boolean; confirmMismatch: boolean };
+// revisionNote는 '고쳐서 다시'의 고칠 내용(approve=false일 때만 쓴다. 서버는 앞뒤 공백을 지우고 1~300자를 받는다).
+export type Decision = { approve: boolean; confirmMismatch: boolean; revisionNote?: string };
+// 서버 ReviseRequest.note의 최대 길이(apps/api/app/schemas/tasks.py, approvals.revision_note 칸 길이와 같다).
+export const REVISION_NOTE_MAX = 300;
 
 // network는 서버 code가 아니라 화면이 붙이는 값이다(fetch 자체가 실패했을 때). 서버 code와 겹치지 않게 둔다.
 // MISMATCH_CODE는 ApprovalCard가 "한 번 더 확인" 영역을 여는 신호라 서버 글자와 반드시 같아야 한다.
@@ -143,14 +149,7 @@ export function formatExpiryTime(expiresAt: string): string {
  * 서버의 mismatch 재확인(절대 원칙 15: 승인 자동 통과 금지)을 우회하게 되므로 그런 코드를 두지 않는다.
  */
 async function postDecision(approvalId: number, decision: Decision) {
-  const path = { approval_id: approvalId };
-  const request = decision.approve
-    ? api.POST("/api/approvals/{approval_id}/approve", {
-        params: { path },
-        body: { confirm_mismatch: decision.confirmMismatch },
-      })
-    : api.POST("/api/approvals/{approval_id}/reject", { params: { path } });
-  const result = await request.catch(() => {
+  const result = await sendDecision(approvalId, decision).catch(() => {
     // 네트워크가 끊기면 fetch가 영어 오류를 던지므로 한국어 문구로 바꾼다.
     throw new ApprovalActionError(NETWORK_ERROR_CODE, NETWORK_MESSAGE);
   });
@@ -160,6 +159,24 @@ async function postDecision(approvalId: number, decision: Decision) {
     code ?? "unknown",
     approvalErrorMessage(result.response.status, code),
   );
+}
+
+// 결정 종류에 맞는 경로로 보낸다: 승인 /approve, 메모가 있는 거절 /revise, 그냥 거절 /reject.
+function sendDecision(approvalId: number, decision: Decision) {
+  const path = { approval_id: approvalId };
+  if (decision.approve) {
+    return api.POST("/api/approvals/{approval_id}/approve", {
+      params: { path },
+      body: { confirm_mismatch: decision.confirmMismatch },
+    });
+  }
+  if (decision.revisionNote !== undefined) {
+    return api.POST("/api/approvals/{approval_id}/revise", {
+      params: { path },
+      body: { note: decision.revisionNote },
+    });
+  }
+  return api.POST("/api/approvals/{approval_id}/reject", { params: { path } });
 }
 
 type TaskRef = { id: number; conversation_id: number };

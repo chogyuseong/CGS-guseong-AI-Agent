@@ -243,6 +243,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/approvals/{approval_id}/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revise Action
+         * @description 고쳐서 다시. 이 카드는 거절되고, 모델은 '사용자가 거절함. 고쳐 달라는 내용: …'을 받아
+         *     고친 계획으로 새 승인을 요청한다.
+         */
+        post: operations["revise_action_api_approvals__approval_id__revise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/push/public-key": {
         parameters: {
             query?: never;
@@ -648,6 +669,8 @@ export interface components {
             operation_status: components["schemas"]["OperationStatus"] | null;
             /** Receipt Confirmed */
             receipt_confirmed: boolean;
+            /** Revision Note */
+            revision_note: string | null;
         };
         /**
          * ApprovalStatus
@@ -955,6 +978,17 @@ export interface components {
         PushUnsubscribeRequest: {
             /** Endpoint */
             endpoint: string;
+        };
+        /**
+         * ReviseRequest
+         * @description '고쳐서 다시' 요청 본문. 앞뒤 공백을 지운 뒤 1~300자(300은 approvals.revision_note 칸 길이).
+         */
+        ReviseRequest: {
+            /**
+             * Note
+             * @description 고칠 내용. 예: 3시로 바꿔 줘
+             */
+            note: string;
         };
         /**
          * RiskLevel
@@ -1825,6 +1859,68 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalDecisionOut"];
+                };
+            };
+            /** @description detail.code가 not_found. 없는 승인이거나 다른 사용자의 승인 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
+            };
+            /** @description detail.code가 task_not_waiting(작업이 승인 대기 상태가 아님) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
+            };
+            /** @description detail.code가 approval_expired. 만료되어 작업이 취소되었다 */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_action_api_approvals__approval_id__revise_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviseRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

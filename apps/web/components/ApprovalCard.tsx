@@ -1,7 +1,7 @@
 // 승인 카드 한 장(EXTERNAL 도구 호출 한 건의 승인·거절).
 // - 쓰는 곳: TaskApprovals(→ 채팅의 답변 자리 PendingTask, 답변 아래 TaskSteps, 작업 기록 탭 TaskList).
 //   서버 호출은 이 파일이 하지 않고 부모가 준 onDecide(lib/approvals.ts useDecideApproval)가 한다:
-//   POST /api/approvals/{approval_id}/approve(본문 confirm_mismatch) · POST .../reject.
+//   POST /api/approvals/{approval_id}/approve(본문 confirm_mismatch) · POST .../reject · POST .../revise(본문 note).
 // - 근거: BUILD_SPEC 3.4·3.6·10.1 "승인 카드", 절대 원칙 3(승인 없이 EXTERNAL 실행 금지)·10(영수증 기준 성공),
 //   DECISIONS 2026-11-17 화면(apps/web) 절(결정된 카드는 결과만 남김, 대상·계정 줄을 감시 배지보다 먼저).
 // 고칠 때 주의:
@@ -13,10 +13,14 @@
 //   문구를 바꾸면 그 파일과 ApprovalCard.test.tsx를 같이 고친다.
 // - 버튼 높이 48px(h-12)는 명세의 승인 버튼 기준이다(BUILD_SPEC 10.1 최소 44px보다 크게).
 //   approval.spec.ts의 expectTappable이 화면 안에 다 보이는지와 높이를 잰다.
+// - '고쳐서 다시' 버튼·메모 칸 이름("고쳐서 다시", "무엇을 고칠까요?", "고쳐 달라고 보내기")은 ApprovalCard.test.tsx가 찾는다.
+// 변경 이력:
+// - 2026-11-18 '고쳐서 다시' 추가(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18). 메모를 붙인 거절이라 실행은 없고,
+//   모델이 고친 계획으로 새 카드를 만든다. 결정된 카드에는 "고쳐 달라고 함" 배지와 적은 내용을 보여 준다.
 "use client";
 
 import { LoaderCircle, ShieldCheck, ShieldQuestionMark, ShieldX } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +32,7 @@ import {
   formatExpiryTime,
   formatRemaining,
   MISMATCH_CODE,
+  REVISION_NOTE_MAX,
 } from "@/lib/approvals";
 import { fieldLabel, formatFieldValue, toolDisplayName } from "@/lib/toolText";
 
@@ -58,7 +63,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       aria-label="승인 요청"
       className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground shadow-sm"
     >
-      <CardHeader status={status} />
+      <CardHeader status={status} revised={approval.revision_note !== null} />
       {/* 2단계 보강: 날짜·대상·계정·변경 전후를 감시 배지보다 먼저, 더 크게 보여 준다(BUILD_SPEC 3.6). */}
       <TargetLines target={approval.target} account={approval.account} />
       {/* summary에는 「」로 감싼 외부 문자열(일정 제목)이 섞여 올 수 있다. 텍스트로만 그리고 긴 글자는 어디서든 줄을 바꾼다. */}
@@ -67,6 +72,9 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       <ToolInputDetails toolName={approval.tool_name} input={approval.tool_input} />
       {status === "pending" && <ExpiryLine expiresAt={approval.expires_at} />}
       <ExecutionLine approval={approval} />
+      {approval.revision_note !== null && (
+        <p className="text-sm wrap-anywhere">고칠 내용: {approval.revision_note}</p>
+      )}
       {status === "pending" && <DecisionArea approval={approval} flow={flow} />}
       {flow.error && (
         <p role="alert" className="text-sm text-destructive">
@@ -78,15 +86,22 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
 }
 
 type DecisionFlow = ReturnType<typeof useDecisionFlow>;
+type BusyAction = "approve" | "reject" | "revise";
+
+function busyActionOf(decision: Decision): BusyAction {
+  if (decision.approve) return "approve";
+  return decision.revisionNote === undefined ? "reject" : "revise";
+}
 
 // 버튼을 누른 순간부터 응답이 올 때까지 잠근다. 상태(state)는 다음 그리기에서야 바뀌므로,
 // 같은 순간에 두 번 눌리는 경우를 ref(즉시 바뀌는 값)로 한 번 더 막는다.
 // 막는 사고: 연타로 승인 요청이 두 번 가 재개가 두 번 시작되거나, 승인과 거절이 엇갈려 가는 것.
-// 결과: busy(누른 버튼), confirming(mismatch 확인 영역을 열었는지), error(화면 문장), decided(방금 받은 상태).
+// 결과: busy(누른 버튼: 승인·거절·고쳐서 다시), confirming(mismatch 확인 영역을 열었는지), error(화면 문장),
+// decided(방금 받은 상태).
 // 서버가 mismatch 확인을 요구하면(409 MISMATCH_CODE) 오류 문장 대신 확인 영역을 연다. 화면 버그로
 // needs_mismatch_confirmation을 놓쳐도 서버가 막고 여기서 다시 묻게 된다(DECISIONS 2026-11-17).
 function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
-  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
+  const [busy, setBusy] = useState<BusyAction | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [decided, setDecided] = useState<ApprovalStatus | null>(null);
@@ -95,7 +110,7 @@ function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
   async function submit(decision: Decision) {
     if (locked.current) return;
     locked.current = true;
-    setBusy(decision.approve ? "approve" : "reject");
+    setBusy(busyActionOf(decision));
     setError(null);
     try {
       const status = await onDecide(decision);
@@ -121,7 +136,9 @@ function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
 }
 
 // 대기 중인 카드의 버튼 영역. 거절은 확인 없이 보낸다(서버도 거절에는 확인을 요구하지 않는다).
+// '고쳐서 다시'를 누르면 버튼 대신 메모 칸이 열린다(RevisionForm). mismatch 확인 영역이 열려 있으면 그것이 먼저다.
 function DecisionArea({ approval, flow }: { approval: Approval; flow: DecisionFlow }) {
+  const [revising, setRevising] = useState(false);
   const disabled = flow.busy !== null;
   const approve = () => {
     // mismatch면 바로 보내지 않고 카드 안에서 한 번 더 묻는다.
@@ -131,13 +148,18 @@ function DecisionArea({ approval, flow }: { approval: Approval; flow: DecisionFl
   const reject = () => flow.submit({ approve: false, confirmMismatch: false });
   return (
     <div className="flex flex-col gap-2">
-      {flow.confirming ? (
-        <MismatchConfirm flow={flow} disabled={disabled} />
-      ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <ActionButton label="승인" onClick={approve} disabled={disabled} primary />
-          <ActionButton label="거절" onClick={reject} disabled={disabled} />
-        </div>
+      {flow.confirming && <MismatchConfirm flow={flow} disabled={disabled} />}
+      {!flow.confirming && revising && (
+        <RevisionForm flow={flow} disabled={disabled} onCancel={() => setRevising(false)} />
+      )}
+      {!flow.confirming && !revising && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton label="승인" onClick={approve} disabled={disabled} primary />
+            <ActionButton label="거절" onClick={reject} disabled={disabled} />
+          </div>
+          <ActionButton label="고쳐서 다시" onClick={() => setRevising(true)} disabled={disabled} />
+        </>
       )}
       {flow.busy && <BusyNotice action={flow.busy} />}
     </div>
@@ -174,6 +196,46 @@ function MismatchConfirm({ flow, disabled }: { flow: DecisionFlow; disabled: boo
   );
 }
 
+// '고쳐서 다시'의 메모 칸. 보내면 이 카드는 거절되고 모델이 적은 내용대로 고친 새 카드를 만든다.
+// 앞뒤 공백만 지워 보낸다(서버도 같은 규칙으로 1~300자를 검사). 빈 메모로는 보낼 수 없다.
+// 모델이 다른 칸까지 바꿀 수 있으므로 새 카드를 다시 확인하라고 안내한다(실행은 새 카드 승인 뒤에만).
+function RevisionForm(props: { flow: DecisionFlow; disabled: boolean; onCancel: () => void }) {
+  const [note, setNote] = useState("");
+  const inputId = useId();
+  const trimmed = note.trim();
+  const send = () =>
+    props.flow.submit({ approve: false, confirmMismatch: false, revisionNote: trimmed });
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-2">
+      <label htmlFor={inputId} className="text-sm font-medium">
+        무엇을 고칠까요?
+      </label>
+      <textarea
+        id={inputId}
+        value={note}
+        maxLength={REVISION_NOTE_MAX}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="예: 3시로 바꿔 줘"
+        rows={2}
+        className="min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base"
+      />
+      <p className="text-xs text-muted-foreground">
+        이 카드는 거절되고, 고친 내용으로 새 승인 카드가 나옵니다. 새 카드를 확인한 뒤 승인해
+        주세요.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <ActionButton
+          label="고쳐 달라고 보내기"
+          onClick={send}
+          disabled={props.disabled || trimmed === ""}
+          primary
+        />
+        <ActionButton label="취소" onClick={props.onCancel} disabled={props.disabled} />
+      </div>
+    </div>
+  );
+}
+
 type ActionButtonProps = {
   label: string;
   onClick: () => void;
@@ -197,23 +259,31 @@ function ActionButton({ label, onClick, disabled, primary = false }: ActionButto
 }
 
 // 처리 중 안내(role=status). 승인 문구의 "승인 처리 중"은 approval.spec.ts가 찾는다.
-function BusyNotice({ action }: { action: "approve" | "reject" }) {
+const BUSY_TEXTS: Record<BusyAction, string> = {
+  approve: "승인 처리 중… 작업을 이어서 실행하고 있습니다.",
+  reject: "거절 처리 중…",
+  revise: "고쳐 달라고 보내는 중… 새 승인 카드를 준비합니다.",
+};
+
+function BusyNotice({ action }: { action: BusyAction }) {
   return (
     <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
       <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin" />
-      {action === "approve" ? "승인 처리 중… 작업을 이어서 실행하고 있습니다." : "거절 처리 중…"}
+      {BUSY_TEXTS[action]}
     </p>
   );
 }
 
 // 카드 머리: 대기 중이면 안내 한 줄, 결정됐으면 상태 배지(색만이 아니라 글자로도 상태를 알린다, BUILD_SPEC 10.1).
-function CardHeader({ status }: { status: ApprovalStatus }) {
+// revised: 메모가 있는 거절('고쳐서 다시')이면 "거절함" 대신 "고쳐 달라고 함"(서버 상태는 rejected 그대로).
+function CardHeader({ status, revised }: { status: ApprovalStatus; revised: boolean }) {
   if (status === "pending") {
     return <p className="text-sm font-semibold">승인이 필요합니다</p>;
   }
+  const label = status === "rejected" && revised ? "고쳐 달라고 함" : DECIDED_LABELS[status];
   return (
     <Badge variant={status === "approved" ? "default" : "secondary"} className="h-6 text-sm">
-      {DECIDED_LABELS[status]}
+      {label}
     </Badge>
   );
 }

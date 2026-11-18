@@ -20,7 +20,7 @@
 
 진입점(누가 부르는지):
     save_requests      runner.finish(승인 대기 결과를 task 결과와 같은 트랜잭션에 저장), tests/plan_helpers.py
-    decide             routers/approvals.py(POST 승인·거절). ApprovalError를 detail {code, message}로 바꾼다
+    decide             routers/approvals.py(POST 승인·거절·고쳐서 다시). ApprovalError를 detail {code, message}로 바꾼다
     pending_count      runner(재개 claim), workflows.py(재개 판단)
     build_results      runner.load_resume_input(재개 run의 입력)
     expire_task        automation/check.expire_overdue_approvals(1분 검사), decide(만료 뒤 결정 요청)
@@ -39,8 +39,13 @@ confirm_mismatch 강제, 오류 code), "2단계 보강"(계획:operation:승인 
 - DENIAL_MESSAGE는 모델이 받는 도구 결과다(명세 문장). 바꾸면 routers/approvals.py 거절 설명과
   생성된 웹 타입 설명도 고친다.
 - 시간 창은 plans.DECISION_WINDOW·EXECUTE_WINDOW에 있다. EXPIRED_MESSAGE의 "30분"과 맞춘다.
-- 테스트: tests/test_approvals.py, test_approval_card_api.py, test_action_plans.py, test_cancel_race.py(동시 결정·취소),
-  test_automation_runs.py(자동 작업은 승인을 만들 수 없음). 테이블 칸을 바꾸면 마이그레이션과 approvals.plan_row.
+- 테스트: tests/test_approvals.py, test_approval_revise.py('고쳐서 다시'), test_approval_card_api.py,
+  test_action_plans.py, test_cancel_race.py(동시 결정·취소), test_automation_runs.py(자동 작업은 승인을 만들 수 없음).
+  테이블 칸을 바꾸면 마이그레이션과 approvals.plan_row.
+
+변경 이력:
+- 2026-11-18 '고쳐서 다시'(요구사항 밖, 사용자 결정): decide·apply_decision에 revision_note, build_results가
+  denial_message로 메모를 모델에 전달. 새 승인 상태는 만들지 않았다(거절 + 메모).
 """
 
 import uuid
@@ -68,6 +73,23 @@ from app.models.enums import (
 
 # 거절을 모델에게 알리는 문장(명세). 모델은 이 문장을 도구 결과로 받고 다른 방법을 찾는다.
 DENIAL_MESSAGE = "사용자가 거절함"
+# '고쳐서 다시'(요구사항 밖, 2026-11-18 사용자 결정)일 때 DENIAL_MESSAGE 뒤에 붙는 말. 프롬프트(prompts.py)가
+# 이 말을 보고 같은 도구를 고친 인자로 다시 부르라고 안내한다.
+# 바꾸면 prompts.py와 tests/test_approval_revise.py도 고친다.
+REVISION_PREFIX = "고쳐 달라는 내용: "
+
+
+def denial_message(revision_note: str | None) -> str:
+    """모델이 받을 거절 결과. 메모가 없으면 명세 문장 그대로, 있으면 "사용자가 거절함. 고쳐 달라는 내용: …".
+
+    메모는 사용자 본인이 카드에 적은 글이다(도구 결과처럼 외부에서 온 글이 아님). 서버는 인자를 고치지 않고
+    모델이 다시 계획하게 한다. 그래야 새 계획도 정규화·감시·preview·승인을 모두 다시 거친다(절대 원칙 3·4).
+    """
+    if revision_note is None:
+        return DENIAL_MESSAGE
+    return f"{DENIAL_MESSAGE}. {REVISION_PREFIX}{revision_note}"
+
+
 # 만료로 task를 취소할 때 남기는 assistant 메시지(고정 문구). "30분"은 plans.DECISION_WINDOW와 같아야 한다.
 EXPIRED_MESSAGE = "승인을 30분 안에 받지 못해 작업을 취소했습니다. 필요하면 다시 요청해 주세요."
 
@@ -309,9 +331,13 @@ async def decide(
     *,
     approve: bool,
     confirm_mismatch: bool = False,
+    revision_note: str | None = None,
     now: datetime | None = None,
 ) -> Decision:
-    """승인 또는 거절. pending일 때만 바꾸고, 이미 결정된 승인은 그대로 둔 채 changed=False를 돌려준다."""
+    """승인 또는 거절. pending일 때만 바꾸고, 이미 결정된 승인은 그대로 둔 채 changed=False를 돌려준다.
+
+    revision_note는 거절('고쳐서 다시')에만 쓴다. 이미 결정된 승인이면 메모도 바꾸지 않는다(첫 결정이 남는다).
+    """
     now = now or datetime.now(UTC)
     task_id = await owned_task_id(session, approval_id, user_id)
     if task_id is None:
@@ -332,7 +358,7 @@ async def decide(
     # 감시가 "요청과 다를 수 있음"이라 본 행동은 사용자가 한 번 더 확인해야 승인된다. 거절에는 확인이 필요 없다.
     if approve and not confirm_mismatch and await verdict_of(session, approval.step_id) == VerdictKind.MISMATCH:
         raise MismatchConfirmationRequiredError
-    await apply_decision(session, approval, approve=approve, now=now)
+    await apply_decision(session, approval, approve=approve, now=now, revision_note=revision_note)
     all_decided = await pending_count(session, task_id) == 0
     if all_decided:
         # 3단계 보강: 재개 요청을 결정과 같은 트랜잭션에 남긴다(커밋 직후 서버가 죽어도 재개된다).
@@ -346,14 +372,19 @@ async def verdict_of(session: AsyncSession, step_id: int) -> VerdictKind | None:
     return await session.scalar(select(GuardCheck.verdict).where(GuardCheck.step_id == step_id))
 
 
-async def apply_decision(session: AsyncSession, approval: Approval, *, approve: bool, now: datetime) -> None:
+async def apply_decision(
+    session: AsyncSession, approval: Approval, *, approve: bool, now: datetime, revision_note: str | None = None
+) -> None:
     """승인 행·operation·step에 결정을 적는다(잠금·커밋은 decide). 승인이면 실행 유효 시간을 지금부터 정한다.
 
     승인한 step은 waiting_approval 그대로다(실행기 begin_execution이 running으로 바꾼다). 거절한 step만 rejected.
     plan_id가 없는 승인(2단계 보강 전)은 operation이 없어 승인 행만 바꾼다.
+    '고쳐서 다시'는 상태로는 그냥 거절과 같고(새 상태 없음) revision_note만 남는다. 승인에는 메모를 붙이지 않는다.
     """
     approval.status = ApprovalStatus.APPROVED if approve else ApprovalStatus.REJECTED
     approval.decided_at = now
+    if not approve:
+        approval.revision_note = revision_note
     if approve:
         approval.execute_before = now + EXECUTE_WINDOW
     if approval.plan_id is not None:
@@ -401,7 +432,8 @@ async def expire_task(session: AsyncSession, task: Task) -> None:
 
 
 async def build_results(session: AsyncSession, task_id: int, pending_ids: list[str]) -> DeferredToolResults:
-    """결과를 기다리는 호출(pending_ids)마다 승인=ToolApproved, 거절=ToolDenied('사용자가 거절함').
+    """결과를 기다리는 호출(pending_ids)마다 승인=ToolApproved, 거절=ToolDenied(denial_message: '사용자가 거절함',
+    '고쳐서 다시'면 고칠 내용을 덧붙인 문장).
 
     승인은 계획에 저장된 정규화 인자를 override_args로 넘긴다(2단계 보강). 그래서 재개한 run의 도구는 기록 속
     모델 인자가 아니라 승인된 인자로 실행된다. 같은 tool_call_id가 여러 회차에 있으면 가장 최근 회차를 쓴다.
@@ -421,7 +453,7 @@ async def build_results(session: AsyncSession, task_id: int, pending_ids: list[s
         if approval.status == ApprovalStatus.APPROVED:
             decisions[approval.tool_call_id] = ToolApproved(override_args=stored_args)
         elif approval.status == ApprovalStatus.REJECTED:
-            decisions[approval.tool_call_id] = ToolDenied(DENIAL_MESSAGE)
+            decisions[approval.tool_call_id] = ToolDenied(denial_message(approval.revision_note))
     missing = set(pending_ids) - set(decisions)
     if missing:
         raise ValueError(f"결정되지 않은 승인이 있어 재개할 수 없다: {sorted(missing)}")

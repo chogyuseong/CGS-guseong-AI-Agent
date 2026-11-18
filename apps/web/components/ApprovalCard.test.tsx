@@ -21,6 +21,7 @@ function makeApproval(overrides: Partial<Approval> = {}): Approval {
     execute_before: null,
     operation_status: "awaiting_approval",
     receipt_confirmed: false,
+    revision_note: null,
     ...overrides,
   };
 }
@@ -265,5 +266,46 @@ describe("ApprovalCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "승인" }));
 
     expect(await screen.findByRole("button", { name: "그래도 승인" })).toBeEnabled();
+  });
+
+  // '고쳐서 다시'(요구사항 밖, DECISIONS 2026-11-18): 메모를 붙인 거절. 모델이 고친 계획으로 새 카드를 만든다.
+  it("고쳐서 다시를 누르면 메모 칸이 열리고, 적은 내용을 거절과 함께 보낸다", () => {
+    const onDecide = vi.fn(neverResolves);
+    render(<ApprovalCard approval={makeApproval()} onDecide={onDecide} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "고쳐서 다시" }));
+    const send = screen.getByRole("button", { name: "고쳐 달라고 보내기" });
+    expect(send).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("무엇을 고칠까요?"), {
+      target: { value: "  3시로 바꿔 줘 " },
+    });
+    fireEvent.click(send);
+
+    expect(onDecide).toHaveBeenCalledWith({
+      approve: false,
+      confirmMismatch: false,
+      revisionNote: "3시로 바꿔 줘",
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("고쳐 달라고 보내는 중");
+  });
+
+  it("메모 칸에서 취소하면 승인·거절 버튼으로 돌아간다", () => {
+    render(<ApprovalCard approval={makeApproval()} onDecide={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "고쳐서 다시" }));
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    expect(screen.getByRole("button", { name: "승인" })).toBeEnabled();
+    expect(screen.queryByLabelText("무엇을 고칠까요?")).toBeNull();
+  });
+
+  it("고쳐 달라고 한 카드는 배지와 함께 적은 내용을 보여 준다", () => {
+    const approval = makeApproval({ status: "rejected", revision_note: "3시로 바꿔 줘" });
+    render(<ApprovalCard approval={approval} onDecide={vi.fn()} />);
+    const card = screen.getByRole("article", { name: "승인 요청" });
+
+    expect(card).toHaveTextContent("고쳐 달라고 함");
+    expect(card).toHaveTextContent("고칠 내용: 3시로 바꿔 줘");
+    expect(within(card).queryByRole("button", { name: "고쳐서 다시" })).toBeNull();
   });
 });

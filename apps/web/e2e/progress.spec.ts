@@ -56,6 +56,7 @@ function approval(phase: Phase) {
     execute_before: pending ? null : new Date(Date.now() + 5 * 60_000).toISOString(),
     operation_status: pending ? "awaiting_approval" : "approved",
     receipt_confirmed: false,
+    revision_note: null,
   };
 }
 

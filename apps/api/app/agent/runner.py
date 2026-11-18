@@ -94,7 +94,7 @@ from app.agent.replies import AutomationReply
 from app.agent.results import not_executed_output
 from app.agent.toolsets import label_for, preview_for, run_toolsets, toolsets_for
 from app.config import Settings
-from app.models import ActionPlan, AgentRun, Conversation, Message, Operation, Step, Task, UsageLog
+from app.models import ActionPlan, AgentRun, Approval, Conversation, Message, Operation, Step, Task, UsageLog
 from app.models.enums import (
     MessageRole,
     OperationStatus,
@@ -203,9 +203,28 @@ async def task_info(session: AsyncSession, task: Task) -> TaskInfo:
     request_text = None
     if task.trigger_message_id is not None:
         request_text = await session.scalar(select(Message.content).where(Message.id == task.trigger_message_id))
+        request_text = await with_revision_notes(session, task.id, request_text)
     return TaskInfo(
         task.id, task.user_id, task.conversation_id, task.origin, request_text=request_text, started_at=time.time()
     )
+
+
+# 감시 에이전트의 "사용자 요청"에 이 task에서 승인 카드 '고쳐서 다시'로 적은 내용을 순서대로 붙인다
+# (요구사항 밖, 2026-11-18). 고친 카드가 원래 요청과 달라 보여 mismatch로 잘못 걸리지 않게 하려는 것이다.
+# 붙이는 것은 사용자 본인이 쓴 글뿐이다(도구 결과·대화 기록은 넣지 않는다: guard.py 입력 네 가지 원칙).
+# 고칠 때 주의: 문구 "승인 카드에서 고쳐 달라고 함"은 tests/test_approval_revise.py가 찾는다. 읽기만 한다.
+async def with_revision_notes(session: AsyncSession, task_id: int, request_text: str | None) -> str | None:
+    """원래 요청 뒤에 고칠 내용을 한 줄씩 붙인 문장. 고칠 내용이 없으면 request_text 그대로."""
+    notes = await session.scalars(
+        select(Approval.revision_note)
+        .join(Step, Step.id == Approval.step_id)
+        .where(Step.task_id == task_id, Approval.revision_note.is_not(None))
+        .order_by(Approval.id)
+    )
+    lines = [f"(승인 카드에서 고쳐 달라고 함: {note})" for note in notes]
+    if not lines:
+        return request_text
+    return "\n".join([request_text or "", *lines])
 
 
 async def lock_task(session: AsyncSession, task_id: int) -> Task | None:

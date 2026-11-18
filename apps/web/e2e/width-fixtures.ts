@@ -88,6 +88,7 @@ function approval(id: number, stepId: number, verdict: "match" | "mismatch") {
     execute_before: null,
     operation_status: "awaiting_approval",
     receipt_confirmed: false,
+    revision_note: null,
   };
 }
 

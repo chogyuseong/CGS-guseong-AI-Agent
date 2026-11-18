@@ -32,6 +32,7 @@ function approval(status: "pending" | "approved", guard: Guard) {
     execute_before: status === "pending" ? null : new Date(Date.now() + 5 * 60_000).toISOString(),
     operation_status: status === "pending" ? "awaiting_approval" : "succeeded",
     receipt_confirmed: status !== "pending",
+    revision_note: null,
   };
 }
 

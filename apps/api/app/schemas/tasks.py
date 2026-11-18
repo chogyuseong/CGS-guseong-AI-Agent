@@ -16,7 +16,7 @@ app/routers/approvals.py(ApprovalOut, ApproveRequest, ApprovalDecisionOut, Appro
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
     ApprovalStatus,
@@ -81,6 +81,8 @@ class ApprovalOut(BaseModel):
     operation_status: OperationStatus | None
     # 외부 서비스 처리 영수증이 있으면 true. 화면의 "실행 완료"는 이 값이 true일 때만 보인다.
     receipt_confirmed: bool
+    # '고쳐서 다시'로 거절할 때 사용자가 적은 고칠 내용(요구사항 밖, 2026-11-18). 그냥 거절·승인·대기면 null.
+    revision_note: str | None
 
 
 class ApproveRequest(BaseModel):
@@ -88,6 +90,14 @@ class ApproveRequest(BaseModel):
 
     # 감시 판정이 mismatch인 승인을 사용자가 한 번 더 확인했다는 표시.
     confirm_mismatch: bool = False
+
+
+class ReviseRequest(BaseModel):
+    """'고쳐서 다시' 요청 본문. 앞뒤 공백을 지운 뒤 1~300자(300은 approvals.revision_note 칸 길이)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    note: str = Field(min_length=1, max_length=300, description="고칠 내용. 예: 3시로 바꿔 줘")
 
 
 class ApprovalDecisionOut(BaseModel):

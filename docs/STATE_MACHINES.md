@@ -108,7 +108,7 @@ enum에 있는지, "누가" 칸의 함수가 실제로 있는지. 상태·전이
 |---|---|---|
 | (새 행) → `pending` | `approvals.save_plan` | 만료 = 생성 + 30분(`decision_expires_at`) |
 | `pending` → `approved` | `approvals.apply_decision` (`approvals.decide`) | task·승인 행 잠금. task가 waiting_approval이고 만료 전. 감시 결과 mismatch면 확인(confirm_mismatch) 필요 |
-| `pending` → `rejected` | `approvals.apply_decision` | step도 rejected |
+| `pending` → `rejected` | `approvals.apply_decision` | step도 rejected. '고쳐서 다시'(POST /revise, 2026-11-18)도 이 전이다: 새 상태 없이 `revision_note`만 남고, 모델이 받는 거절 문장에 고칠 내용이 붙는다(`approvals.denial_message`) |
 | `pending` → `expired` | `approvals.expire_task` (`check.expire_overdue_approvals`, `approvals.decide`) | step expired, task cancelled |
 | `pending` → `cancelled` | `cancel.close_for_cancel` | 결정 전에 작업 취소 |
 

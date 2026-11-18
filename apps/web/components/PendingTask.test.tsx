@@ -62,6 +62,7 @@ const approved: Approval = {
   execute_before: "2026-11-17T03:06:00Z",
   operation_status: "approved",
   receipt_confirmed: false,
+  revision_note: null,
 };
 
 // 차례로 돌려줄 task 목록. 마지막 것은 계속 돌려준다.

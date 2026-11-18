@@ -55,6 +55,7 @@ describe("결정 결과를 task 캐시에 바로 반영", () => {
     execute_before: null,
     operation_status: "awaiting_approval",
     receipt_confirmed: false,
+    revision_note: null,
   };
   const other: Approval = { ...pending, id: 6 };
   const task: Task = {
