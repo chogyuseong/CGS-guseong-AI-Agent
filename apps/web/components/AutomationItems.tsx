@@ -107,6 +107,7 @@ export function WatchItem({ watch, maxActive, report }: WatchItemProps) {
       kind="watch"
       id={watch.id}
       title={watch.description}
+      stopLabel={watch.tool_name === "coupang_price" ? "샀어요 · 감시 끄기" : undefined}
       active={watch.is_active}
       maxActive={maxActive}
       report={report}

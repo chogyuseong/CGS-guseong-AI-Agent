@@ -120,13 +120,18 @@ def unit_price(title: str, total: int | None) -> str | None:
     return f"1{unit}당 {won(price)}"
 
 
+def comparison_price(criteria: ShoppingCriteria, offer: Offer) -> int | None:
+    """채팅 비교·자동 감시에서 같은 금액을 사용한다. 배송비가 불명인 합계는 None이다."""
+    if not criteria.include_shipping:
+        return offer.price
+    return offer.price + offer.shipping if offer.price is not None and offer.shipping is not None else None
+
+
 def compare_offers(criteria: ShoppingCriteria, offers: list[Offer]) -> dict[str, Any]:
     """그룹 안에서 확인된 가격순으로 비교한다. 서로 다른 판매처·옵션은 병합하지 않는다."""
     groups: dict[str, list[tuple[int | None, dict[str, str]]]] = {"조건 일치": [], "확인 필요": [], "제외 이유": []}
     for offer in offers:
-        total = offer.price
-        if criteria.include_shipping:
-            total = offer.price + offer.shipping if offer.price is not None and offer.shipping is not None else None
+        total = comparison_price(criteria, offer)
         group, reason = classify(criteria, offer, total)
         row = {
             "상품": offer.title,

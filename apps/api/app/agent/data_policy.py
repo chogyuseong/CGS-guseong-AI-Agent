@@ -152,6 +152,18 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         STEPS,
         "조건 일치·확인 필요·제외 이유와 조회 시각",
     ),
+    # 2026-11-18 쿠팡 목표가 감시 전용(watchable.WATCH_ONLY_TOOLS). 상품명·옵션은 등록 때 공개 상품명인지 검사한다
+    # (tools/automation.prepare_price_watch). 결과는 감시 기록(watches.last_result)과 알림 메시지에 남는다.
+    "coupang_price": ToolPolicy(
+        "쿠팡 파트너스",
+        PUBLIC_ONLY,
+        DataClass.PUBLIC,
+        HTTP_TIMEOUT,
+        NO_RETRY,
+        "감시 회차마다 한 번(조회라 중복 무해)",
+        "watches.last_result(감시 결과)·알림 메시지",
+        "최저 조건 가격과 상품 링크, 조회 시각",
+    ),
     "list_events": ToolPolicy(
         "Google Calendar", USER, DataClass.USER_PRIVATE, HTTP_TIMEOUT, READ_RETRY, "조회라 불필요", STEPS, "일정 목록"
     ),

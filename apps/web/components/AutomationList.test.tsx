@@ -218,6 +218,18 @@ describe("자동화 목록", () => {
     expect(screen.getByText("켜진 조건 감시 1개 / 최대 10개")).toBeInTheDocument();
   });
 
+  it("쿠팡 목표가에서 샀어요를 누르면 감시가 꺼지고 기록은 남는다", async () => {
+    const server = serve(
+      [],
+      [{ ...RAIN, description: "키보드 목표가", tool_name: "coupang_price", is_active: true }],
+    );
+    renderList();
+    const item = await findItem("키보드 목표가");
+    fireEvent.click(within(item).getByRole("button", { name: "샀어요 · 감시 끄기" }));
+    await waitFor(() => expect(server.watches[0]?.is_active).toBe(false));
+    expect(server.deletes).toBe(0);
+  });
+
   it("판정하지 못한 확인(unknown)은 '조건 아님'과 구분해 이유를 보여 준다(6단계 보강)", async () => {
     const failed: Watch = {
       ...RAIN,

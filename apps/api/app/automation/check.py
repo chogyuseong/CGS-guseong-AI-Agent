@@ -485,7 +485,12 @@ async def judge_watch(
 def verdict_for(job: WatchJob, result: ToolResult, review: WatchReview | None) -> conditions.Verdict:
     """6단계 보강: 숫자 조건은 서버 비교, 문장 조건은 판정 모델. 조회·판정 실패는 unknown(조건 아님이 아니다)."""
     if job.condition_type == conditions.NUMBER and job.condition_spec:
-        return conditions.judge_number(job.condition_spec, result)
+        verdict = conditions.judge_number(job.condition_spec, result)
+        if job.tool_name == "coupang_price" and result.ok:
+            content = conditions.payload_of(result)
+            if isinstance(content, dict) and isinstance(content.get("summary"), str):
+                return conditions.Verdict(verdict.status, verdict.reason, content["summary"])
+        return verdict
     if not result.ok or review is None:
         return conditions.Verdict(conditions.UNKNOWN, conditions.TOOL_FAILED, "")
     if not review.judged:

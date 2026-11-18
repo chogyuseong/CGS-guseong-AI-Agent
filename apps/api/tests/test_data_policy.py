@@ -15,6 +15,7 @@ from app.agent.agent import MyAgent
 from app.agent.deps import AgentDeps
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.toolsets import TOOLSETS_BY_ORIGIN
+from app.automation.watchable import WATCH_ONLY_TOOLS
 from app.models import Step
 from app.models.enums import RiskLevel, StepStatus
 from app.tools.websearch import WEBKR_URL
@@ -25,7 +26,12 @@ from tests.test_gcal import EVENTS, connect_google
 
 
 def all_tool_names() -> set[str]:
-    return {name for toolsets in TOOLSETS_BY_ORIGIN.values() for toolset in toolsets for name in toolset.tools}
+    """모델에게 주는 도구 전부 + 감시만 쓰는 도구(watchable.WATCH_ONLY_TOOLS, 2026-11-18 쿠팡 목표가).
+
+    감시 전용 도구도 외부로 요청을 보내므로 정책 등록 누락을 같이 잡는다.
+    """
+    given = {name for toolsets in TOOLSETS_BY_ORIGIN.values() for toolset in toolsets for name in toolset.tools}
+    return given | set(WATCH_ONLY_TOOLS)
 
 
 def test_every_tool_has_a_policy() -> None:
@@ -37,7 +43,7 @@ def test_no_tool_accepts_secrets_and_public_tools_accept_only_public() -> None:
     for name, policy in data_policy.TOOL_POLICIES.items():
         assert data_policy.DataClass.SECRET not in policy.accepts, name
         assert policy.timeout_seconds > 0 and policy.retry and policy.dedupe and policy.retention, name
-    for name in ("web_search", "search_places", "get_weather", "compare_products"):
+    for name in ("web_search", "search_places", "get_weather", "compare_products", "coupang_price"):
         assert data_policy.TOOL_POLICIES[name].accepts == frozenset({data_policy.DataClass.PUBLIC})
         assert data_policy.TOOL_POLICIES[name].service is not None
 

@@ -1,5 +1,5 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-2026-11-18 생활 비서 A단계: 채팅에서 쿠팡 상품 비교. .env에 COUPANG_ACCESS_KEY, COUPANG_SECRET_KEY 설정 후 API 재시작 필요.
+2026-11-18 생활 비서 A단계: 채팅에서 쿠팡 상품 비교 + 목표가 감시("…원 이하로 떨어지면 알려줘", 감시 전용 coupang_price). .env에 COUPANG_ACCESS_KEY, COUPANG_SECRET_KEY 설정 후 API 재시작 필요.
 이 PC는 두 키가 함께 설정되지 않아 실제 계정 검색 권한은 미확인. 승인 조건·도구 범위는 docs/TOOLS.md의 쿠팡 절 참고.
 가짜 공급자·모델, 채팅 화면 fixture로 검증. 다음 후보는 목표가 감시이며 별도 단계로 남긴다.
 이번 작업의 전체 시험 실행: API 661개, 웹 371개, 쇼핑 채팅 Playwright 1개 통과. Ruff·Pyright·Biome·TypeScript 검사 통과.

@@ -1,6 +1,7 @@
-"""쿠팡 파트너스 상품 검색. 채팅 비교 도구에서만 호출한다(BUILD_SPEC 17절).
+"""쿠팡 파트너스 상품 검색. 채팅 비교와 사용자가 등록한 목표가 감시가 호출한다(BUILD_SPEC 17절).
 
 2026-11-18 국내 쇼핑 첫 공급자로 선택. 모델은 검색 범위만 추출하고 비교는 shopping.compare_offers가 한다.
+2026-11-18 목표가 감시 추가. 같은 검색 한도와 총액·옵션 판정을 사용한다.
 고칠 때 주의: 가입 조건·시간당 한도는 docs/TOOLS.md, 서명과 응답 처리는 tests/test_coupang.py와 함께 본다.
 """
 
@@ -19,7 +20,16 @@ from app.agent.results import ToolResult
 from app.rate_limit import SlidingWindowRateLimiter
 from app.tools.http import ExternalApiError, request_json
 from app.tools.memories import chat_trigger_message
-from app.tools.shopping import Offer, Price, ShoppingCriteria, Term, compare_offers, normalized
+from app.tools.shopping import (
+    Offer,
+    Price,
+    ShoppingCriteria,
+    Term,
+    classify,
+    compare_offers,
+    comparison_price,
+    normalized,
+)
 
 PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
 SHOP_URL = "https://api-gateway.coupang.com" + PATH
@@ -84,11 +94,16 @@ async def fetch_offers(deps: AgentDeps, product: str) -> list[Offer]:
         raise ExternalApiError("쿠팡 상품 정보를 확인할 수 없습니다.", code="bad_response") from error
 
 
+def public_name(product: str) -> bool:
+    """감시 재실행 때도 등록 시와 같은 문자·길이 제한을 확인한다."""
+    return bool(re.fullmatch(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9 .+()_-]{0,79}", product)) and not re.search(
+        r"\d(?:[- ]?\d){8,}|[A-Za-z0-9_-]{32,}", product
+    )
+
+
 async def public_product(deps: AgentDeps, product: str) -> bool:
     """현재 요청에 사용자가 직접 쓴 상품 이름만 내보낸다. 메일·일정 차단은 StepTracking도 검사한다."""
-    if not re.fullmatch(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9 .+()_-]{0,79}", product):
-        return False
-    if re.search(r"\d(?:[- ]?\d){8,}|[A-Za-z0-9_-]{32,}", product):
+    if not public_name(product):
         return False
     async with deps.db() as session:
         source = await chat_trigger_message(session, deps)
@@ -124,3 +139,41 @@ async def compare_products(
     content = compare_offers(criteria, offers)
     content["출처 안내"] = "쿠팡 파트너스 활동으로 일정액의 수수료를 제공받을 수 있습니다."
     return ToolResult.external(content, sources=[str(offer.url) for offer in offers])
+
+
+async def coupang_price(
+    ctx: RunContext[AgentDeps],
+    product: Term,
+    required: Terms | None = None,
+    excluded: Terms | None = None,
+    new_only: bool = False,
+    include_shipping: bool = False,
+) -> ToolResult:
+    """감시 전용 READ. 등록 때 검증한 상품명만 조회하고 확인된 최저 금액과 그 상품의 출처만 돌려준다.
+
+    2026-11-18 생활 비서 목표가 감시. 후보가 없으면 price=null로 유지해 모르는 가격을 0원으로 알리지 않는다.
+    목표가는 조건 판정 단계에서 비교하므로 조회 단계에서 예산 초과 상품을 미리 제외하지 않는다.
+    """
+    if not public_name(product):
+        return ToolResult.failure("감시할 수 없는 상품명입니다.", error_code="data_policy")
+    criteria = ShoppingCriteria(
+        product=product,
+        required=required or [],
+        excluded=excluded or [],
+        new_only=new_only,
+        include_shipping=include_shipping,
+    )
+    try:
+        offers = await fetch_offers(ctx.deps, product)
+    except ExternalApiError as error:
+        return ToolResult.from_api_error(error)
+    candidates: list[tuple[int, Offer]] = []
+    for offer in offers:
+        price = comparison_price(criteria, offer)
+        if price is not None and classify(criteria, offer, price)[0] == "조건 일치":
+            candidates.append((price, offer))
+    if not candidates:
+        return ToolResult.external({"price": None, "summary": "조건에 맞는 상품의 가격을 확인하지 못했습니다."})
+    price, offer = min(candidates, key=lambda item: item[0])
+    basis = "배송비 포함" if include_shipping else "표시가"
+    return ToolResult.external({"price": price, "summary": f"{offer.title} · {basis} {price:,}원"}, [str(offer.url)])
