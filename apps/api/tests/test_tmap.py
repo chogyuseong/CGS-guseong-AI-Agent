@@ -35,6 +35,8 @@ def keys(test_settings, monkeypatch):
     test_settings.kakao_rest_api_key = SecretStr("test-kakao-key")
     test_settings.tmap_app_key = SecretStr("test-tmap-key")
     monkeypatch.setattr(clock, "now_utc", lambda: datetime(2026, 11, 18, 0, 0, tzinfo=UTC))
+    # 하루 한도 카운터를 테스트마다 새로 둔다(다른 테스트의 조회가 한도에 섞이지 않게).
+    monkeypatch.setattr(tmap, "LIMITER", tmap.SlidingWindowRateLimiter(limit=tmap.DAILY_LIMIT, window_seconds=86400))
 
 
 def content_of(result) -> dict:
@@ -178,3 +180,30 @@ def test_place_names_go_through_the_public_data_check() -> None:
     # tests/test_data_policy.py가 그 동작을 본다). 이 도구가 그 검사 대상(공개 데이터만 받는 외부 도구)인지 확인한다.
     assert data_policy.TOOL_POLICIES["plan_departure"].accepts == data_policy.PUBLIC_ONLY
     assert data_policy.needs_check("plan_departure")  # 메일 문맥에서 숨김·실행 전 차단 대상(data_policy.visible_tool)
+
+
+async def test_free_daily_limit_stops_before_sending(keys, fake_http, tool_deps):
+    # TMAP Free 요금제는 대중교통 하루 10건(2026-11-18 사용자가 확인한 요금표). 넘으면 보내지 않고 이유를 말한다.
+    route_places(fake_http)
+    fake_http.route("POST", tmap.ROUTES_URL, fixture_response("tmap_routes_two.json"))
+    for _ in range(tmap.DAILY_LIMIT):
+        assert (await tmap.plan_departure_result(tool_deps, **ARGS)).ok
+
+    result = await tmap.plan_departure_result(tool_deps, **ARGS)
+
+    assert result.status == "failed" and result.error_code == "rate_limited"
+    assert "하루 10건" in (result.user_message or "")
+    assert len(fake_http.sent("POST", tmap.ROUTES_URL)) == tmap.DAILY_LIMIT
+
+
+async def test_ambiguous_place_does_not_use_the_daily_limit(keys, fake_http, tool_deps):
+    branches = (
+        {"place_name": "스타벅스 강남역점", "address_name": "서울 강남구", "x": "127.0276", "y": "37.4979"},
+        {"place_name": "스타벅스 홍대점", "address_name": "서울 마포구", "x": "126.9236", "y": "37.5563"},
+    )
+    fake_http.route("GET", KEYWORD_URL, kakao_by_query(스타벅스=list(branches), 잠실역=[DESTINATION]))
+
+    for _ in range(tmap.DAILY_LIMIT + 2):
+        await tmap.plan_departure_result(tool_deps, **{**ARGS, "origin": "스타벅스"})
+
+    assert not tmap.LIMITER.blocked(tmap.LIMIT_KEY)  # TMAP을 부르지 않은 질문은 한도를 쓰지 않는다

@@ -12,7 +12,8 @@
   legs[]: mode(WALK·BUS·SUBWAY…), route(노선 이름), sectionTime(초).
 - 오류 코드 11(가까움)·12·13(정류장 매핑 실패)·14(기타)는 HTTP 200, 21~24는 400, 31·32는 500. 오류 본문의 정확한 모양은
   문서에 없어 실제 호출로 확인하지 못했다(경로가 없으면 result.status를 찾아 보고, 없으면 일반 '경로 없음').
-- 무료 제공량·요금은 공식 페이지에서 확인하지 못했다. 한 번의 도구 호출에 TMAP 요청 1회만 보낸다.
+- 요금(2026-11-18 사용자가 SK Open API 요금표 확인): Free 대중교통 하루 10건, 넘으면 자동 차단. Premium은 건당 0.88원
+  후불. 한 번의 도구 호출에 TMAP 요청 1회만 보내고, 앱도 하루 10건을 세어 넘기 전에 멈춘다(LIMITER).
 지도 링크(카카오맵 "URL로 바로 사용하기"): https://map.kakao.com/link/by/traffic/이름,위도,경도/이름,위도,경도
 (traffic = 대중교통, 경유지 지정 불가).
 
@@ -43,6 +44,7 @@ from pydantic_ai import RunContext
 from app import clock
 from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
+from app.rate_limit import SlidingWindowRateLimiter
 from app.tools import http
 from app.tools.departure import (
     DeparturePlan,
@@ -67,6 +69,15 @@ PLACE_CANDIDATES = 5
 ROUTE_COUNT = 5
 # 첫 추정 이동 시간(분). searchDttm에 "도착 목표 - 이 값"을 넣어 그 무렵 운행 기준으로 조회한다(한 번만 조회).
 FIRST_GUESS_MINUTES = 60
+# TMAP Free 요금제의 대중교통 하루 호출 수(2026-11-18 사용자가 확인한 요금표, 넘으면 TMAP이 자동 차단).
+# 앱도 최근 24시간 호출을 세어 넘기 전에 멈춘다(달력 하루보다 보수적). 단일 API 프로세스 기준이라 재시작하면
+# 카운터가 비고, 다른 클라이언트의 호출은 세지 못한다. 요금제를 바꾸면 이 값과 docs/TOOLS.md를 같이 고친다.
+DAILY_LIMIT = 10
+LIMIT_KEY = "tmap-transit"
+LIMITER = SlidingWindowRateLimiter(limit=DAILY_LIMIT, window_seconds=24 * 3600)
+LIMIT_MESSAGE = (
+    "TMAP 무료 요금제의 대중교통 조회(하루 10건)를 다 썼습니다. 내일 다시 시도하거나, 지도에서 직접 확인해 주세요."
+)
 # 도착 여유 상한(분). 두 시간보다 일찍 도착하려는 요청은 잘못 알아들었을 가능성이 크다.
 MAX_EARLY_MINUTES = 120
 # TMAP 오류 코드(HTTP 200) → 사용자 문장.
@@ -151,7 +162,13 @@ def parse_routes(body: Any) -> tuple[list[RouteOption], str | None]:
 
 
 async def fetch_routes(deps: AgentDeps, start: dict[str, Any], end: dict[str, Any], when: datetime) -> Any:
-    """TMAP 경로 조회 1회(조회용 POST: 실패해도 '결과 불명'이 아니다). 좌표와 시각만 보낸다. 키는 헤더에만."""
+    """TMAP 경로 조회 1회(조회용 POST: 실패해도 '결과 불명'이 아니다). 좌표와 시각만 보낸다. 키는 헤더에만.
+
+    하루 한도(LIMITER)를 넘으면 보내지 않고 ExternalApiError(rate_limited). 보낸 요청은 실패해도 한 건으로 센다
+    (TMAP도 실패한 요청을 사용량에 넣을 수 있어 보수적으로 센다).
+    """
+    if not LIMITER.allow(LIMIT_KEY):
+        raise ExternalApiError(LIMIT_MESSAGE, code="rate_limited")
     body = {
         "startX": str(start["x"]),
         "startY": str(start["y"]),
