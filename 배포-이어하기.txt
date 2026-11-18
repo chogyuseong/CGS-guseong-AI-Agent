@@ -5,7 +5,7 @@
   1) (사례 확정 2026-11-18, 초안 표시 지움) eval 실제 실행 승인(1회 약 $0.04~0.07). .env가 있는 PC에서
   2) (완료 2026-11-18) 웹 검색 결과를 읽은 대화에서는 예약·감시 생성을 막음. 날씨·장소 조회 뒤 감시는 허용(사용자 결정)
   3) (완료 2026-11-18) 9단계 보강 코드 부분. 남은 9단계: 실제 배포, 배포 환경 복원 연습, 실기기 확인, 7일 실사용 기록
-  4) 실제 배포(Railway, docs/DEPLOY.md). 배포 환경변수에 PAYLOAD_ENCRYPTION_KEY(첫 PC .env와 같은 값)와
+  4) 실제 배포(Railway, docs/DEPLOY.md). 배포 환경변수에 PAYLOAD_ENCRYPTION_KEY(두 번째 PC .env와 같은 값)와
      TELEMETRY_ENABLED(관찰을 켤 때만 true)를 넣는다
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
@@ -78,7 +78,7 @@
                      대기 계획 무효화, Gmail 권한 부족이면 메일 권한 제거. 마이그레이션 11dcb5772dd1
                      메일을 읽은 대화에서는 예약·감시 만들기 도구를 숨기고 실행 직전에도 막음(사용자 결정 (a),
                      tests/test_mail_automation.py)
-                     ★ PAYLOAD_ENCRYPTION_KEY: 첫 PC .env에는 2026-11-17에 넣었다. 다른 PC·배포에도 같은 키를 넣는다
+                     ★ PAYLOAD_ENCRYPTION_KEY: 2026-11-18 두 번째 PC .env에 새로 만든 키가 기준(0절 아래 ★). 다른 PC·배포에도 같은 키
                      (잃으면 끝나지 않은 작업 복구 불가, 백업할 것)
                      2026-11-18: 웹 검색 결과를 읽은 대화에서도 예약·감시 만들기를 숨기고 실행 직전에 막음
                      (날씨·장소 조회 뒤는 허용, tests/test_search_automation.py)
@@ -102,8 +102,9 @@
 
 다음 할 일(모두 사용자 쪽): 위 "지금 사용자가 정할 것" 1)·2)·4). 코드 쪽에서 혼자 할 일은 남아 있지 않다.
 후속 과제 제안(docs/OPERATIONS.md): unknown operation 주기적 재조회 작업, WORKFLOW_VERSION을 올린 뒤 running으로 남은 task 정리 명령.
-★ 이 PC(첫 PC, C:\Users\rbtjd)의 .env에 PAYLOAD_ENCRYPTION_KEY가 비어 있다(2026-11-18 확인). 그래서 이 PC에서는 메일 기능이 꺼진다.
-  두 번째 PC .env의 같은 키를 USB·암호 관리자로 옮겨 넣는다(새로 만들면 PC마다 키가 달라진다. 배포에도 같은 키).
+★ PAYLOAD_ENCRYPTION_KEY(2026-11-18): 첫 PC(C:\Users\rbtjd)와 두 번째 PC 바탕화면의 어느 .env에도 값이 없어서,
+  두 번째 PC(C:\Users\SSAFY\Desktop\새 폴더 (3)\CGS-guseong-AI-Agent)의 .env에 새로 만들었다(사용자 결정). 이 키가 기준이다.
+  첫 PC와 배포 환경변수에는 이 값을 USB·암호 관리자로 옮겨 넣는다(새로 만들면 PC마다 달라진다. 잃으면 끝나지 않은 작업 복구 불가).
   로컬 브랜치 backup/voice-notice-dup은 원격과 겹친 음성 안내 작업의 보관용이다(push 안 함, 필요 없으면 지워도 된다).
 
 
