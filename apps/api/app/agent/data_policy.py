@@ -156,6 +156,12 @@ AUTOMATION_CREATE_TOOLS = ("create_schedule", "create_watch")
 AUTOMATION_REFUSAL = (
     "이 대화에서 메일을 읽었기 때문에 예약·감시를 만들지 않았습니다. 필요하면 새 대화에서 직접 요청해 주세요."
 )
+# 2026-11-18 사용자 결정(BUILD_SPEC 15절 30번): 웹 검색 결과를 읽은 문맥에서도 자동화 생성 도구를 주지 않는다
+# (검색 결과 속 지시로 예약·감시 생성 금지). 날씨·장소는 조회 뒤 감시를 거는 흐름 때문에 막지 않는다.
+SEARCH_TOOLS = ("web_search",)
+SEARCH_AUTOMATION_REFUSAL = (
+    "이 대화에서 웹 검색 결과를 읽었기 때문에 예약·감시를 만들지 않았습니다. 필요하면 새 대화에서 직접 요청해 주세요."
+)
 
 
 def needs_check(tool_name: str) -> bool:
@@ -186,19 +192,24 @@ def returned_mail(content: Any) -> bool:
     return isinstance(content, dict) and content.get("status") == "succeeded"
 
 
-def mail_read_in(messages: Sequence[ModelMessage]) -> bool:
-    """문맥(이전 대화 기록 + 이번 run)에 읽어 온 메일 결과가 있는가."""
+def returned_in(messages: Sequence[ModelMessage], tool_names: Sequence[str]) -> bool:
+    """문맥(이전 대화 기록 + 이번 run)에 tool_names 도구가 내용을 돌려준(성공한) 결과가 있는가."""
     return any(
-        isinstance(part, ToolReturnPart) and part.tool_name in MAIL_TOOLS and returned_mail(part.content)
+        isinstance(part, ToolReturnPart) and part.tool_name in tool_names and returned_mail(part.content)
         for message in messages
         if isinstance(message, ModelRequest)
         for part in message.parts
     )
 
 
-def hidden_after_mail(tool_name: str) -> bool:
-    """메일을 읽은 문맥이면 주지 않는 도구: 공개 검색·장소·날씨와 자동화 생성(예약·감시)."""
-    return needs_check(tool_name) or tool_name in AUTOMATION_CREATE_TOOLS
+def mail_read_in(messages: Sequence[ModelMessage]) -> bool:
+    """문맥에 읽어 온 메일 결과가 있는가."""
+    return returned_in(messages, MAIL_TOOLS)
+
+
+def search_read_in(messages: Sequence[ModelMessage]) -> bool:
+    """문맥에 읽어 온 웹 검색 결과가 있는가."""
+    return returned_in(messages, SEARCH_TOOLS)
 
 
 def visible_tool(ctx: RunContext[AgentDeps], tool_def: ToolDefinition) -> bool:
@@ -209,35 +220,44 @@ def visible_tool(ctx: RunContext[AgentDeps], tool_def: ToolDefinition) -> bool:
       메일이 있으면(이번 작업이든 같은 대화의 이전 작업이든) 보이지 않는다. 메일 처리 작업에는 공개 검색 도구를
       함께 주지 않고, 메일 속 지시로 예약·감시가 생기지 않게 한다. 실행 직전 검사(outbound_refusal,
       automation_refusal)는 두 번째 방어선으로 남긴다.
+    - 자동화 생성은 웹 검색 결과를 읽은 문맥에서도 보이지 않는다(2026-11-18 사용자 결정).
     """
     if tool_def.name in MAIL_TOOLS:
         return mail_enabled(ctx.deps.settings)
-    if hidden_after_mail(tool_def.name):
+    if tool_def.name in AUTOMATION_CREATE_TOOLS:
+        return not (mail_read_in(ctx.messages) or search_read_in(ctx.messages))
+    if needs_check(tool_def.name):
         return not mail_read_in(ctx.messages)
     return True
 
 
-async def mail_read_in_task(deps: AgentDeps) -> bool:
-    """이번 task에서 끝난(성공한) 메일 단계가 있는가. 한 응답에서 메일 읽기와 함께 부른 호출은 아직 문맥에 결과가
+async def read_in_task(deps: AgentDeps, tool_names: Sequence[str]) -> bool:
+    """이번 task에서 끝난(성공한) tool_names 단계가 있는가. 한 응답에서 읽기와 함께 부른 호출은 아직 문맥에 결과가
     없으므로 steps로 본다."""
     async with deps.db() as session:
         found = await session.scalar(
             select(Step.id)
-            .where(Step.task_id == deps.task_id, Step.status == StepStatus.DONE, Step.tool_name.in_(MAIL_TOOLS))
+            .where(Step.task_id == deps.task_id, Step.status == StepStatus.DONE, Step.tool_name.in_(tool_names))
             .limit(1)
         )
     return found is not None
 
 
-async def automation_refusal(deps: AgentDeps, messages: Sequence[ModelMessage], tool_name: str) -> ToolResult | None:
-    """자동화 생성 도구의 실행 직전 검사(두 번째 방어선). 메일을 읽은 문맥이면 실패 결과, 아니면 None.
+async def mail_read_in_task(deps: AgentDeps) -> bool:
+    return await read_in_task(deps, MAIL_TOOLS)
 
-    판정은 visible_tool과 같다(문맥의 성공한 메일 결과). 여기에 이번 task의 끝난 메일 단계를 더한다.
+
+async def automation_refusal(deps: AgentDeps, messages: Sequence[ModelMessage], tool_name: str) -> ToolResult | None:
+    """자동화 생성 도구의 실행 직전 검사(두 번째 방어선). 메일이나 웹 검색 결과를 읽은 문맥이면 실패 결과, 아니면 None.
+
+    판정은 visible_tool과 같다(문맥의 성공한 결과). 여기에 이번 task의 끝난 단계를 더한다.
     """
     if tool_name not in AUTOMATION_CREATE_TOOLS:
         return None
     if mail_read_in(messages) or await mail_read_in_task(deps):
         return ToolResult.failure(AUTOMATION_REFUSAL, error_code="data_policy")
+    if search_read_in(messages) or await read_in_task(deps, SEARCH_TOOLS):
+        return ToolResult.failure(SEARCH_AUTOMATION_REFUSAL, error_code="data_policy")
     return None
 
 

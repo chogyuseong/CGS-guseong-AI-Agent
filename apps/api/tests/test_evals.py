@@ -78,12 +78,13 @@ def test_dataset_has_spec_16_cases_in_order() -> None:
     assert counts == CATEGORY_TARGETS
 
 
-def test_dataset_and_docs_are_marked_draft() -> None:
-    head = DATASET_PATH.read_text(encoding="utf-8").splitlines()[:5]
+def test_dataset_and_docs_are_confirmed() -> None:
+    """2026-11-18 사용자가 사례 30개를 초안대로 확정했다(초안 표시 제거)."""
+    dataset = DATASET_PATH.read_text(encoding="utf-8")
     docs = (Path(__file__).resolve().parents[3] / "docs" / "EVALS.md").read_text(encoding="utf-8")
 
-    assert any(DRAFT_MARK in line for line in head)
-    assert DRAFT_MARK in docs
+    assert DRAFT_MARK not in dataset
+    assert DRAFT_MARK not in docs
 
 
 def test_dataset_tool_names_exist_and_args_belong_to_their_path() -> None:

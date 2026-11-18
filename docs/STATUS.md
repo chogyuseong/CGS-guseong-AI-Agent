@@ -65,7 +65,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   VAPID_SUBJECT는 여전히 비어 있다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
-다음 시작 지점: 사용자가 apps/api/evals/dataset.yaml 초안(docs/EVALS.md 표)을 확인하고 초안 표시를 지운 뒤, 예상 비용을 승인하면
+다음 시작 지점: eval 사례는 2026-11-18 사용자가 확정했다(초안 표시 제거). 예상 비용을 승인하면
 실제 eval 첫 실행. 그 다음 9단계 보강. 관찰을 켜려면 .env에 TELEMETRY_ENABLED=true도 넣어야 한다(토큰만으로는 보내지 않음).
 개발 .env에는 사용자가 PAYLOAD_ENCRYPTION_KEY를 넣었다(2026-11-17). 배포 환경변수에도 넣어야 메일 기능이 켜진다.
 관련 커밋: (이 파일을 커밋한 커밋)

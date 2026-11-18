@@ -416,9 +416,10 @@ API 쪽만(화면은 다른 작업자, `apps/web`은 건드리지 않음). 사�
 
 ### 7단계 보강: 남은 것
 - 이 절에 있던 사용자 판단 5개는 2026-11-17 사용자 답으로 모두 정했다(아래 "7단계 보강" 절의 "사용자 결정" 줄).
-- (제안) BUILD_SPEC 15절 30번은 "검색 결과 지시로 … 예약 생성 불가"다. 이번 결정(a)은 메일을 읽은 문맥만 막는다. 검색 결과(web_search 등
-  외부 콘텐츠)를 읽은 문맥에서도 자동화 생성을 숨길지는 사용자가 정한다(같은 visible_tool에 `results.EXTERNAL_CONTENT_TOOLS` 판정을 더하면 된다.
-  대가: "날씨 보고 비 오면 알려줘"처럼 조회 뒤 감시를 만드는 흔한 흐름이 같은 대화에서 막힌다).
+- 2026-11-18 사용자 결정(BUILD_SPEC 15절 30번): 웹 검색(web_search) 결과를 읽은 문맥에서도 create_schedule·create_watch를 숨기고
+  실행 직전에도 막는다(`data_policy.SEARCH_TOOLS`, `SEARCH_AUTOMATION_REFUSAL`). 날씨·장소·일정 조회 뒤에는 막지 않는다. 이유: 남이 쓴 글이
+  들어오는 것은 웹 검색이 크고, "날씨 보고 비 오면 알려줘"처럼 조회 뒤 감시를 거는 흔한 흐름은 살린다. 테스트 tests/test_search_automation.py.
+- 2026-11-18 사용자가 eval 사례 30개를 초안대로 확정했다. dataset.yaml·docs/EVALS.md의 초안 표시를 지우고 데이터셋 이름을 myagent_eval_spec16으로 바꿨다.
 
 ## 7단계 (2026-11-17)
 - 2026-11-17 음성 입력은 브라우저 `SpeechRecognition`(없으면 `webkitSpeechRecognition`)만 쓰고 lang=ko-KR. 앱은 음성·녹음을 서버로 보내는 코드를 두지 않는다(크롬은 브라우저가 자체적으로 구글 서버에서 인식한다).

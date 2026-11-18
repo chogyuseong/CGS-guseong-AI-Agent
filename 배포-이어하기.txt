@@ -1,10 +1,9 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
-마지막 갱신 2026-11-18 밤 (BUILD_SPEC 기준 9단계 보강 중 코드·문서로 할 수 있는 것까지 완료. 남은 것은 모두 사용자 계정·비용·실기기가 필요한 일)
+마지막 갱신 2026-11-18 (eval 사례 확정·검색 뒤 예약 차단 반영. 그 전: BUILD_SPEC 기준 9단계 보강 중 코드·문서로 할 수 있는 것까지 완료. 남은 것은 모두 사용자 계정·비용·실기기가 필요한 일)
 
 지금 사용자가 정할 것(2026-11-18):
-  1) eval 사례 검토(docs/EVALS.md 표, 판단이 갈리는 사례 07·20·22·24·25·30) → 초안 표시 지우기 → 실제 실행 승인(1회 약 $0.04~0.07)
-  2) 검색 결과를 읽은 대화에서도 예약·감시 생성을 막을지(BUILD_SPEC 15절 30번. 막으면 "날씨 보고 비 오면 알려줘"처럼
-     조회 뒤 감시를 거는 흐름도 같은 대화에서 막힌다. docs/DECISIONS.md "7단계 보강: 남은 것")
+  1) (사례 확정 2026-11-18, 초안 표시 지움) eval 실제 실행 승인(1회 약 $0.04~0.07). .env가 있는 PC에서
+  2) (완료 2026-11-18) 웹 검색 결과를 읽은 대화에서는 예약·감시 생성을 막음. 날씨·장소 조회 뒤 감시는 허용(사용자 결정)
   3) (완료 2026-11-18) 9단계 보강 코드 부분. 남은 9단계: 실제 배포, 배포 환경 복원 연습, 실기기 확인, 7일 실사용 기록
   4) 실제 배포(Railway, docs/DEPLOY.md). 배포 환경변수에 PAYLOAD_ENCRYPTION_KEY(첫 PC .env와 같은 값)와
      TELEMETRY_ENABLED(관찰을 켤 때만 true)를 넣는다
@@ -81,12 +80,12 @@
                      tests/test_mail_automation.py)
                      ★ PAYLOAD_ENCRYPTION_KEY: 첫 PC .env에는 2026-11-17에 넣었다. 다른 PC·배포에도 같은 키를 넣는다
                      (잃으면 끝나지 않은 작업 복구 불가, 백업할 것)
-                     남은 제안: 검색 결과를 읽은 대화의 예약 생성은 아직 막지 않음(BUILD_SPEC 15절 30번,
-                     docs/DECISIONS.md "7단계 보강: 남은 것")
+                     2026-11-18: 웹 검색 결과를 읽은 대화에서도 예약·감시 만들기를 숨기고 실행 직전에 막음
+                     (날씨·장소 조회 뒤는 허용, tests/test_search_automation.py)
   8단계 보강   코드 완료  TELEMETRY_ENABLED(기본 꺼짐, 토큰만으로는 안 보냄. OTEL_EXPORTER_OTLP_* 우회 전송 경로 차단),
                      eval 사례를 BUILD_SPEC 16절 30개로(고정 시각 2026-11-18 09:00 서울, app/clock.py, 복수 정답·되묻기,
                      안전 경계 5개 건수와 모델 판단 8개 통과율 분리), 실행 기록(프롬프트 해시·커밋·데이터셋 버전·표본·횟수)
-                     ★ 사용자: docs/EVALS.md 표와 dataset.yaml 검토 → 초안 표시 지우기 → 실제 실행 승인(1회 약 $0.04~0.07)
+                     사례 30개 사용자 확정(2026-11-18, 초안 표시 지움). ★ 남음: 실제 실행 승인(1회 약 $0.04~0.07)
   9단계 보강   코드 완료  (1) GET /api/usage/daily(옛 /api/usage 없앰), docs/STATE_MACHINES.md(전이 표, 코드와 맞춰 보는
                      test_state_machines.py), docs/OPERATIONS.md(마이그레이션·롤백, 백업·복원, WORKFLOW_VERSION 배포, 키 교체,
                      장애 대응, 7일 실사용 기록 양식), 로컬 복원 연습(pg_dump→복원 DB, 표 41개 행 수 일치, alembic head),
@@ -97,7 +96,7 @@
                      ★ 남음(사용자): 실제 배포·HTTPS 주소, 배포 환경 백업·복원 연습, 실기기(다크 모드·아이콘·푸시·마이크·키보드),
                      7일 실사용 기록(docs/OPERATIONS.md 양식)
 
-검사(2026-11-18, 9단계 보강 끝, 첫 PC): API pytest 616개, ruff·pyright 0건(마이그레이션 변경 없음).
+검사(2026-11-18, 검색 뒤 예약 차단 반영, 두 번째 PC): API pytest 621개, pyright 0건. 그 전(9단계 보강 끝, 첫 PC): API pytest 616개, ruff·pyright 0건(마이그레이션 변경 없음).
 웹: Biome 0건, tsc, Vitest 353개, Playwright 48개.
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
@@ -270,7 +269,7 @@ PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 �
 
 잘 옮겨졌는지 확인:
 
-  pnpm api:test                    616개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:test                    621개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
   pnpm api:check                   ruff, pyright 문제 0건
   pnpm --dir apps/web lint
   pnpm --dir apps/web typecheck
