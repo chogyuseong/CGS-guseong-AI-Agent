@@ -20,7 +20,8 @@
 - 보내는 것: 카카오에는 장소 이름, TMAP에는 좌표와 시각만. 일정 제목·메모·참석자는 인자에 없고, 공개 데이터만 받는 외부 도구라
   메일을 읽었거나 일정 제목이 든 인자면 실행 전에 막는다.
 - 키: `.env`의 `TMAP_APP_KEY`(SK Open API 가입 → TMAP 대중교통 상품 구매 → 앱 키). **무료 제공량·요금은 공식 페이지에서 확인하지 못했다.**
-  실제 키로 조회한 적은 아직 없다. [경로 문서](https://transit.tmapmobility.com/docs/routes), [이용 절차](https://transit.tmapmobility.com/guide/procedure)
+  **2026-11-18 실제 키로 1회 조회 확인**(역삼역 → 잠실역, 11-19 17:45 운행 기준): 200 응답, `metaData.plan.itineraries` 칸 이름이 문서와 같았고
+  2호선 직통 15분·환승 0회·1,550원이 나왔다. 경로 없음·오류 응답의 실제 모양은 아직 못 봤다. [경로 문서](https://transit.tmapmobility.com/docs/routes), [이용 절차](https://transit.tmapmobility.com/guide/procedure)
 - 범위 밖(다음 단계): 영화 회차·귀가 계산(C), 휴대폰으로 경로 넘기기, 자동차·도보 경로.
 
 ## 쿠팡 상품 조건 비교 (2026-11-18)
