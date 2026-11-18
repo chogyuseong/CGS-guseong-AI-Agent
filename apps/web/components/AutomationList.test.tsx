@@ -195,6 +195,17 @@ describe("자동화 목록", () => {
     expect(item).toHaveTextContent("강수 확률이 60%를 넘으면");
     expect(item).toHaveTextContent("1시간마다 확인");
     expect(item).toHaveTextContent("한 번 알리면 꺼집니다");
+  });
+
+  it("반복 감시 안내는 서버 규칙(거짓→참으로 바뀔 때, 마지막 알림 12시간 뒤)과 같게 말한다", async () => {
+    serve([], [{ ...RAIN, repeat: true }]);
+    renderList();
+    const item = await findItem("내일 서울 비 확률");
+
+    expect(item).toHaveTextContent(
+      "조건이 맞지 않다가 맞게 바뀔 때 알립니다(마지막 알림 뒤 12시간 안에는 다시 알리지 않습니다).",
+    );
+    expect(item).not.toHaveTextContent("조건이 맞을 때마다");
     expect(item).toHaveTextContent("만료 12월 17일");
     expect(item).toHaveTextContent("조건에 맞지 않음");
     expect(item).toHaveTextContent("<b>굵게</b>");

@@ -30,6 +30,11 @@ describe("다크 모드 토큰", () => {
     expect(css).not.toMatch(/^\.dark\s*\{/m);
   });
 
+  it("본문 글꼴 토큰은 layout.tsx가 불러온 Geist(--font-geist-sans)를 가리킨다(자기 자신을 가리키면 글꼴이 안 붙는다)", () => {
+    expect(css).toMatch(/--font-sans:\s*var\(--font-geist-sans\);/);
+    expect(css).not.toMatch(/--font-sans:\s*var\(--font-sans\);/);
+  });
+
   it("브라우저 기본 요소(스크롤바, 입력칸)도 어둡게 그리도록 color-scheme을 알린다", () => {
     expect(css).toMatch(/color-scheme:\s*light dark;/);
   });

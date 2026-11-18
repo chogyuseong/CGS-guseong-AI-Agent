@@ -11,7 +11,8 @@
   --color-foreground: var(--foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --font-sans: var(--font-sans);
+  /* 2026-11-18: 자기 자신(var(--font-sans))을 가리켜 Geist가 붙지 않던 것을 layout.tsx의 변수로 고쳤다(lib/theme.test.ts). */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);

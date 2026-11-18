@@ -30,6 +30,15 @@ describe("SuggestionChips(6단계 보강: 구조화된 제안)", () => {
     expect(onPick).toHaveBeenCalledWith("내일 아침 '우산 챙기기' 할 일 추가해줘");
   });
 
+  it("같은 제안이 두 번 와도 key가 겹치지 않고 둘 다 그린다", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<SuggestionChips suggestions={[UMBRELLA, UMBRELLA]} onPick={vi.fn()} />);
+
+    expect(screen.getAllByRole("button", { name: "우산 챙기기: 입력창에 채우기" })).toHaveLength(2);
+    expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    errors.mockRestore();
+  });
+
   it("제안이 없으면 아무것도 그리지 않는다", () => {
     const { container } = render(<SuggestionChips suggestions={[]} onPick={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();

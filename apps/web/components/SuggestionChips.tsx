@@ -10,6 +10,7 @@
 import { PencilLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Suggestion } from "@/lib/suggestions";
+import { withUniqueKeys } from "@/lib/uniqueKeys";
 
 type SuggestionChipsProps = {
   // 서버가 저장한 구조화된 제안(messages.suggestions, 6단계 보강).
@@ -32,31 +33,31 @@ export function SuggestionChips({ suggestions, onPick, disabled = false }: Sugge
         다시 승인을 묻습니다.
       </p>
       <ul className="flex min-w-0 flex-col gap-2">
-        {suggestions.map((suggestion) => (
-          // 제안에는 id가 없어 제목+문장을 key로 쓴다. 같은 제목·문장의 제안이 둘이면 key가 겹친다.
-          <li
-            key={`${suggestion.title}-${suggestion.proposed_user_message}`}
-            className="flex min-w-0 flex-col gap-1 rounded-lg border p-2"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              aria-label={`${suggestion.title}: 입력창에 채우기`}
-              onClick={() => onPick(suggestion.proposed_user_message)}
-              disabled={disabled}
-              className="h-auto min-h-11 w-full min-w-0 justify-start gap-2 whitespace-normal py-2 text-left text-base"
-            >
-              <PencilLine aria-hidden="true" className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1 wrap-anywhere">{suggestion.title}</span>
-            </Button>
-            {suggestion.reason && (
-              <p className="text-xs text-muted-foreground wrap-anywhere">{suggestion.reason}</p>
-            )}
-            <p className="whitespace-pre-wrap text-sm wrap-anywhere">
-              {suggestion.proposed_user_message}
-            </p>
-          </li>
-        ))}
+        {withUniqueKeys(suggestions, (item) => `${item.title}-${item.proposed_user_message}`).map(
+          ({ item: suggestion, key }) => (
+            // 제안에는 id가 없어 제목+문장을 key로 쓰고, 같은 제안이 둘이면 "몇 번째 등장"을 붙인다
+            // (2026-11-18 수정, lib/uniqueKeys.ts, SuggestionChips.test.tsx).
+            <li key={key} className="flex min-w-0 flex-col gap-1 rounded-lg border p-2">
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={`${suggestion.title}: 입력창에 채우기`}
+                onClick={() => onPick(suggestion.proposed_user_message)}
+                disabled={disabled}
+                className="h-auto min-h-11 w-full min-w-0 justify-start gap-2 whitespace-normal py-2 text-left text-base"
+              >
+                <PencilLine aria-hidden="true" className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1 wrap-anywhere">{suggestion.title}</span>
+              </Button>
+              {suggestion.reason && (
+                <p className="text-xs text-muted-foreground wrap-anywhere">{suggestion.reason}</p>
+              )}
+              <p className="whitespace-pre-wrap text-sm wrap-anywhere">
+                {suggestion.proposed_user_message}
+              </p>
+            </li>
+          ),
+        )}
       </ul>
     </div>
   );

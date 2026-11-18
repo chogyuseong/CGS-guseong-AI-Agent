@@ -12,6 +12,7 @@ import { Globe } from "lucide-react";
 import { useId } from "react";
 import { type ExternalOutput, safeHttpUrl, storedMailCount } from "@/lib/stepOutput";
 import { fieldLabel, formatFieldValue } from "@/lib/toolText";
+import { withUniqueKeys } from "@/lib/uniqueKeys";
 
 // 이보다 깊이 들어간 값은 펼치지 않고 한 줄 글자(JSON)로 보여 준다.
 // 외부가 깊게 중첩된 값을 보내도 재귀 그리기가 끝없이 깊어지지 않게 하는 상한이다.
@@ -179,15 +180,16 @@ function TextValue({ value }: { value: unknown }) {
 }
 
 // 서버 ToolResult.sources(빈 문자열은 readExternalOutput이 이미 뺐다). 링크 규칙은 TextValue와 같다.
-// 같은 주소가 두 번 오면 key가 겹친다. 중복을 빼는 SourceLinks와 달리 여기는 빼지 않는다.
+// 중복을 빼는 SourceLinks와 달리 여기는 서버가 준 그대로 보여 준다. 같은 주소가 두 번 올 수 있어
+// key에 "몇 번째 등장"을 붙인다(2026-11-18 수정, lib/uniqueKeys.ts, ExternalContent.test.tsx).
 function Sources({ sources }: { sources: string[] }) {
   if (sources.length === 0) return null;
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <p className="font-medium text-muted-foreground">출처</p>
       <ul className="flex min-w-0 flex-col gap-1">
-        {sources.map((source) => (
-          <li key={source} className="min-w-0">
+        {withUniqueKeys(sources, (source) => source).map(({ item: source, key }) => (
+          <li key={key} className="min-w-0">
             <TextValue value={source} />
           </li>
         ))}

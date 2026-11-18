@@ -27,8 +27,9 @@ import { SourceLinks } from "./SourceLinks";
 // 근거: BUILD_SPEC 8절, DECISIONS 2026-11-17 "자동화 탭"(마지막 실행 결과 보여 주기), 6단계 보강(budget·paused_budget).
 //
 // 고칠 때 주의:
-// - "알린 뒤 12시간은 쉽니다" 문구는 서버 apps/api/app/automation/rules.py의 WATCH_REPEAT_DELAY(12시간)와 글자로
-//   맞물려 있다(rules.py 머리 주석에도 이 파일이 적혀 있다). 값을 바꾸면 이 문구를 같이 고친다.
+// - 반복 감시 안내 문구("맞지 않다가 맞게 바뀔 때 … 12시간 안에는 다시 알리지 않습니다")는 서버
+//   apps/api/app/automation/check.py의 should_notify와 rules.py의 WATCH_REPEAT_DELAY(12시간)를 글자로 옮긴 것이다
+//   (2026-11-18: 옛 문구 "알릴 때마다 … 12시간 쉼"이 실제 규칙과 달라 고침, AutomationList.test.tsx). 규칙·값을 바꾸면 같이 고친다.
 // - 상태 글자는 lib/automations.ts의 TASK_STATUS_TEXT(작업 상태)·watchStatusText(감시 결과 status·reason)가 정한다.
 //   서버에 상태 값을 더하면 그쪽 표를 고친다(생성 타입이 Record 키 빠짐을 잡는다).
 // - 감시 도구 이름은 lib/toolText.ts의 toolDisplayName이 한국어로 바꾼다.
@@ -127,7 +128,7 @@ function WatchSettings({ watch, expired }: { watch: Watch; expired: boolean }) {
       </p>
       <p className="text-muted-foreground">
         {watch.repeat
-          ? "조건이 맞을 때마다 알립니다(알린 뒤 12시간은 쉽니다)."
+          ? "조건이 맞지 않다가 맞게 바뀔 때 알립니다(마지막 알림 뒤 12시간 안에는 다시 알리지 않습니다)."
           : "한 번 알리면 꺼집니다."}
       </p>
       {watch.is_active && <p>다음 확인 {formatRunTime(watch.next_run_at)}</p>}
