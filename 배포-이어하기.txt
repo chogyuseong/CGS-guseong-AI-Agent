@@ -31,6 +31,9 @@
           evals/extra_dataset.yaml(X1 시각·X2 장소, --dataset extra, 사용자 확정). 실제 모델 실행 2/2 통과($0.0053):
           고칠 내용만 바뀐 새 카드가 나옴(docs/EVALS.md). 명세 30개는 질문 판정 변경 뒤 아직 다시 안 돌림
 
+  7) (2026-11-18) Google 연결 redirect_uri_mismatch: 콘솔 OAuth 클라이언트에 8000 주소만 있었다. 앱은 화면 주소로 받는다 →
+     승인된 리디렉션 URI에 http://localhost:3000/api/connections/google/callback 추가해 연결됨(.env GOOGLE_REDIRECT_URI와 같은 값)
+
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
 전체 명세는 docs/BUILD_SPEC.md(예전 SPEC.md는 참고용), 소개는 README.md에 있다.
