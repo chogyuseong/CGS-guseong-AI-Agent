@@ -1,5 +1,23 @@
 // 채팅·작업 기록 화면이 쓰는 서버 데이터 훅 모음(TanStack Query).
 // 타입은 모두 pnpm gen:api가 만든 schema.d.ts에서 꺼낸다. 손으로 API 타입을 쓰지 않는다.
+//
+// 쓰는 곳: ChatHome·ChatScreen·ConversationSheet(대화), MessageList·ChatInput 흐름(useSendMessage),
+// PendingTask·TaskSteps(useTask·taskPhase·취소), TaskList(작업 기록 탭), lib/approvals.ts·lib/polling.ts(chatKeys·isTaskFinished).
+// 맞물린 API(apps/api/app/routers/conversations.py·tasks.py):
+//   GET/POST /api/conversations, DELETE /api/conversations/{id}(409 진행 중 작업),
+//   GET/POST /api/conversations/{id}/messages(POST는 202 {task_id}, 409·429·422),
+//   GET /api/tasks?limit=50, GET /api/tasks/{id}, POST /api/tasks/{id}/cancel.
+// 근거: DECISIONS 2026-11-17 화면 절(진행 상황은 서버 task에서만 읽는다, 폴링 간격, "이어서 처리하는 중"),
+// 1단계 보강(client_request_id 중복 방지), 5단계 보강(대화 삭제).
+//
+// 고칠 때 주의:
+// - TaskStatus 값(FINISHED_STATUSES·taskPhase)은 서버 task 상태(docs/STATE_MACHINES.md)와 맞물린다. 서버에 상태를 더하면
+//   gen:api 뒤 여기, lib/automations.ts의 TASK_STATUS_TEXT, components/TaskList.tsx의 STATUS_LABELS를 같이 본다.
+// - chatKeys 모양을 바꾸면 lib/approvals.ts(취소·무효화)와 무효화를 부르는 컴포넌트가 함께 바뀐다.
+// - sendErrorMessage의 1~4,000자·1분은 서버 값(4000자 제한, app/rate_limit.py 분당 20회)과 맞춘 문구다.
+// - 폴링 간격은 lib/polling.ts 한 곳에서 정한다.
+// - 테스트: lib/chat.test.ts, lib/polling.test.ts, components/PendingTask.test.tsx·MessageList.test.tsx,
+//   e2e/chat.spec.ts·progress.spec.ts·conversation-delete.spec.ts.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import { api } from "@/lib/api/client";
@@ -29,6 +47,9 @@ export const chatKeys = {
 };
 
 // 더 바뀌지 않는 상태. cancel_requested·reconciling은 곧 바뀌므로 넣지 않는다.
+// waiting_input(되물음)도 넣는다: 이 task는 더 진행하지 않고 사용자가 새 메시지로 답한다
+// (지금 서버는 이 상태를 정의만 하고 쓰지 않는다. DECISIONS 2026-11-18 9단계 보강).
+// 이 목록은 폴링 중단(lib/polling.ts)과 openScheduleTaskIds·taskPhase가 함께 쓴다. 빠지면 끝난 task를 계속 폴링한다.
 const FINISHED_STATUSES: readonly TaskStatus[] = [
   "done",
   "partially_done",
@@ -70,6 +91,12 @@ export const PHASE_TEXT: Record<Exclude<TaskPhase, "finished">, string> = {
   cancelling: "취소 요청을 받았습니다. 지금 단계가 끝나면 멈춥니다…",
 };
 
+/**
+ * task 하나에서 화면 단계를 계산한다. 화면 state가 아니라 서버 task만 보고 정하므로 새로 고침 뒤에도 같은 결과다.
+ * waiting_approval인데 pending 승인이 없으면 "resuming"이다: 서버는 마지막 결정 뒤 재개 워크플로가 claim할 때까지
+ * waiting_approval로 두므로, 이 구간을 승인 안내로 보이면 이미 결정한 사용자가 헷갈린다(DECISIONS 2026-11-17).
+ * 단계 이름은 lib/polling.ts의 간격 표와 PHASE_TEXT의 키로 쓰인다.
+ */
 export function taskPhase(
   task: { status: TaskStatus; approvals: readonly ApprovalLike[] } | undefined,
 ): TaskPhase {
@@ -129,6 +156,8 @@ export async function deleteConversation(conversationId: number): Promise<void> 
       throw new Error("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
     });
   if (result.response.ok) return;
+  // 409 본문 detail은 서버 문장(conversations.py의 DELETE_BUSY)이라 그대로 보여 준다. 서버 문구를 바꾸면 화면 문구도
+  // 바뀐다. 글자가 아닐 수도 있어 실행 중에 확인한다.
   const detail = (result.error as { detail?: unknown } | undefined)?.detail;
   throw new Error(
     result.response.status === 409 && typeof detail === "string"
@@ -149,6 +178,8 @@ export function useDeleteConversation() {
         list?.filter((conversation) => conversation.id !== conversationId),
       );
       void queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
+      // 대화를 지우면 그 대화에서 생긴 기억 목록도 달라질 수 있어 다시 가져온다.
+      // ["memories"]는 lib/memories.ts의 memoryKeys.all과 글자로 맞물린다. 그 키를 바꾸면 여기도 바꾼다.
       void queryClient.invalidateQueries({ queryKey: ["memories"] });
     },
   });

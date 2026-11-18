@@ -12,6 +12,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+// 화면 아래 고정 탭 막대(채팅·작업 기록·자동화·기억·설정).
+//
+// 쓰는 곳: app/(tabs)/layout.tsx(AuthGuard 안). TAB_ITEMS는 내보내지만 지금 다른 파일에서 가져다 쓰지 않는다.
+// 근거: 명세 [화면] 절의 탭 순서, DECISIONS 2026-11-17 "하단 탭은 /connections에서도 '설정'을 현재 탭으로 표시"
+//   (/usage도 설정 탭의 링크로 들어가 같은 방식), 폭 점검 결정(넓은 화면에서 max-w-3xl로 모음).
+//
+// 고칠 때 주의:
+// - href는 app/(tabs) 아래 폴더 이름과 같아야 한다. 탭 안 화면을 새로 만들면 children에 넣어야 그 화면에서 탭이 켜진다.
+// - 탭 이름 글자는 e2e/login.spec.ts(TAB_LABELS)와 components/BottomTabs.test.tsx가 찾는다.
+
 // type은 데이터 모양을 정하는 선언이다. 실행 코드는 없다. (Python의 TypedDict와 비슷)
 type TabItem = {
   href: string;
@@ -30,6 +40,7 @@ export const TAB_ITEMS: TabItem[] = [
   { href: "/settings", label: "설정", icon: Settings, children: ["/connections", "/usage"] },
 ];
 
+// 정확히 같거나 그 아래 주소면 맞는 것으로 본다(/chat/12도 채팅 탭). "/" 경계를 붙여 /chatx 같은 주소는 빼낸다.
 function matches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }

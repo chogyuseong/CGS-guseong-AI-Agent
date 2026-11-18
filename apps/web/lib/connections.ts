@@ -6,12 +6,26 @@
 //   state는 서버 DB에 이 로그인 세션·10분·한 번 사용으로 묶여 있다(화면은 state를 모른다).
 //   [메일 읽기 권한 추가] 버튼 → 같은 POST에 {scope: "mail"} → 성공하면 ?google=connected&added=mail.
 //   메일 권한만 끄는 방법은 없다(Google이 범위 일부 철회를 지원하지 않음). 빼려면 연결 해제 후 캘린더만 다시 연결한다.
+//
+// 쓰는 곳: components/GoogleConnection.tsx(상태·해제·메일 동의), StartConnectionButton.tsx(startGoogleConnection),
+// CallbackNotice.tsx(callbackNotice·hasCallbackParams·CONNECTIONS_PATH), MailPermission.tsx(MAIL_DISABLED_TEXT).
+// 그 밖의 API: GET /api/connections, DELETE /api/connections/{provider}(204),
+// PUT·DELETE /api/connections/google/mail-consent(7단계 보강).
+// 근거: BUILD_SPEC 4단계(Google 연결)·7단계(메일 읽기), DECISIONS 2026-11-17 연결 화면 절(콜백 쿼리를 한 번 읽고 지움,
+// 다시 연결 버튼, 화면 안 해제 확인), "화면(메일 읽기 권한)" 절.
+//
+// 고칠 때 주의:
+// - 콜백 쿼리(google=connected|error, reason, added=mail)는 OpenAPI에 드러나지 않아 gen:api가 잡아 주지 않는다.
+//   서버 apps/api/app/routers/connections.py 머리의 "콜백 reason 코드" 목록과 CALLBACK_REASONS를 손으로 맞춘다.
+// - 409 detail.code(not_configured·mail_disabled)도 서버 글자와 맞물린다.
+// - 테스트: lib/connections.test.ts, components/GoogleConnection.test.tsx, e2e/connections.spec.ts.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 
 export type Connection = components["schemas"]["ConnectionOut"];
 
+// 연결 화면 경로. 서버 콜백이 {APP_ORIGIN}/connections로 돌려보내므로 화면 경로를 옮기면 서버도 같이 바꾼다.
 export const CONNECTIONS_PATH = "/connections";
 // 7단계 '메일 읽기 권한 추가'는 scope="mail". 서버가 캘린더 + gmail.readonly를 함께 요청한다
 // (연결 전에 눌러도 캘린더와 메일이 함께 연결된다). 기본 연결(scope 없음)은 캘린더만 요청한다.
@@ -46,6 +60,11 @@ export const CALLBACK_REASONS: Record<string, string> = {
 
 type ParamReader = { get(name: string): string | null; has(name: string): boolean };
 
+/**
+ * 돌아온 주소의 쿼리를 안내 한 건으로. google 값이 없거나 모르는 값이면 null(안내 없음).
+ * reason은 Object.hasOwn으로 표에 있는 코드만 받는다: 주소는 누구나 꾸며 보낼 수 있으므로 쿼리 글자를 화면에
+ * 옮기지 않고("toString" 같은 상속 속성 이름도 막는다), 모르면 일반 실패 문구를 쓴다.
+ */
 export function callbackNotice(params: ParamReader): Notice | null {
   const result = params.get("google");
   if (result === "connected") {
@@ -63,6 +82,7 @@ export function hasCallbackParams(params: ParamReader): boolean {
   return params.has("google") || params.has("reason") || params.has("added");
 }
 
+// 연결한 날을 서울 기준 "2026년 11월 18일"로.
 export function formatConnectedDate(value: string): string {
   return new Date(value).toLocaleDateString("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -135,6 +155,8 @@ const START_ERRORS: Record<number, string> = {
 const NETWORK_TEXT = "서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.";
 
 // 연결 시작(4단계 보강: POST). 서버가 준 Google 동의 화면 주소로 이동한다. 이동은 navigate로 받아 테스트에서 바꾼다.
+// GET 링크가 아니라 POST인 이유: OAuth 시작은 상태(oauth_states 행)를 만들기 때문이다(BUILD_SPEC 9.3, DECISIONS 2026-11-17).
+// 이동 주소는 우리 서버 응답만 쓴다(주소창·쿼리에서 받은 값으로 이동하지 않는다). 실패는 한국어 문구의 Error로 던진다.
 export async function startGoogleConnection(
   scope: StartScope,
   navigate: (url: string) => void = (url) => window.location.assign(url),

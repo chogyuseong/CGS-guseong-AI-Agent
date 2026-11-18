@@ -1,3 +1,11 @@
+// 채팅 머리줄의 대화 목록 시트(왼쪽에서 열림): 대화 고르기, 새 대화, 지금 대화 지우기.
+// - 쓰는 곳: ChatScreen의 ChatHeader.
+// - 쓰는 lib(lib/chat.ts): useConversations(GET /api/conversations), useCreateConversation(POST /api/conversations,
+//   제목은 보내지 않는다), useDeleteConversation(DELETE /api/conversations/{conversation_id}).
+// 고칠 때 주의:
+// - e2e(conversation-delete.spec.ts, dark-mode.spec.ts, widths.spec.ts)가 버튼 "대화 목록"·"새 대화",
+//   nav "대화 목록"과 그 안의 링크 수, a[href="/chat/{id}"]를 찾는다.
+// - 기본 닫기 버튼을 끄고 44px 닫기 버튼을 따로 둔다(BUILD_SPEC 10.1 터치 영역 44px).
 "use client";
 
 import { CalendarClock, MessagesSquare, Plus, X } from "lucide-react";
@@ -19,6 +27,9 @@ import { cn } from "@/lib/utils";
 import { DeleteConversation } from "./DeleteConversation";
 
 // 왼쪽에서 열리는 대화 목록. 대화를 고르거나 새로 만든다.
+// currentId: 지금 보고 있는 대화. 목록에서 강조하고, "이 대화 지우기"의 대상이다.
+// 부수 효과: 새 대화를 만들면 시트를 닫고 그 대화로 push, 지우면 시트를 닫고 /chat으로 replace(ChatHome이
+// 남은 최근 대화로 다시 보낸다). 삭제 실패 문장은 DeleteConversation이 보여 주도록 mutateAsync의 예외를 그대로 둔다.
 export function ConversationSheet({ currentId }: { currentId: number }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -72,6 +83,7 @@ type ConversationLinksProps = {
   onPick: () => void;
 };
 
+// 대화 링크 목록. 순서는 서버가 준 그대로(최근 활동순)다. 지금 대화에는 aria-current="page"를 붙인다.
 function ConversationLinks({ currentId, onPick }: ConversationLinksProps) {
   const { data: conversations = [] } = useConversations();
   return (

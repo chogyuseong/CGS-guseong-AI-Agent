@@ -1,3 +1,9 @@
+// 공통 UI 부품: 화면 안 탭(Tabs, TabsList, TabsTrigger, TabsContent). shadcn(style "base-nova", components.json)이
+//   Base UI Tabs 위에 만든 생성 코드다. 하단 탭 막대(components/BottomTabs.tsx)와는 관계없다(그쪽은 링크 목록).
+// 쓰는 곳: 2026-11-18 기준 이 파일을 가져다 쓰는 화면이 없다(Grep "components/ui/tabs" 결과 없음).
+// 고칠 때 주의: 이 폴더는 Biome 검사와 lib/theme.test.ts의 고정 색 검사에서 빠진다. 색은 globals.css 토큰만 쓴다.
+//   쓰기 시작하면 높이(기본 h-8, 32px)가 폰 44px 기준(e2e/width-audit.ts)보다 작은 점을 먼저 본다.
+//   `shadcn add tabs`로 다시 받으면 이 파일(주석 포함)이 덮어써진다.
 "use client"
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
@@ -37,6 +43,7 @@ const tabsListVariants = cva(
   }
 )
 
+// 탭 버튼 줄. variant "default"는 회색 바탕 안의 알약 모양, "line"은 바탕 없이 선택된 탭 아래 밑줄(TabsTrigger의 after:).
 function TabsList({
   className,
   variant = "default",

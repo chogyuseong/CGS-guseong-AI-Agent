@@ -1,3 +1,10 @@
+// 대화 하나의 채팅 화면(app/(tabs)/chat/[id]/page.tsx가 그린다).
+// - 쓰는 lib(lib/chat.ts): useConversations(GET /api/conversations, 제목), useMessages(GET .../{id}/messages),
+//   useSendMessage(POST .../{id}/messages, 202 {task_id}), useTasks(GET /api/tasks, '예약 작업' 대화방에서만).
+// - 근거: DECISIONS 2026-11-17 화면 절('예약 작업' 대화방, 진행 중 예약 task), 2026-11-17 제안 버튼은 입력창 채우기.
+// 고칠 때 주의:
+// - '예약 작업' 대화방은 제목 글자로 알아본다(lib/automations.ts isAutomationRoom ↔ 서버 rules.AUTOMATION_CONVERSATION_TITLE).
+// - 전송 오류 줄(role=alert)은 useSendMessage가 던진 한국어 문장을 그대로 보인다. 입력 내용은 ChatInput이 남긴다.
 "use client";
 
 import { useRef, useState } from "react";
@@ -58,6 +65,7 @@ type ChatMessagesProps = {
   onPick: (text: string) => void;
 };
 
+// 메시지 목록 부분. 불러오는 중·실패를 여기서 처리하고, "보내는 중" 말풍선과 진행 중 예약 task를 MessageList에 넘긴다.
 function ChatMessages({ conversationId, automationRoom, send, onPick }: ChatMessagesProps) {
   const messages = useMessages(conversationId);
   // 예약 task는 내 메시지 없이 시작하므로 작업 목록에서 진행 중인 것을 찾는다(이 대화방에서만 가져온다).
@@ -94,6 +102,7 @@ function ChatMessages({ conversationId, automationRoom, send, onPick }: ChatMess
   );
 }
 
+// '예약 작업' 대화방 위의 안내. 자동 작업은 READ만 하고(절대 원칙 7) 제안은 보내지 않고 채우기만 한다는 것을 늘 보인다.
 function AutomationRoomNotice() {
   return (
     <p className="mb-3 rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground">
@@ -103,6 +112,7 @@ function AutomationRoomNotice() {
   );
 }
 
+// 상단 머리줄: 대화 목록 시트 버튼(새 대화·대화 삭제 포함)과 제목. 제목은 목록을 받기 전엔 "대화"다.
 function ChatHeader({ conversationId, title }: { conversationId: number; title: string }) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-1 border-b px-1">

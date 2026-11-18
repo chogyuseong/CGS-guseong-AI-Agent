@@ -13,6 +13,15 @@
 //    window.SpeechRecognition이 늘 있는 것처럼 보이므로, 여기서는 "없을 수도 있음"을 드러내는 지역 타입을 쓴다.
 // 3) 하이드레이션: 서버가 그린 HTML과 브라우저의 첫 화면이 다르면 React가 경고하고 화면을 다시 그린다.
 //    지원 여부는 useSyncExternalStore로 "서버에서는 false, 브라우저에서는 실제 값"을 주어 첫 화면을 서버와 맞춘다.
+//
+// 쓰는 곳: components/ChatInput.tsx(마이크 버튼, 최초 사용 안내, 전송 때 cancel). 서버 API와는 맞물리지 않는다.
+// 근거: DECISIONS 2026-11-17 7단계 음성 절(ko-KR, continuous·interimResults false, 입력창 끝에 이어 붙이기·4,000자,
+// 자동 전송 없음, 전송·화면 이탈 때 abort), BUILD_SPEC 10.2(음성 최초 사용 안내).
+//
+// 고칠 때 주의:
+// - 인식 결과를 서버로 보내거나 자동 전송하는 코드를 더하지 않는다(안내 문구 VOICE_NOTICE_LINES가 그렇게 약속한다).
+// - VOICE_NOTICE_KEY를 바꾸면 이미 확인한 사용자에게 안내가 다시 뜬다(components/ChatInput.test.tsx가 이 키를 쓴다).
+// - 테스트: lib/speech.test.ts, components/ChatInput.test.tsx, e2e/voice.spec.ts.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 export type SpeechAlternativeLike = { transcript: string };
@@ -69,6 +78,7 @@ export function speechErrorMessage(code: string, secureContext: boolean): string
 }
 
 // 인식된 문장을 입력창 글 뒤에 붙인다. 이미 쓴 글은 지우지 않고, 사이에 공백이 없으면 한 칸 띄운다.
+// maxLength는 부르는 쪽이 서버 메시지 한도(4,000자)를 넘겨 준다. 넘치는 뒷부분은 잘린다.
 export function joinTranscript(current: string, addition: string, maxLength: number): string {
   const piece = addition.trim();
   if (!piece) return current;
@@ -98,6 +108,7 @@ export const VOICE_NOTICE_LINES = [
   "확인하면 이 브라우저에서는 다시 묻지 않습니다.",
 ];
 
+// localStorage를 읽으므로 브라우저(클릭 처리·effect)에서만 부른다. 읽지 못하면 false(다시 묻는 쪽).
 export function readVoiceNoticeAccepted(): boolean {
   try {
     return window.localStorage.getItem(VOICE_NOTICE_KEY) === "1";

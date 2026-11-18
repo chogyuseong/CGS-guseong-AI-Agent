@@ -1,3 +1,12 @@
+// 작업 단계(도구 호출) 타임라인. 줄마다 상태 아이콘·문구, 누르면 입력·출력을 펼친다.
+// - 쓰는 곳: PendingTask(답변 자리), TaskSteps(답변 아래, 작업 기록 탭). steps는 GET /api/tasks/{id}의 StepOut[].
+// - 근거: BUILD_SPEC 10.1 "작업 타임라인"·"상태를 색상만으로 표현하지 않음", 10.6(타임라인에는 실행 메타데이터만),
+//   DECISIONS 2026-11-17 화면 절(외부 콘텐츠 상자), 5단계 보강 보관 기간 정리.
+// 고칠 때 주의:
+// - step.status 값은 서버 StepOut 상태와 글자로 맞물린다. STATUS_ICONS가 Record라 상태가 늘면 tsc가 알려 준다.
+//   docs/STATE_MACHINES.md도 같이 본다.
+// - e2e(chat.spec.ts, progress.spec.ts)가 단계 버튼 안의 img 이름 "완료"·"진행 중"을, widths·dark-mode .spec.ts가
+//   단계 이름(예: "메일 읽는 중")으로 버튼을 찾는다. StepTimeline.test.tsx도 같이 본다.
 "use client";
 
 import {
@@ -47,6 +56,8 @@ const STATUS_ICONS: Record<Step["status"], StatusView> = {
 };
 
 // 도구 호출 단계 목록. 각 줄을 누르면 입력과 출력을 펼친다.
+// 서버 order 순으로 그린다(받은 배열 순서를 믿지 않는다). label은 서버가 도구 LABELS로 만든 문장이다.
+// 막는 사고: 승인 전 단계가 "완료"로 보이는 것. 상태 아이콘은 서버 step.status만 따른다(waiting_approval은 "승인 대기").
 export function StepTimeline({ steps }: { steps: Step[] }) {
   if (steps.length === 0) return null;
   // [...steps]로 복사한 뒤 정렬해 원래 배열은 그대로 둔다. (Python의 sorted(steps, key=...))
@@ -60,6 +71,8 @@ export function StepTimeline({ steps }: { steps: Step[] }) {
   );
 }
 
+// 한 줄. 아이콘에 role=img·aria-label로 상태 이름을 붙여 화면 낭독기와 e2e가 상태를 읽는다.
+// showName 글자는 aria-hidden이다(아이콘 이름과 두 번 읽히지 않게).
 function StepRow({ step }: { step: Step }) {
   const [open, setOpen] = useState(false);
   const { icon: Icon, name, className, showName } = STATUS_ICONS[step.status];
@@ -86,6 +99,7 @@ function StepRow({ step }: { step: Step }) {
 
 // 외부 콘텐츠 도구의 출력({data: {notice, content, truncated}})은 JSON 덩어리 대신 ExternalContent로,
 // 그 밖의 출력은 지금처럼 JSON으로 보여 준다.
+// JSON도 <pre> 안의 글자로만 그린다(HTML로 해석하지 않음). 메일 도구 출력은 7단계 보강부터 서버가 내용 없이(통 수만) 저장한다.
 function StepDetail({ step }: { step: Step }) {
   const external = readExternalOutput(step.output);
   if (isPruned(step)) {
@@ -111,6 +125,7 @@ function StepDetail({ step }: { step: Step }) {
 }
 
 // 5단계 보강: 서버의 보관 기간 정리(app/automation/retention.py)는 끝난 단계의 입력을 {}, 출력을 null로 비운다.
+// 고칠 때 주의: 서버가 비우는 모양({}·null)이 바뀌면 이 판정도 바꾼다(docs/DATA_POLICY.md).
 function isPruned(step: Step): boolean {
   // 실행을 마친 단계(done·failed·unknown)는 항상 출력이 있다. 거절·만료 단계는 원래 출력이 없어 제외한다.
   const executed = step.status === "done" || step.status === "failed" || step.status === "unknown";

@@ -20,6 +20,18 @@ import { DailyTable, ModelTotals, PurposeTotals } from "./UsageSections";
 
 // 비용 화면(9단계 2번): 오늘 쓴 금액·한도·남은 금액, 일별 토큰과 비용, 용도별·모델별 합계.
 // 보기만 하는 화면이다. 한도를 바꾸는 기능은 명세에 없어 만들지 않았다(한도는 서버 설정).
+//
+// 쓰는 곳: app/(tabs)/usage/page.tsx(설정 탭의 "비용" 링크로 들어온다. 하단 탭은 '설정'이 현재 탭).
+// 서버 호출: lib/usage.ts의 useUsage → GET /api/usage/daily?days=N(apps/api/app/routers/usage.py,
+//   합계 계산은 app/usage_report.py). 기간을 바꾸는 동안에는 이전 결과를 그대로 보인다(keepPreviousData).
+// 근거: BUILD_SPEC 9단계 2번, DECISIONS 2026-11-17 비용 화면 결정(today.exceeded면 빨간 막대와 alert 문구).
+//
+// 고칠 때 주의:
+// - 한도는 서버 .env의 DAILY_COST_LIMIT_USD다. 화면은 today.limit_usd를 그대로 보여 줄 뿐 계산하지 않는다.
+// - "서울 시간 0시"는 서버의 하루 비용 상한 원장(daily_budgets)이 서울 날짜로 나뉘는 것과 맞물린다.
+// - ExceededNotice의 "예약 작업과 조건 감시도 모델을 부르지 않습니다"는 6단계 보강의 budget_paused 동작
+//   (AutomationList.tsx BudgetPausedNotice)과 같은 사실이다. 한쪽 동작이 바뀌면 둘 다 고친다.
+// - 테스트: components/UsageReport.test.tsx, e2e/usage.spec.ts, e2e/widths.spec.ts(한도 초과·긴 모델 이름).
 export function UsageReport() {
   const [days, setDays] = useState<Period>(DEFAULT_PERIOD);
   const query = useUsage(days);
@@ -39,6 +51,8 @@ export function UsageReport() {
   );
 }
 
+// 기간 버튼(7·14·30일, lib/usage.ts PERIOD_OPTIONS). 서버는 1~90일을 받으므로 선택지는 그 안에서만 늘린다.
+// 선택 상태는 aria-pressed로 알린다.
 function PeriodPicker({ value, onChange }: { value: Period; onChange: (days: Period) => void }) {
   return (
     <fieldset className="flex min-w-0 flex-col gap-2">
@@ -74,6 +88,8 @@ type BodyProps = {
   onReload: () => void;
 };
 
+// 본문. pending은 처음 한 번도 받지 못한 상태, switching은 기간을 바꿔 이전 기간 결과를 임시로 보이는 상태다.
+// 다시 불러오기가 실패해도 받아 둔 data가 있으면 오류와 함께 그대로 보여 준다.
 function UsageBody({ days, data, pending, switching, error, fetching, onReload }: BodyProps) {
   if (pending) return <p className="text-sm text-muted-foreground">불러오는 중…</p>;
   const loadError = error !== null && (
@@ -158,6 +174,7 @@ function AmountRow({ label, value, strong }: { label: string; value: number; str
   );
 }
 
+// 오늘 한도 사용률 막대. 비율 계산과 100% 상한 처리는 lib/usage.ts의 todayRatio·todayPercentText가 한다.
 function LimitBar({ today, percent }: { today: UsageToday; percent: string }) {
   const ratio = todayRatio(today);
   return (

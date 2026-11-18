@@ -1,3 +1,8 @@
+// /chat 진입 화면(app/(tabs)/chat/page.tsx). 화면을 그리지 않고 알맞은 대화(/chat/{id})로 넘긴다.
+// - 쓰는 lib(lib/chat.ts): useConversations(GET /api/conversations), useCreateConversation(POST /api/conversations).
+// - 대화를 지운 뒤에도 ConversationSheet가 여기로 보낸다(router.replace("/chat")). 지운 대화로 되돌아가지 않는 것은
+//   lib/chat.ts useDeleteConversation이 캐시 목록에서 먼저 빼 두기 때문이다.
+// 고칠 때 주의: router.replace를 쓰므로 뒤로 가기에 /chat이 남지 않는다(push로 바꾸면 뒤로 가기가 다시 여기로 와 튕긴다).
 "use client";
 
 import { useRouter } from "next/navigation";

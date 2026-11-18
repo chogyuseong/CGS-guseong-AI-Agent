@@ -17,6 +17,24 @@ import {
   readPushStatus,
 } from "@/lib/push";
 
+// 설정 화면의 '알림' 카드: 웹 푸시 상태(6가지)와 켜기·끄기.
+//
+// 쓰는 곳: app/(tabs)/settings/page.tsx(PushSettings). 상태별 화면은 PushSettingsView(테스트용으로 따로 내보냄).
+// 브라우저·서버 일은 lib/push.ts가 한다: readPushStatus(GET /api/push/public-key + 이 기기 구독 확인),
+//   enablePush(권한 요청 → 서비스 워커 준비 → 구독 → POST /api/push/subscribe),
+//   disablePush(POST /api/push/unsubscribe + 브라우저 구독 해지). 서비스 워커는 public/sw.js.
+// 근거: BUILD_SPEC 8.4(푸시), DECISIONS 2026-11-17 푸시 구독 결정들(권한 요청은 클릭 처리 안 첫 동작,
+//   상태 6가지, "켜짐"은 지금 서버 키로 만든 구독일 때만, 화면을 열 때 구독을 자동으로 다시 보내지 않음,
+//   서버가 저장을 거부하면 브라우저 구독도 해지). 폰에서 확인하는 절차는 docs/PUSH-CHECK.md.
+//
+// 고칠 때 주의:
+// - 상태 이름(insecure·unsupported·server_disabled·denied·on·off)은 lib/push.ts PushState와 맞물린다.
+//   상태를 더하면 DESCRIPTIONS(Record라 타입 검사가 빠짐을 잡는다)와 PUSH_STATE_LABELS를 같이 고친다.
+// - server_disabled는 서버의 VAPID 설정이 모두 있을 때만 enabled=true가 되는 것에 기대고 있다(DECISIONS 2026-11-17).
+// - INTRO의 "대화 내용이 들어가지 않습니다"는 서버 푸시 본문이 고정 문구라는 결정(app/push.py)에 기댄다.
+// - 테스트: components/PushSettings.test.tsx, e2e/settings.spec.ts(360px 표시). 실제 수신은 자동화하지 않고 폰에서 본다.
+
+// 알림 상태 쿼리 키. 켜기·끄기가 끝나면 이 키를 무효화해 상태를 다시 읽는다.
 const PUSH_STATUS_KEY = ["push", "status"] as const;
 
 const INTRO =
@@ -35,6 +53,9 @@ const DESCRIPTIONS: Record<PushState, string> = {
 };
 
 // 설정 화면의 알림 영역. 상태를 읽고, 버튼을 눌렀을 때만 권한을 묻는다.
+// 상태 읽기는 구독을 서버로 보내지 않는다. 같은 endpoint 재구독은 서버에서 user_id를 바꾸므로, 열기만 했는데
+// 이 기기 알림이 지금 로그인한 다른 계정으로 옮겨 가는 사고를 막으려는 것이다(보내는 것은 '알림 켜기'를 눌렀을 때뿐).
+// 공개 키는 화면을 열 때 미리 읽어 둔다. 클릭 처리 안에서 키를 기다리면 권한 요청이 사용자 동작 밖으로 밀린다.
 export function PushSettings() {
   // 다른 앱(브라우저 설정)에서 권한을 바꾸고 돌아오면 창 포커스 때 다시 읽는다(TanStack Query 기본 동작).
   const status = useQuery({
@@ -43,6 +64,7 @@ export function PushSettings() {
     retry: false,
   });
   const { busy, error, run } = usePushAction();
+  // 서버 키가 없으면(null) 켜기 버튼 자체가 막혀 있으므로 onEnable은 아무것도 하지 않는다.
   const publicKey = status.data?.publicKey ?? null;
   return (
     <PushSettingsView
@@ -59,6 +81,8 @@ export function PushSettings() {
 }
 
 // 켜기·끄기 실행기. 연속으로 눌려도 한 번만 실행하고(ref 잠금), 끝나면 상태를 다시 읽는다.
+// 성공·실패 모두 다시 읽는 이유: 실패해도 브라우저 권한·구독이 바뀌었을 수 있고(권한만 허용됨 등),
+// 화면 상태는 늘 실제 브라우저·서버에서 다시 읽은 값으로 그린다(action이 돌려주는 PushState는 쓰지 않는다).
 function usePushAction() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -122,6 +146,8 @@ export function PushSettingsView(props: PushSettingsViewProps) {
   );
 }
 
+// 상태별 본문. 켜기 버튼은 off와 server_disabled(막힌 채로 보임)에서, 끄기 버튼은 on에서만 보인다.
+// denied에는 버튼이 없다: 브라우저는 한 번 거부된 권한을 다시 묻지 않으므로 설정에서 허용하라고만 안내한다.
 function StatusBody({
   status,
   loadError,

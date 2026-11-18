@@ -17,6 +17,22 @@ import {
 import { MailPermission } from "./MailPermission";
 import { type StartConnection, StartConnectionButton } from "./StartConnectionButton";
 
+// 연결 화면(/connections)의 Google 계정 카드: 상태 배지, 요청 권한 안내, 연결·다시 연결·연결 해제, 메일 권한 영역.
+//
+// 쓰는 곳: app/(tabs)/connections/page.tsx(GoogleConnectionCard). 설정 탭의 'Google 계정 연결' 카드로 들어온다.
+// 서버 호출(lib/connections.ts): useConnections → GET /api/connections, useDisconnectGoogle → DELETE /api/connections/google,
+//   useMailConsent → PUT·DELETE /api/connections/google/mail-consent, 연결 시작은 StartConnectionButton(POST start).
+//   mutation은 성공·실패 모두 연결 목록을 다시 가져온다(실패해도 서버에서는 바뀌었을 수 있다).
+// 근거: BUILD_SPEC 9·10절, DECISIONS 2026-11-17 연결 화면 결정들(요청 권한·7일 재연결 안내를 늘 보임, 해제는 화면 안 확인,
+//   연결된 상태에서도 [다시 연결]), 7단계 보강(reconnect_required, mail_consent, mail_enabled).
+//
+// 고칠 때 주의:
+// - 상태 배지 글자는 서버 ConnectionOut의 connected·reconnect_required·available 조합으로 정한다(statusText).
+//   서버가 이 칸을 바꾸면 pnpm gen:api 뒤 여기와 MailPermission.tsx를 같이 본다.
+// - PERMISSION_LINES의 권한 설명은 서버가 요청하는 OAuth 범위(apps/api/app/google_auth.py)와 맞아야 한다.
+//   범위를 바꾸면 이 문장도 고친다. "약 7일"은 Google 테스트 상태 앱의 refresh token 만료 기간이다.
+// - 테스트: components/GoogleConnection.test.tsx(GoogleConnectionView에 상태를 직접 넣음), e2e/connections.spec.ts.
+
 const PERMISSION_LINES = [
   "기본 연결이 요청하는 권한: 내 캘린더의 일정 보기·만들기·고치기·지우기. 메일은 요청하지 않습니다(메일 읽기는 아래에서 따로 추가합니다).",
   "일정을 만들기·고치기·지우기 전에는 매번 승인을 묻습니다.",
@@ -61,6 +77,8 @@ type ViewProps = {
   onMailConsent?: MailConsentChange;
 };
 
+// 카드 화면. 서버를 모르므로 테스트가 상태(connection)와 콜백을 직접 넣는다. onStart·onMailConsent를 주지 않으면
+// 실제 lib 함수를 쓴다(GoogleConnectionCard는 onMailConsent에 캐시 무효화가 붙은 mutation을 넘긴다).
 export function GoogleConnectionView({
   connection,
   loadError,
@@ -102,6 +120,7 @@ export function GoogleConnectionView({
   );
 }
 
+// 배지 글자. 순서가 중요하다: 재연결 필요 상태는 connected=false로 오므로 "연결 안 됨"보다 먼저 본다.
 function statusText(connection: Connection): string {
   if (connection.connected) return "연결됨";
   if (connection.reconnect_required) return "다시 연결 필요";
@@ -119,6 +138,8 @@ function StatusBadge({ connection }: { connection: Connection }) {
 type DisconnectFlow = ReturnType<typeof useDisconnectFlow>;
 
 // 해제 버튼 → 화면 안 확인 → 해제. 누르는 즉시 state와 ref 두 겹으로 잠가 한 번만 보낸다(승인 카드와 같은 방식).
+// 결과: confirming(확인 영역 열림), busy(요청 중), error(lib가 만든 한국어 문장), done(성공 안내 표시).
+// 막는 사고: 해제 버튼을 실수로 한 번 눌러 바로 연결이 끊기는 일(대기 중 일정 작업까지 무효가 된다).
 function useDisconnectFlow(onDisconnect: ViewProps["onDisconnect"]) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -160,6 +181,8 @@ type BodyProps = {
   onMailConsent: MailConsentChange;
 };
 
+// 상태별 본문: 불러오는 중·오류 / 다시 연결 필요 / 연결 안 됨 / 연결됨. 메일 권한 영역은 어느 상태에서나 보인다
+// (연결 전에 메일 권한 추가를 누르면 캘린더와 함께 연결된다). 연결 해제 버튼은 연결됨·재연결 필요 상태에만 둔다.
 function ConnectionBody({ connection, loadError, flow, onStart, onMailConsent }: BodyProps) {
   if (connection === undefined) {
     return (
@@ -219,6 +242,8 @@ function ConnectionBody({ connection, loadError, flow, onStart, onMailConsent }:
 }
 
 // 7단계 보강: 다시 연결 필요. 이유를 먼저 알리고 [다시 연결]을 크게, 연결 해제(남은 기록 지우기)도 둔다.
+// 서버는 이 상태에서 토큰을 이미 비웠고 대기 중 일정 계획을 connection_revoked로 무효화했다(DECISIONS 2026-11-17 재연결).
+// 그래서 RECONNECT_TEXT가 "승인을 기다리던 일정 작업은 실행되지 않습니다"라고 알린다.
 function ReconnectBody(props: {
   notConfigured: ReactNode;
   mail: ReactNode;
@@ -245,6 +270,8 @@ function ReconnectBody(props: {
   );
 }
 
+// 연결됨 상태의 세부. 서버가 calendar=false를 주면 일정 도구를 쓸 수 없으므로 다시 연결하라고 알린다
+// ([다시 연결]을 이 상태에서도 두는 이유 중 하나, DECISIONS 2026-11-17).
 function ConnectedDetails({ connection }: { connection: Connection }) {
   return (
     <>
@@ -290,6 +317,8 @@ function DisconnectArea({ flow }: { flow: DisconnectFlow }) {
   );
 }
 
+// 해제 확인(네이티브 confirm 없음). 문구는 해제가 기록 삭제가 아니라는 것과 대기 중 일정 작업이 무효가 된다는 것을
+// 알린다. 서버 DELETE는 저장된 토큰이 있으면 Google 쪽 철회도 요청한다.
 function DisconnectConfirm({ flow }: { flow: DisconnectFlow }) {
   const boxRef = useRef<HTMLDivElement>(null);
   // 폰에서는 확인 영역이 화면 아래로 가려질 수 있어 열릴 때 보이는 곳까지 스크롤한다(jsdom에는 없어서 ?.()).

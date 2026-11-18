@@ -1,5 +1,5 @@
 // 폴링 간격 규칙(9단계 보강, BUILD_SPEC 10.1 "폴링"). 화면의 refetchInterval은 모두 이 파일의 함수를 쓴다.
-// 간격 표와 이유는 docs/DECISIONS.md "9단계 보강(2)"에 있다.
+// 간격 표와 이유는 docs/DECISIONS.md "9단계 보강" 절의 2026-11-18 "폴링 간격" 항목에 있다.
 //
 // - 실행 중: 1초에서 시작해 같은 단계가 길어질수록 2초 → 3초 → 5초로 늘린다(백오프).
 // - 사용자 결정을 기다리는 승인 대기: 15초. 다른 기기에서 결정한 결과도 반영되도록 멈추지는 않는다.
@@ -7,9 +7,20 @@
 // - 탭이 보이지 않으면(document.visibilityState === "hidden") 멈추고, 다시 보이거나 네트워크가 다시 연결되면
 //   바로 서버 상태를 가져온다(TanStack Query의 focusManager·onlineManager. POLLING_QUERY_OPTIONS).
 // chat.ts도 이 파일을 불러오지만(useTask), 서로 함수 정의만 가져오고 불러올 때 실행하지는 않아 순환해도 안전하다.
+//
+// 쓰는 곳: lib/chat.ts의 useTask(PendingTask·TaskSteps의 task 한 건)와 useTasks(작업 기록 탭, '예약 작업' 대화방).
+// 맞물린 API: GET /api/tasks/{id}, GET /api/tasks.
+//
+// 고칠 때 주의:
+// - 간격을 바꾸면 DECISIONS의 간격 표, lib/polling.test.ts, README의 PendingTask 설명을 같이 고친다.
+// - 끝난 상태 판정은 lib/chat.ts의 isTaskFinished 한 곳이다. 서버 상태가 늘면 거기서 정한다.
+// - 두 파일 중 한쪽이 상대 파일의 값을 불러오는 순간(모듈 최상위)에 바로 쓰기 시작하면, 순환 import 때문에 아직
+//   정의되지 않은 값을 읽을 수 있다. 지금처럼 함수 안에서만 쓴다.
 import { isTaskFinished, type TaskPhase, type TaskStatus } from "@/lib/chat";
 
+// 승인 대기는 사용자가 결정할 때까지(최대 30분) 바뀌지 않으므로 1초 폴링을 하지 않는다. 예전 값은 3초였다.
 export const APPROVAL_POLL_MS = 15_000;
+// 작업 기록 목록에 끝나지 않은 task(승인 대기 아닌 것)가 있을 때의 간격. 목록은 단계 백오프 없이 고정이다.
 export const TASK_LIST_ACTIVE_POLL_MS = 3_000;
 
 // [이 시간(ms)이 지나면, 이 간격(ms)으로]. 앞에서부터 차례로 본다.
@@ -27,6 +38,7 @@ export function backoffInterval(elapsedMs: number): number {
 }
 
 // task 한 건(진행 표시, 작업 기록의 단계 보기). elapsedMs는 지금 단계를 처음 본 뒤 지난 시간이다.
+// false는 멈춤이다. starting(아직 한 번도 못 받음)도 멈추는데, 첫 조회와 그 실패 재시도는 TanStack Query 기본 동작이 맡는다.
 export function taskPollInterval(phase: TaskPhase, elapsedMs: number): number | false {
   if (phase === "finished" || phase === "starting") return false;
   if (phase === "waiting_approval") return APPROVAL_POLL_MS;

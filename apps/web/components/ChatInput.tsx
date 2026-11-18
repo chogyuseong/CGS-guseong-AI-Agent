@@ -1,3 +1,13 @@
+// 채팅 하단 입력창(글 입력, 전송, 음성 입력).
+// - 쓰는 곳: ChatScreen(/chat/[id]). 서버 호출은 하지 않고 부모가 준 onSend(lib/chat.ts useSendMessage의
+//   mutateAsync → POST /api/conversations/{conversation_id}/messages)를 부른다.
+// - 음성은 lib/speech.ts(브라우저 SpeechRecognition)만 쓴다. 앱 서버로 음성을 보내는 코드는 없다(BUILD_SPEC 10.2,
+//   DECISIONS 2026-11-17 음성 절). 인식 결과는 입력창에만 붙고 자동 전송하지 않는다.
+// 고칠 때 주의:
+// - MAX_LENGTH 4000은 서버가 받는 메시지 길이(1~4,000자, lib/chat.ts sendErrorMessage의 422 문구)와 맞춘 값이다.
+// - e2e(chat.spec.ts, approval.spec.ts, progress.spec.ts, voice.spec.ts, dark-mode.spec.ts)가 라벨 "메시지 입력",
+//   버튼 "전송"·"음성 입력", 영역 "음성 입력 안내"·"확인하고 음성 입력", 상태 문구 "답변을 기다리는 중…"을 찾는다.
+//   바꾸면 그 파일과 ChatInput.test.tsx를 같이 고친다.
 // 'use client': 이 컴포넌트는 브라우저에서도 실행된다는 표시다(클릭 처리, 상태, 마이크 같은 브라우저 기능을 씀).
 // 표시가 없으면 서버에서만 그려지는 컴포넌트가 되어 window·SpeechRecognition에 손댈 수 없다.
 // 표시가 있어도 첫 HTML은 서버에서 한 번 그려지므로, 브라우저 전용 값은 lib/speech.ts처럼 조심해서 읽는다.
@@ -19,13 +29,16 @@ type ChatInputProps = {
   // 보낼 내용을 받아 서버로 보내는 함수. Promise는 "나중에 끝나는 작업"이다(Python의 awaitable).
   // 실패하면 예외를 던지고, 그때는 입력한 내용을 지우지 않는다.
   onSend: (text: string) => Promise<unknown> | unknown;
+  // 전송 요청이 진행 중이면 true(useSendMessage의 isPending). 입력·버튼을 막고 듣기를 취소한다.
   pending: boolean;
   // 6단계 보강: 예약 작업 제안을 고르면 이 문장을 입력창에 채운다(보내지 않는다). id가 바뀔 때마다 채운다.
   prefill?: Prefill | null;
 };
 
+// id는 같은 문장을 다시 골라도 effect가 다시 돌도록 부모(ChatScreen)가 올리는 번호다.
 export type Prefill = { id: number; text: string };
 
+// 서버의 메시지 최대 길이와 같다. textarea maxLength와 음성·제안 채우기 모두 이 값으로 자른다.
 const MAX_LENGTH = 4000;
 
 // 채팅 입력창. 글자 16px(text-base): 아이폰 사파리는 16px 미만 입력칸을 누르면 화면을 확대한다.
@@ -54,6 +67,7 @@ export function ChatInput({ onSend, pending, prefill = null }: ChatInputProps) {
     if (pending) cancel();
   }, [pending, cancel]);
 
+  // 성공했을 때만 입력창을 비운다. 보내기 전에 듣기를 먼저 취소해 늦은 인식 결과가 빈 입력창에 들어가지 않게 한다.
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!trimmed || pending) return;
@@ -128,6 +142,8 @@ function MicButton(props: { listening: boolean; disabled: boolean; onClick: () =
 
 // 7단계 보강: 처음 마이크를 누르면 바로 듣지 않고 외부 처리 안내를 먼저 보여 준다.
 // 안내를 확인하면 기억하고 바로 듣기 시작한다(같은 클릭 안이라 브라우저의 마이크 권한 요청이 막히지 않는다).
+// 기억은 이 브라우저의 localStorage(lib/speech.ts VOICE_NOTICE_KEY)다. 저장소를 못 쓰면 매번 묻는다(안전한 쪽).
+// 듣는 중에 누르면 안내 없이 멈춘다(멈추기는 외부 전송이 아니므로).
 function useVoiceNotice(speech: SpeechInput) {
   const [asking, setAsking] = useState(false);
 
@@ -149,6 +165,7 @@ function useVoiceNotice(speech: SpeechInput) {
 }
 
 // 음성 최초 사용 안내(BUILD_SPEC 10.2). 화면을 덮는 창 대신 입력창 바로 위에 펼친다(폰에서 입력창과 함께 보이게).
+// 안내 문장은 lib/speech.ts VOICE_NOTICE_LINES 한 곳에 있다. section + aria-labelledby라 e2e가 region으로 찾는다.
 function VoiceNotice(props: { onAccept: () => void; onCancel: () => void }) {
   return (
     <section
@@ -175,6 +192,7 @@ function VoiceNotice(props: { onAccept: () => void; onCancel: () => void }) {
   );
 }
 
+// 듣는 중 안내. 마이크 버튼의 빨간색·깜빡임만으로 알리지 않도록 글자로도 보인다(BUILD_SPEC 10.1 색만으로 표현 금지).
 function ListeningStatus() {
   return (
     <p role="status" className="px-1 pb-1 text-xs text-muted-foreground">

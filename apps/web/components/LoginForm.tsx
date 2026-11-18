@@ -7,6 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLogin, useMe } from "@/lib/auth";
 
 // 로그인 폼. 회원가입은 없다(계정은 서버의 create-user 명령으로만 만든다).
+//
+// 쓰는 곳: app/login/page.tsx(탭 밖이라 AuthGuard·하단 탭이 없다).
+// 서버 호출: lib/auth.ts의 useLogin → POST /api/auth/login(성공하면 응답 사용자로 ["auth","me"] 캐시를 바로 채운다),
+//   useMe → GET /api/auth/me(401이면 null). 세션은 서버가 주는 HttpOnly 쿠키라 화면은 토큰을 다루지 않는다.
+//
+// 고칠 때 주의:
+// - 오류 문구는 lib/auth.ts의 login이 상태 코드로 고른다(401 이메일·비밀번호 불일치, 403 APP_ORIGIN 불일치).
+//   서버 응답 글자를 그대로 보이지 않는다.
+// - 로그인 뒤 가는 곳은 "/chat"이다. 바꾸면 e2e/login.spec.ts(로그인 → /chat/<번호>)도 고친다.
+// - autoComplete(username·current-password)는 비밀번호 관리자가 칸을 알아보게 하는 값이라 지우지 않는다.
 export function LoginForm() {
   useRedirectWhenLoggedIn();
   const loginMutation = useLogin();
@@ -44,6 +54,8 @@ export function LoginForm() {
 }
 
 // 이미 로그인했다면(로그인 성공 직후 포함) 채팅으로 보낸다.
+// 로그인 성공 직후에는 useLogin이 me 캐시를 채우므로 이 effect가 그 값으로 바로 이동한다(따로 이동 코드가 없다).
+// replace라 뒤로 가기로 로그인 화면에 돌아오지 않는다.
 // 직접 만든 훅: use로 시작하는 함수 안에서 다른 훅을 묶어 재사용한다. (Django의 믹스인처럼 동작을 묶어 붙이는 방식)
 function useRedirectWhenLoggedIn() {
   const router = useRouter();

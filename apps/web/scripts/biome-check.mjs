@@ -6,6 +6,13 @@
 //
 // 사용법: pnpm lint            검사만 한다. 문제가 있으면 종료 코드 1.
 //         pnpm format          포맷을 파일에 바로 적용한 뒤 린트를 검사한다.
+//
+// 고칠 때 주의:
+// - CLI와 다른 점: import 정렬(assist의 organizeImports)은 검사하지 않는다(apps/web/README.md "Biome를 WASM판으로").
+//   그래서 import 순서는 손으로 맞춘다. warning도 문제로 센다(종료 코드 1).
+// - pnpm format은 검사 대상 전체(이 폴더의 모든 .ts·.tsx·.js·.json 등)를 고쳐 쓴다. 일부 파일만 맞추려면 손으로 고친다.
+// - @biomejs/wasm-nodejs 버전은 biome.json의 $schema·@biomejs/biome 버전(2.6.8)과 같게 올린다(규칙 차이 방지).
+// - DECISIONS 2026-11-18 9단계 보강: next-env.d.ts를 ALWAYS_SKIPPED에 넣은 이유.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Biome } from "@biomejs/js-api/nodejs";
@@ -27,6 +34,8 @@ const ALWAYS_SKIPPED = [
 ];
 
 // biome.json의 files.includes에서 "!경로" 항목을 제외 목록으로 읽는다.
+// 앞의 "**/"와 끝의 "/**"만 떼어 경로 앞부분 비교로 쓴다. 그 밖의 glob(*.ts 같은 패턴)은 해석하지 않으므로
+// biome.json에 그런 제외를 더하면 여기서는 적용되지 않는다.
 function loadConfig() {
   const config = JSON.parse(readFileSync(path.join(ROOT, "biome.json"), "utf8"));
   const excluded = (config.files?.includes ?? [])
@@ -57,13 +66,14 @@ function listFiles(dir, excluded, found = []) {
   return found;
 }
 
+// 진단 위치(span)는 UTF-8 바이트 위치라 Buffer로 잘라 줄 번호를 센다(한국어 주석이 있으면 글자 수와 다르다).
 function lineOf(content, diagnostic) {
   const start = diagnostic.location?.span?.[0];
   if (start === undefined) return "?";
   return Buffer.from(content).subarray(0, start).toString().split("\n").length;
 }
 
-// 파일 하나를 검사하고 문제 문장 목록을 돌려준다.
+// 파일 하나를 검사하고 문제 문장 목록을 돌려준다. write면 포맷 결과를 파일에 쓰고(부수 효과) 고친 내용으로 린트한다.
 function checkFile(biome, projectKey, filePath, write) {
   const original = readFileSync(path.join(ROOT, filePath), "utf8");
   const problems = [];

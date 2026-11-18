@@ -9,6 +9,21 @@
 //   DELETE /api/watches/{id}           → 204 / 404
 // 오류 본문은 {detail: {code, message}}. 화면은 code로 고정 문구를 고른다(서버 문장은 옮기지 않는다).
 // 만들거나 내용을 고치는 API는 없다. 예약과 감시는 채팅에서 말로 만든다.
+//   PUT    /api/schedules/briefing     → 아침 브리핑 켜기·시각 바꾸기(6단계 보강, 409 활성 한도 등)
+//
+// 쓰는 곳: components/AutomationList.tsx(목록·개수), AutomationItems.tsx(시각·간격·상태 문구),
+// AutomationControls.tsx(켜기·끄기·삭제), BriefingSetup.tsx(useEnableBriefing),
+// ChatScreen.tsx·ConversationSheet.tsx(isAutomationRoom).
+// 근거: BUILD_SPEC 6단계(자동 작업은 READ만, 화면은 목록·켜기/끄기·삭제·마지막 결과), DECISIONS 2026-11-17 "화면 API"·
+// 6단계 "화면(apps/web)" 절, '예약 작업' 대화방을 제목으로 알아보는 결정.
+//
+// 고칠 때 주의:
+// - 오류 code(limit_reached·duplicate·expired·not_found)와 감시 상태·이유 값(met·not_met·unknown,
+//   tool_failed·judge_failed·value_missing)은 서버 routers/automations.py·automation/conditions.py와 글자로 맞물린다.
+// - max_active(10)는 서버 automation/rules.py의 MAX_ACTIVE_*에서 온다. 화면에 숫자를 박지 말고 응답 값을 쓴다.
+// - 경로·응답 모양이 바뀌면 pnpm gen:api 뒤 여기를 고친다(서버 routers/automations.py 머리에도 같은 메모가 있다).
+// - 테스트: lib/automations.test.ts, components/AutomationList.test.tsx, components/BriefingSetup.test.tsx,
+//   e2e/automation.spec.ts.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -26,8 +41,11 @@ export const automationKeys = {
 
 // 서버의 '예약 작업' 대화방 제목(apps/api/app/automation/rules.py의 AUTOMATION_CONVERSATION_TITLE).
 // 예약 결과와 감시 알림이 이 대화방에 남는다. 서버도 이 제목으로 대화방을 찾는다.
+// 고칠 때 주의: 서버 값을 바꾸면 여기도 같이 바꾼다. 어긋나면 [제안] 버튼·진행 중 예약 표시가 사라진다.
+// 사용자가 같은 제목의 대화를 만드는 것은 서버가 422로 막는다(DECISIONS 2026-11-17 "함께 처리한 것").
 export const AUTOMATION_CONVERSATION_TITLE = "예약 작업";
 
+// 이 대화방이면 ChatScreen이 [제안] 칩과 진행 중 예약 task를 보여 주고, ConversationSheet가 따로 표시한다.
 export function isAutomationRoom(title: string | undefined): boolean {
   return title === AUTOMATION_CONVERSATION_TITLE;
 }
@@ -69,12 +87,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // 오류 본문에서 code만 꺼낸다. 모양이 다르면 null.
+// 422(detail이 배열)나 프록시의 JSON 아닌 본문도 올 수 있어 타입을 믿지 않고 실행 중에 모양을 확인한다.
 export function errorCode(body: unknown): string | null {
   if (!isRecord(body) || !isRecord(body.detail)) return null;
   return typeof body.detail.code === "string" ? body.detail.code : null;
 }
 
+// getUTCDay() 순서(0=일요일)의 요일 글자. 서버 rules.WEEKDAY_NAMES는 월요일부터라 순서가 다르다(섞어 쓰지 않는다).
 const WEEKDAYS = "일월화수목금토";
+// en-CA + h23: formatToParts에서 숫자만 깔끔하게 받으려고 고른 로캘이다(한국어 로캘은 "오전" 같은 글자가 섞인다).
 const SEOUL_PARTS = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul",
   year: "numeric",
@@ -86,6 +107,7 @@ const SEOUL_PARTS = new Intl.DateTimeFormat("en-CA", {
 });
 
 // 서버 시각(UTC ISO)을 서울 기준 "11월 18일(수) 07:30"으로. 시각이 아니면 원래 글자.
+// 요일은 서울 날짜를 UTC 자정으로 다시 만들어 구한다(기기 시간대가 달라도 서울 날짜의 요일이 나오게).
 export function formatRunTime(value: string): string {
   const instant = new Date(value);
   if (Number.isNaN(instant.getTime())) return value;
@@ -97,6 +119,7 @@ export function formatRunTime(value: string): string {
   return `${parts.month}월 ${parts.day}일(${WEEKDAYS[weekday]}) ${parts.hour}:${parts.minute}`;
 }
 
+// 감시 간격(분)을 "2시간 30분마다"로. 서버 범위는 30~1440분(rules.MIN/MAX_WATCH_INTERVAL_MINUTES)이다.
 export function intervalText(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
@@ -114,6 +137,8 @@ export function shortText(value: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+// 마지막 실행 task 상태의 짧은 이름. Record라서 서버가 TaskStatus 값을 더하면 gen:api 뒤 typecheck가 빠진 곳을 알려 준다.
+// 작업 기록 탭(TaskList)의 상태 이름과는 따로 관리된다.
 export const TASK_STATUS_TEXT: Record<Schemas["TaskStatus"], string> = {
   queued: "곧 실행",
   running: "실행 중",
@@ -141,6 +166,7 @@ export const WATCH_STATUS_TEXT: Record<WatchStatus, string> = {
   expired: "만료되어 꺼짐",
 };
 
+// unknown일 때의 reason(서버 automation/conditions.py). 모르는 reason이면 이유 없이 "판단 보류"만 보인다.
 const UNKNOWN_REASON_TEXT: Record<string, string> = {
   tool_failed: "조회 실패",
   judge_failed: "판정 실패",
@@ -183,6 +209,7 @@ export function useWatches() {
 
 type Result = { error?: unknown; response: { status: number; ok: boolean } };
 
+// 실패 응답이면 화면 문구를 담은 Error를 던진다. maxActive는 한도 문구에 넣으려고 목록 응답 값을 받아 온다.
 function throwIfFailed(result: Result, kind: AutomationKind, maxActive: number): void {
   if (result.response.ok) return;
   const status = result.response.status;

@@ -18,6 +18,20 @@ import { cn } from "@/lib/utils";
 
 // 기억 탭(5단계): 목록, 원래 메시지 보기, 한 건 삭제, 전체 삭제(화면 안 확인 한 번).
 // 기억 내용과 원래 메시지는 남이 아니라 사용자가 한 말이지만, 그래도 React 텍스트로만 그린다(HTML로 해석하지 않음).
+//
+// 쓰는 곳: app/(tabs)/memory/page.tsx(기억 탭).
+// 서버 호출(lib/memories.ts): useMemories → GET /api/memories({memories, limit}), useDeleteMemory →
+//   DELETE /api/memories/{id}, useDeleteAllMemories → DELETE /api/memories({deleted}). 두 삭제 모두 성공·실패와
+//   관계없이 목록을 다시 가져온다. 기억을 만들거나 고치는 API는 없다(채팅의 remember 도구로만 생긴다).
+// 근거: BUILD_SPEC 5.5(기억 삭제 의미), DECISIONS 2026-11-17 기억 탭 결정(전체 삭제만 화면 안 확인 한 번,
+//   한 건 삭제는 확인 없이, "저장된 기억 N개 / 최대 200개"와 삭제 의미 안내를 늘 보임).
+//
+// 고칠 때 주의:
+// - 최대 개수는 글자로 적지 않고 서버 응답의 limit(apps/api/app/tools/memories.py MAX_MEMORIES)을 쓴다.
+// - "예전 대화에 같은 내용이 남아 있으면 참고될 수 있다"는 삭제 의미 문장은 DataRetentionNotice.tsx,
+//   docs/DATA_POLICY.md와 같은 내용이다. 삭제 범위가 바뀌면 셋을 같이 고친다.
+// - source가 null이면 출처 대화를 지운 것이다(기억은 남는다, 5단계 보강). source_quote(근거 인용)는 그래도 보인다.
+// - 테스트: components/MemoryList.test.tsx, e2e/memory.spec.ts.
 
 type Feedback = { tone: "success" | "error"; text: string };
 
@@ -50,6 +64,8 @@ function useLocked() {
 
 type DeleteAllFlow = ReturnType<typeof useDeleteAllFlow>;
 
+// 전체 삭제: [전체 삭제] → 화면 안 확인 → 삭제. 서버는 확인 인자를 요구하지 않으므로 실수를 막는 곳은 이 확인뿐이다.
+// 성공 문구의 개수는 서버가 실제로 지운 수(deleted)다. 진행 중에는 한 건 삭제 버튼도 막는다(MemoryItem의 locked).
 function useDeleteAllFlow(deleteAll: () => Promise<number>, report: (f: Feedback | null) => void) {
   const [confirming, setConfirming] = useState(false);
   const { busy, run } = useLocked();
@@ -71,6 +87,7 @@ function useDeleteAllFlow(deleteAll: () => Promise<number>, report: (f: Feedback
   return { confirming, busy, submit, ask, cancel: () => setConfirming(false) };
 }
 
+// 기억 탭 전체. 결과 안내 줄은 하나만 두고 한 건 삭제·전체 삭제가 함께 쓴다.
 export function MemoryList() {
   const deleteOne = useDeleteMemory();
   const deleteAll = useDeleteAllMemories();
@@ -119,6 +136,7 @@ function FeedbackLine({ feedback }: { feedback: Feedback | null }) {
 
 type BodyProps = { allFlow: DeleteAllFlow; onDelete: (memoryId: number) => Promise<void> };
 
+// 목록 본문. 다시 불러오기가 실패해도 이미 받은 목록(query.data)이 있으면 오류와 함께 그대로 보여 준다.
 function MemoryBody({ allFlow, onDelete }: BodyProps) {
   const query = useMemories();
   if (query.isPending) return <p className="text-sm text-muted-foreground">불러오는 중…</p>;
@@ -192,6 +210,8 @@ function MemorySummary({ count, limit }: { count: number; limit: number }) {
   );
 }
 
+// 기억이 없을 때의 안내. 서버 remember 검사(apps/api/app/tools/memories.py: 기억 요청·원문 인용·인용/가정·남의 정보)
+// 규칙을 사용자 말로 옮긴 것이다(docs/SAFETY.md "기억 오염 방어"). 규칙이 바뀌면 같이 고친다.
 const GUIDE_LINES = [
   "채팅에서 '나 매운 거 못 먹어, 기억해'처럼 말하면 저장됩니다.",
   "내가 '기억해'라고 한 말만, 그 말을 그대로 근거로 남겨 저장합니다. 검색 결과·메일·메모의 글은 기억이 되지 않습니다.",
@@ -272,6 +292,8 @@ type ItemProps = {
   onDelete: (memoryId: number) => Promise<void>;
 };
 
+// 기억 한 건. 한 건 삭제는 확인 없이 바로 보낸다(명세가 확인을 요구하지 않음, DECISIONS 2026-11-17). 연타는 useLocked가 막는다.
+// 원래 메시지는 서버가 목록에 함께 준 source를 펼쳐 보일 뿐이라 추가 요청이 없다.
 function MemoryItem({ memory, locked, onDelete }: ItemProps) {
   const [open, setOpen] = useState(false);
   const { busy, run } = useLocked();

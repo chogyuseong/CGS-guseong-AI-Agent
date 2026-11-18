@@ -9,7 +9,17 @@ import {
 
 // 비용 화면의 일별 표, 용도별·모델별 합계. 차트 라이브러리 없이 CSS 막대만 쓴다.
 // 막대는 장식이고(aria-hidden), 같은 값이 표의 글자로 있어 화면 읽기 프로그램도 읽을 수 있다.
+//
+// 쓰는 곳: UsageReport.tsx(기간에 기록이 있을 때만). 데이터는 GET /api/usage/daily 응답(lib/usage.ts의 Usage) 그대로다.
+// 이 파일은 서버를 부르지 않고 상태도 없다("use client" 없음, 클라이언트 컴포넌트 UsageReport 안에서 그려진다).
+//
+// 고칠 때 주의:
+// - 용도 이름(agent·guard·watch·eval)의 한국어 설명은 lib/usage.ts의 PURPOSE_INFO다. 서버가 용도를 더하면
+//   그 표에 넣는다(없으면 영어 이름이 그대로 보인다).
+// - 금액·토큰 표기(소수 4자리, '미만')는 lib/usage.ts의 formatUsd·formatTokens가 정한다.
+// - 테스트: components/UsageReport.test.tsx가 이 표·합계까지 함께 그려 본다.
 
+// 기간 합계와 용도·모델별 합계가 같은 모양(cost_usd, 토큰, calls)이라 한 타입으로 쓴다.
 type Totals = Usage["total"];
 
 // 일별 표. 서버는 오래된 날부터 주지만, 위에서 아래로 읽는 표라 오늘이 맨 위에 오게 뒤집는다.
@@ -83,6 +93,7 @@ function DayRow({ day, maxCost }: { day: Usage["days"][number]; maxCost: number 
   );
 }
 
+// 용도별 합계. 서버가 쓰지 않은 용도도 0으로 늘 4개를 주므로 빈 목록 처리가 없다.
 export function PurposeTotals({ purposes }: { purposes: Usage["by_purpose"] }) {
   return (
     <section aria-labelledby="usage-purpose-title" className="flex min-w-0 flex-col gap-2">
@@ -106,6 +117,7 @@ export function PurposeTotals({ purposes }: { purposes: Usage["by_purpose"] }) {
   );
 }
 
+// 모델별 합계. 이름은 서버가 준 모델 문자열 그대로라 길 수 있어 wrap-anywhere로 줄을 바꾼다.
 export function ModelTotals({ models }: { models: Usage["by_model"] }) {
   if (models.length === 0) return null;
   return (

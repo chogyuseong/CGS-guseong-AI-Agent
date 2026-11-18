@@ -8,6 +8,22 @@ import { type StartConnection, StartConnectionButton } from "./StartConnectionBu
 // 7단계: 연결 화면의 '메일 읽기 권한' 영역. 기본 연결(캘린더만)과 따로 둔다.
 // gmail.readonly는 사용자가 [메일 읽기 권한 추가]를 누를 때만 요청한다(명세 7단계 2번).
 // 7단계 보강: 메일 데이터 처리 동의(동의 전에는 서버가 메일을 읽지 않는다)와 서버의 메일 기능 플래그를 보여 준다.
+//
+// 쓰는 곳: GoogleConnection.tsx의 ConnectionBody(모든 연결 상태에서 카드 안에 들어간다). "use client"가 없지만
+//   클라이언트 컴포넌트인 GoogleConnection.tsx에서만 가져다 쓰므로 클라이언트에서 돈다.
+// 서버 호출: 권한 추가는 StartConnectionButton(POST /api/connections/google/start {scope: "mail"}),
+//   동의·철회는 onConsent(lib/connections.ts setMailConsent → PUT·DELETE /api/connections/google/mail-consent).
+// 서버 쪽 근거: users.mail_consent_at, gmail.mail_refusal(플래그 → 동의 순으로 확인), data_policy.mail_enabled
+//   (PAYLOAD_ENCRYPTION_KEY가 올바른 Fernet 키일 때만 true). DECISIONS 2026-11-17 7단계·7단계 보강.
+//
+// 고칠 때 주의(숫자가 서버 값과 글자로 맞물림):
+// - "4,000자"는 apps/api/app/tools/gmail.py BODY_LIMIT, "앞 500자"는 app/agent/results.py STORED_MAIL_CHARS,
+//   "7일 뒤"는 EXECUTION_RETENTION_DAYS 기본값(docs/DATA_POLICY.md). 값을 바꾸면 이 문장도 고친다.
+// - "웹 검색·장소·날씨를 쓰지 않습니다"는 data_policy.visible_tool의 규칙이다. 제외 도구가 바뀌면 고친다.
+// - 메일 권한만 철회하는 기능은 만들 수 없다(REMOVE_TEXT). 동의 철회는 서버가 메일을 읽지 않게 할 뿐 Google 권한은 그대로다.
+// - 테스트: components/GoogleConnection.test.tsx(메일 영역 포함).
+
+// 메일 권한이 무엇을 하고 하지 않는지(읽기 전용 gmail.readonly, 자동 작업 제외 = 명세 7단계).
 const MAIL_LINES = [
   "메일을 읽기만 합니다. 보내기·답장·삭제·라벨 변경은 하지 않습니다.",
   "본문은 4,000자까지만 읽고 첨부는 이름만 봅니다. 작업 기록에는 메일 내용을 남기지 않습니다.",
@@ -28,6 +44,9 @@ const CONSENT_LINES = [
 ];
 const CONSENT_FALLBACK = "동의 상태를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
+// 메일 권한 영역. "있음"은 연결됨 + 메일 범위가 있을 때만이다(재연결 필요 상태는 서버가 mail=false로 준다).
+// 서버 메일 기능이 꺼져 있으면 동의 영역 대신 이유를 보이고 권한 추가 버튼도 막는다.
+// 동의와 권한 추가는 순서를 강제하지 않는다(동의 전에는 서버가 메일을 읽지 않으므로, DECISIONS 2026-11-17).
 export function MailPermission({
   connection,
   onStart,
@@ -94,6 +113,7 @@ function AddMailAction({
 }
 
 // 동의·철회 버튼. 누르는 즉시 state와 ref 두 겹으로 잠가 한 번만 보낸다(연결 해제 버튼과 같은 방식).
+// 성공하면 onConsent 쪽 mutation이 연결 목록을 다시 가져와 mail_consent 배지·버튼이 바뀐다(여기서는 상태를 들고 있지 않다).
 function useConsentFlow(onConsent: MailConsentChange) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +137,8 @@ function useConsentFlow(onConsent: MailConsentChange) {
   return { busy, error, submit };
 }
 
+// 동의 영역. 버튼 하나가 지금 상태의 반대(동의 ↔ 철회)를 보낸다. 철회는 확인 없이 바로 보낸다:
+// 철회는 메일을 덜 읽게 하는 쪽이라 실수로 눌러도 데이터가 나가지 않는다(다시 동의하면 된다).
 function MailConsent({
   consented,
   onConsent,

@@ -4,6 +4,16 @@
 //   GET /api/usage/daily?days=N(1~90) → 일별(오래된 날부터, 빈 날은 0), 용도별(항상 4개), 모델별, 기간 합계, 오늘 한도
 // 날짜 경계는 서버의 하루 비용 상한 검사와 같은 서울 0시다. 금액은 달러 숫자(소수 6자리).
 // 한도를 바꾸는 API·화면은 없다(명세에 없음). 한도는 서버 설정(DAILY_COST_LIMIT_USD)이다.
+//
+// 쓰는 곳: components/UsageReport.tsx(기간 선택, 오늘 카드, 빈 상태), UsageSections.tsx(일별 표·용도별·모델별).
+// 근거: DECISIONS 2026-11-17 "화면(비용)" 절(7·14·30일, 기본 14일, 금액 4자리·'미만', 사용률 내림, 초과 여부는 서버 값만,
+// 용도 이름, 빈 상태는 total.calls 0), 2026-11-18 9단계 보강(경로를 /api/usage/daily로 옮김, 옛 /api/usage는 404).
+//
+// 고칠 때 주의:
+// - 용도 키(agent·guard·watch·eval)는 서버 비용 기록의 purpose 값과 글자로 맞물린다. 모르는 값은 서버 글자를 이름으로 쓴다.
+// - 한도 초과 여부는 화면에서 계산하지 말고 today.exceeded(서버 상한 검사와 같은 값)를 쓴다.
+// - 응답 모양이 바뀌면 pnpm gen:api 뒤 여기와 UsageReport·UsageSections를 본다.
+// - 테스트: lib/usage.test.ts, components/UsageReport.test.tsx, e2e/usage.spec.ts, e2e/widths.spec.ts(/usage).
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -18,6 +28,7 @@ export const PERIOD_OPTIONS = [7, 14, 30] as const;
 export type Period = (typeof PERIOD_OPTIONS)[number];
 export const DEFAULT_PERIOD: Period = 14;
 
+// 기간마다 따로 캐시한다(["usage", days]). all은 모든 기간을 한꺼번에 가리키는 앞부분이다(지금 쓰는 곳은 없다).
 export const usageKeys = {
   all: ["usage"] as const,
   period: (days: number) => ["usage", days] as const,
@@ -33,6 +44,7 @@ const usdFormat = new Intl.NumberFormat("en-US", {
 });
 const tokenFormat = new Intl.NumberFormat("ko-KR");
 
+// 달러 금액을 "$0.0123"으로. 0 이하·NaN은 "$0.0000", 0보다 크고 $0.0001보다 작으면 "$0.0001 미만".
 export function formatUsd(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "$0.0000";
   if (value < SMALLEST_SHOWN) return "$0.0001 미만";

@@ -1,3 +1,18 @@
+// 승인 카드 한 장(EXTERNAL 도구 호출 한 건의 승인·거절).
+// - 쓰는 곳: TaskApprovals(→ 채팅의 답변 자리 PendingTask, 답변 아래 TaskSteps, 작업 기록 탭 TaskList).
+//   서버 호출은 이 파일이 하지 않고 부모가 준 onDecide(lib/approvals.ts useDecideApproval)가 한다:
+//   POST /api/approvals/{approval_id}/approve(본문 confirm_mismatch) · POST .../reject.
+// - 근거: BUILD_SPEC 3.4·3.6·10.1 "승인 카드", 절대 원칙 3(승인 없이 EXTERNAL 실행 금지)·10(영수증 기준 성공),
+//   DECISIONS 2026-11-17 화면(apps/web) 절(결정된 카드는 결과만 남김, 대상·계정 줄을 감시 배지보다 먼저).
+// 고칠 때 주의:
+// - status 값(pending·approved·rejected·expired·cancelled)과 오류 code(MISMATCH_CODE =
+//   "mismatch_confirmation_required")는 서버 enum·detail.code와 글자로 맞물린다. 바뀌면 pnpm gen:api 뒤 여기와
+//   lib/approvals.ts를 같이 고친다. docs/STATE_MACHINES.md의 approval 표도 본다.
+// - e2e(approval.spec.ts, progress.spec.ts, widths.spec.ts, dark-mode.spec.ts)가 article 이름 "승인 요청",
+//   버튼 이름 "승인"·"거절"·"그래도 승인"·"취소", status 영역의 "승인 처리 중", 배지 "승인함"을 찾는다.
+//   문구를 바꾸면 그 파일과 ApprovalCard.test.tsx를 같이 고친다.
+// - 버튼 높이 48px(h-12)는 명세의 승인 버튼 기준이다(BUILD_SPEC 10.1 최소 44px보다 크게).
+//   approval.spec.ts의 expectTappable이 화면 안에 다 보이는지와 높이를 잰다.
 "use client";
 
 import { LoaderCircle, ShieldCheck, ShieldQuestionMark, ShieldX } from "lucide-react";
@@ -17,11 +32,14 @@ import {
 import { fieldLabel, formatFieldValue, toolDisplayName } from "@/lib/toolText";
 
 type ApprovalCardProps = {
+  // 서버 GET /api/tasks/{id}의 approvals 한 건(ApprovalOut). 결정된 카드도 같은 모양으로 온다.
   approval: Approval;
   // 서버에 결정을 보내고 결정 뒤 승인 상태를 돌려준다. 실패하면 ApprovalActionError를 던진다.
   onDecide: (decision: Decision) => Promise<ApprovalStatus>;
 };
 
+// 결정된 카드의 머리 배지. Record라 서버 상태가 하나 늘면(gen:api 뒤) tsc가 여기 빠진 것을 알려 준다.
+// "승인함"은 실행 완료가 아니다: 실행 결과는 ExecutionLine(영수증 기준)이 따로 보여 준다.
 const DECIDED_LABELS: Record<Exclude<ApprovalStatus, "pending">, string> = {
   approved: "승인함",
   rejected: "거절함",
@@ -63,6 +81,10 @@ type DecisionFlow = ReturnType<typeof useDecisionFlow>;
 
 // 버튼을 누른 순간부터 응답이 올 때까지 잠근다. 상태(state)는 다음 그리기에서야 바뀌므로,
 // 같은 순간에 두 번 눌리는 경우를 ref(즉시 바뀌는 값)로 한 번 더 막는다.
+// 막는 사고: 연타로 승인 요청이 두 번 가 재개가 두 번 시작되거나, 승인과 거절이 엇갈려 가는 것.
+// 결과: busy(누른 버튼), confirming(mismatch 확인 영역을 열었는지), error(화면 문장), decided(방금 받은 상태).
+// 서버가 mismatch 확인을 요구하면(409 MISMATCH_CODE) 오류 문장 대신 확인 영역을 연다. 화면 버그로
+// needs_mismatch_confirmation을 놓쳐도 서버가 막고 여기서 다시 묻게 된다(DECISIONS 2026-11-17).
 function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -98,6 +120,7 @@ function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
   return { busy, confirming, setConfirming, error, decided, submit };
 }
 
+// 대기 중인 카드의 버튼 영역. 거절은 확인 없이 보낸다(서버도 거절에는 확인을 요구하지 않는다).
 function DecisionArea({ approval, flow }: { approval: Approval; flow: DecisionFlow }) {
   const disabled = flow.busy !== null;
   const approve = () => {
@@ -121,6 +144,8 @@ function DecisionArea({ approval, flow }: { approval: Approval; flow: DecisionFl
   );
 }
 
+// 감시 판정이 mismatch일 때 승인 전에 한 번 더 묻는 영역(BUILD_SPEC 3.6). 네이티브 confirm 창 대신 카드 안에 둔다.
+// "그래도 승인"만 confirm_mismatch=true로 보낸다. 막는 사고: 요청과 다른 외부 행동을 한 번의 탭으로 승인하는 것.
 function MismatchConfirm({ flow, disabled }: { flow: DecisionFlow; disabled: boolean }) {
   const boxRef = useRef<HTMLDivElement>(null);
   // 폰에서는 이 확인 영역이 화면 아래로 가려질 수 있어 열릴 때 보이는 곳까지 스크롤한다.
@@ -171,6 +196,7 @@ function ActionButton({ label, onClick, disabled, primary = false }: ActionButto
   );
 }
 
+// 처리 중 안내(role=status). 승인 문구의 "승인 처리 중"은 approval.spec.ts가 찾는다.
 function BusyNotice({ action }: { action: "approve" | "reject" }) {
   return (
     <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -180,6 +206,7 @@ function BusyNotice({ action }: { action: "approve" | "reject" }) {
   );
 }
 
+// 카드 머리: 대기 중이면 안내 한 줄, 결정됐으면 상태 배지(색만이 아니라 글자로도 상태를 알린다, BUILD_SPEC 10.1).
 function CardHeader({ status }: { status: ApprovalStatus }) {
   if (status === "pending") {
     return <p className="text-sm font-semibold">승인이 필요합니다</p>;
@@ -193,6 +220,8 @@ function CardHeader({ status }: { status: ApprovalStatus }) {
 
 // 감시 에이전트 판정 배지(BUILD_SPEC 3.6 문구): match=초록 'AI 검토: 일치로 추정', mismatch=빨강 'AI 검토: 요청과 다를 수 있음'과
 // 이유, unsure=회색 'AI 검토: 확인 필요'. AI의 추정이므로 날짜·대상 줄보다 작게 둔다.
+// guard가 null이면 판정 없이 "감시 결과 없음"만 보인다(판정이 없다는 사실을 숨기지 않는다).
+// reason은 감시 모델이 쓴 문장이라 텍스트로만 그린다.
 function GuardVerdictView({ guard }: { guard: Approval["guard"] }) {
   if (guard === null) {
     return <Badge variant="secondary">감시 결과 없음</Badge>;
@@ -266,6 +295,8 @@ function InputRow({ name, text }: { name: string; text: string }) {
 }
 
 // 만료 시각과 남은 시간. 30초마다 다시 계산한다. 승인 뒤 실행 유효 시간(5분)도 함께 알린다.
+// 이 타이머는 글자만 바꾼다. 만료 처리(상태를 expired로)는 서버의 1분 검사가 하고 폴링으로 반영된다.
+// "5분"은 서버 apps/api/app/agent/plans.py EXECUTE_WINDOW와 맞물린 고정 문구다. 서버 값이 바뀌면 이 문장도 고친다.
 function ExpiryLine({ expiresAt }: { expiresAt: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -299,6 +330,8 @@ function TargetLines({ target, account }: { target: string; account: string | nu
 }
 
 // 승인 뒤 외부 실행 결과(영수증 기준). 보여 줄 것이 없으면 그리지 않는다.
+// 문장은 lib/approvals.ts executionText가 정한다: operation이 succeeded여도 receipt_confirmed가 없으면 "결과 확인 필요".
+// 막는 사고: 실제로 실행됐는지 모르는 외부 작업을 "완료"로 보여 주는 것(절대 원칙 10).
 function ExecutionLine({ approval }: { approval: Approval }) {
   const text = executionText(approval);
   if (text === null) return null;

@@ -2,6 +2,20 @@
 // 인자로 받아 테스트에서 가짜로 바꿀 수 있게 했다. 타입은 pnpm gen:api가 만든 schema.d.ts에서 꺼낸다.
 //
 // 흐름: 권한 요청(버튼을 눌렀을 때만) → 서비스 워커 준비 → 서버 VAPID 공개 키로 구독 → subscription.toJSON()을 서버에 저장.
+//
+// 쓰는 곳: components/PushSettings.tsx(설정 탭 알림 영역: 상태 읽기·켜기·끄기), ServiceWorkerRegistrar.tsx
+// (앱을 열 때 isPushSupported·registerServiceWorker). 알림 표시·클릭 이동은 public/sw.js가 맡는다.
+// 맞물린 API(apps/api/app/routers/push.py): GET /api/push/public-key({enabled, public_key}),
+// POST /api/push/subscribe(204), POST /api/push/unsubscribe(204).
+// 근거: DECISIONS 2026-11-17 화면 절(상태 6가지, 권한 요청은 클릭 안 첫 동작, "켜짐"은 지금 서버 키로 만든 구독일 때만,
+// 화면을 열 때 구독을 자동으로 다시 보내지 않음, 서버 저장 실패 시 브라우저 구독도 해지), docs/PUSH-CHECK.md(폰 확인).
+//
+// 고칠 때 주의:
+// - 화면을 열 때 subscribe를 자동으로 부르지 않는다. 같은 endpoint 재구독은 서버에서 user_id를 바꾸므로, 다른 계정으로
+//   로그인한 기기의 알림이 사용자가 누르지 않았는데 옮겨 간다.
+// - SERVICE_WORKER_URL·scope를 바꾸면 public/sw.js 위치와 next.config.ts의 /sw.js 헤더도 같이 바꾼다.
+// - 서버 구독 본문(PushSubscribeRequest) 모양이 바뀌면 gen:api 뒤 subscriptionBody를 고친다.
+// - 테스트: lib/push.test.ts, components/PushSettings.test.tsx, e2e/settings.spec.ts. 실제 수신은 docs/PUSH-CHECK.md로 폰에서 본다.
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 
@@ -69,6 +83,8 @@ export type PushSnapshot = {
   subscribed: boolean;
 };
 
+// 상태 판정 순서가 곧 우선순위다: 브라우저 조건(https·지원) → 서버 키 → 권한 → 구독. 순서를 바꾸면 안내 문구가 달라진다.
+// "on"은 권한 허용과 구독(지금 서버 키로 만든 것)이 둘 다 있을 때만이다.
 export function decidePushState(snapshot: PushSnapshot): PushState {
   if (!snapshot.secureContext) return "insecure";
   if (!snapshot.supported) return "unsupported";
@@ -111,6 +127,11 @@ export function subscriptionBody(json: PushSubscriptionJSON): PushSubscribeReque
   };
 }
 
+/**
+ * 지금 알림 상태와 서버 공개 키를 읽는다. 읽기만 하고 구독·권한 요청은 하지 않는다(화면을 열 때·창 포커스 때 부른다).
+ * https가 아니거나 지원하지 않는 브라우저면 서버를 부르지 않는다. publicKey는 서버가 꺼져 있으면 null이다.
+ * 서버 호출 실패는 PushError로 던진다.
+ */
 export async function readPushStatus(
   browser: PushBrowser,
   server: PushServer,
@@ -142,6 +163,8 @@ export async function readPushStatus(
   return { state, publicKey };
 }
 
+// 이 기기 구독을 지금 키로 맞춘다. 같은 키의 구독이 있으면 그대로 쓴다('알림 켜기'가 서버에 다시 보낸다).
+// userVisibleOnly: true는 Chrome이 요구하는 값으로, 받은 푸시마다 알림을 반드시 보여 준다는 약속이다(sw.js가 지킨다).
 async function subscribeWithKey(manager: PushManagerLike, publicKey: string) {
   const existing = await manager.getSubscription();
   if (existing !== null && keyMatches(existing, publicKey)) return existing;
@@ -194,6 +217,7 @@ export async function disablePush(browser: PushBrowser, server: PushServer): Pro
 // ---- 실제 브라우저와 서버 ----
 
 const SERVICE_WORKER_URL = "/sw.js";
+// 활성화 대기 최대 10초(DECISIONS 2026-11-17). 넘기면 무한히 "켜는 중"에 머물지 않고 새로 고침 안내를 보여 준다.
 const READY_TIMEOUT_MS = 10_000;
 
 // 서비스 워커(public/sw.js)를 등록한다. 푸시 수신만 하고 캐싱은 하지 않는다.
@@ -226,6 +250,7 @@ async function readyWithTimeout(): Promise<ServiceWorkerRegistration> {
   }
 }
 
+// 브라우저에만 있는 전역을 읽으므로 서버 렌더링 중에는 부르지 않는다(effect·이벤트 처리 안에서만).
 export function isPushSupported(): boolean {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
@@ -243,6 +268,7 @@ export function browserPush(): PushBrowser {
 
 const SERVER_ERROR = "서버에 알림 설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
+// 서버 호출 공통 처리: 네트워크 실패와 2xx 아닌 응답을 모두 화면 문구의 PushError로 바꾼다. 204는 data가 undefined다.
 async function call<T>(request: Promise<{ response: Response; data?: T }>): Promise<T | undefined> {
   const result = await request.catch(() => {
     throw new PushError("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");

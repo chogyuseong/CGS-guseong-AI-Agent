@@ -5,6 +5,16 @@
 //   DELETE /api/memories/{memory_id}  → 204 / 없거나 남의 것이면 404
 //   DELETE /api/memories              → 200 {deleted}
 // 기억을 만들거나 고치는 API는 없다. 기억은 채팅에서 "…기억해"라고 말할 때만 생긴다.
+//
+// 쓰는 곳: components/MemoryList.tsx(기억 탭 전체), components/AutomationItems.tsx(conversationHref).
+// 근거: BUILD_SPEC 절대 원칙 9(기억은 명시적 요청과 실제 출처에서만), DECISIONS 2026-11-17 "기억 API (화면용)"·
+// 5단계 "화면(apps/web)" 절(목록·원래 메시지·한 건 삭제·전체 삭제만, 전체 삭제 확인은 화면 몫).
+//
+// 고칠 때 주의:
+// - 최대 개수(200)는 응답의 limit을 쓴다. 숫자를 화면에 박지 않는다.
+// - memoryKeys.all은 lib/chat.ts의 대화 삭제 후 무효화(["memories"])와 글자로 맞물린다.
+// - conversationHref는 app/(tabs)/chat/[id] 경로 모양에 기댄다. 채팅 경로를 바꾸면 여기도 바꾼다.
+// - 테스트: lib/memories.test.ts, components/MemoryList.test.tsx, e2e/memory.spec.ts.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -67,6 +77,8 @@ async function deleteMemory(memoryId: number): Promise<void> {
   if (!response.ok) throw new Error(DELETE_ERROR);
 }
 
+// 지운 개수를 돌려준다. 확인 인자는 서버가 요구하지 않으므로, 한 번 더 묻는 확인 영역(MemoryList)을 건너뛰고
+// 부르면 바로 모두 지워진다(되돌릴 수 없음).
 async function deleteAllMemories(): Promise<number> {
   const { data, response } = await api.DELETE("/api/memories").catch(networkError);
   if (!response.ok || data === undefined) throw new Error(DELETE_ALL_ERROR);

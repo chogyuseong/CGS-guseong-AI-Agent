@@ -1,4 +1,18 @@
 // 승인 카드가 쓰는 서버 호출과 문구 함수. 타입은 pnpm gen:api가 만든 schema.d.ts에서 꺼낸다.
+//
+// 쓰는 곳: components/ApprovalCard.tsx(문구·만료 시각·실행 결과 한 줄), components/TaskApprovals.tsx
+// (useDecideApproval), PendingTask·TaskSteps·작업 기록 탭이 같은 카드를 그린다(DECISIONS 2026-11-17 화면).
+// 맞물린 API: POST /api/approvals/{approval_id}/approve(본문 confirm_mismatch)·/reject,
+// 결과는 GET /api/tasks/{id}의 approvals와 같은 ApprovalOut 모양이다.
+// 근거: BUILD_SPEC 절대 원칙 3·4·10(승인·고정 인자·영수증 근거 성공 표시), DECISIONS 2026-11-17
+// "승인 API 오류는 detail: {code, message}", "mismatch 승인은 confirm_mismatch 없으면 409".
+//
+// 고칠 때 주의:
+// - ERROR_MESSAGES의 code 글자는 서버 apps/api/app/agent/approvals.py의 오류 code,
+//   app/schemas/tasks.py의 ApprovalErrorCode와 글자로 맞물린다. 서버에 code를 더하면 gen:api 뒤 여기에 문구를 더한다.
+// - operation_status 값(EXECUTION_TEXTS)은 서버 operation 상태(docs/STATE_MACHINES.md)와 맞물린다.
+// - 캐시 키는 lib/chat.ts의 chatKeys를 쓴다. 키 모양을 바꾸면 onMutate·onSettled도 같이 본다.
+// - 테스트: lib/approvals.test.ts, components/ApprovalCard.test.tsx, components/PendingTask.test.tsx, e2e/approval.spec.ts.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -15,6 +29,8 @@ type ApprovalErrorCode = Schemas["ApprovalErrorCode"];
 // 카드가 서버에 보내는 결정. confirmMismatch는 mismatch 승인을 사용자가 한 번 더 확인했다는 표시다.
 export type Decision = { approve: boolean; confirmMismatch: boolean };
 
+// network는 서버 code가 아니라 화면이 붙이는 값이다(fetch 자체가 실패했을 때). 서버 code와 겹치지 않게 둔다.
+// MISMATCH_CODE는 ApprovalCard가 "한 번 더 확인" 영역을 여는 신호라 서버 글자와 반드시 같아야 한다.
 export const NETWORK_ERROR_CODE = "network";
 export const MISMATCH_CODE = "mismatch_confirmation_required";
 
@@ -40,6 +56,10 @@ const ERROR_MESSAGES = new Map<string, string>([
   [NETWORK_ERROR_CODE, NETWORK_MESSAGE],
 ]);
 
+/**
+ * 실패 응답을 화면 문구로 바꾼다. 아는 code가 먼저이고, code가 없는 404(옛 서버·프록시)는 "찾을 수 없음",
+ * 그 밖은 상태 번호를 넣은 일반 문구다. 서버의 message는 쓰지 않는다(화면 문구를 한 곳에서 관리하려고).
+ */
 export function approvalErrorMessage(status: number, code: string | undefined): string {
   const known = code === undefined ? undefined : ERROR_MESSAGES.get(code);
   if (known !== undefined) return known;
@@ -107,6 +127,7 @@ export function executionText(approval: ExecutionFields): string | null {
   return EXECUTION_TEXTS[operation] ?? null;
 }
 
+// 서버 시각(UTC ISO)을 서울 시각 "오후 3:05" 모양으로. 기기 시간대와 무관하게 서울로 고정한다(앱 전체가 서울 기준).
 export function formatExpiryTime(expiresAt: string): string {
   return new Date(expiresAt).toLocaleTimeString("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -115,6 +136,12 @@ export function formatExpiryTime(expiresAt: string): string {
   });
 }
 
+/**
+ * 승인·거절 요청을 보내고 ApprovalDecisionOut을 돌려준다. 실패는 모두 ApprovalActionError로 던진다
+ * (code: 서버 detail.code, 네트워크면 "network", 모르면 "unknown").
+ * confirm_mismatch는 사용자가 카드에서 한 번 더 확인했을 때만 true다. 화면이 이 값을 자동으로 true로 보내면
+ * 서버의 mismatch 재확인(절대 원칙 15: 승인 자동 통과 금지)을 우회하게 되므로 그런 코드를 두지 않는다.
+ */
 async function postDecision(approvalId: number, decision: Decision) {
   const path = { approval_id: approvalId };
   const request = decision.approve

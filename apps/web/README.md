@@ -114,7 +114,7 @@ app/
   (tabs)/usage/page.tsx 비용(9단계). 설정 탭에서 들어간다
   manifest.ts           PWA 설정(/manifest.webmanifest)
 components/             BottomTabs, ChatInput, AuthGuard, LoginForm, ui/(shadcn)
-  PendingTask.tsx       답변 전 task 진행 표시(폴링: 진행 중 1초, 승인 대기 3초, 끝나면 멈춤)
+  PendingTask.tsx       답변 전 task 진행 표시(폴링은 lib/polling.ts: 실행 중 1초→2·3·5초, 승인 대기 15초, 끝나면·숨은 탭이면 멈춤)
   PushSettings.tsx      설정 탭의 알림 영역('알림 켜기'/끄기, 상태 표시)
   ServiceWorkerRegistrar.tsx  앱을 열 때 public/sw.js 등록
   GoogleConnection.tsx  연결 화면의 Google 영역(상태, 연결 링크, 해제 확인)
@@ -125,7 +125,7 @@ components/             BottomTabs, ChatInput, AuthGuard, LoginForm, ui/(shadcn)
   AutomationList.tsx    자동화 탭(예약 작업·조건 감시 목록, 개수/상한, 빈 상태 안내)
   AutomationItems.tsx   예약·감시 한 건의 내용(반복·간격, 다음 실행, 마지막 실행 결과, 출처 링크)
   AutomationControls.tsx 항목 틀(켜기·끄기 스위치, 삭제 확인), 안내 줄, 불러오기 오류
-  SuggestionChips.tsx   예약 작업 답변의 [제안] 줄 버튼(누를 때만 그 문장을 채팅으로 보냄)
+  SuggestionChips.tsx   예약 작업 답변의 제안 버튼(서버의 messages.suggestions, 누르면 입력창에 채우기만 하고 보내는 것은 사용자)
   SourceLinks.tsx       출처 주소 목록(http·https만 새 탭 링크, 그 밖은 글자). 감시 결과·감시 알림이 같이 씀
   UsageReport.tsx       비용 화면(기간 선택, 오늘 쓴 금액·한도·남은 금액, 한도 초과 안내, 빈 상태)
   UsageSections.tsx     비용 화면의 일별 표(CSS 막대)·용도별·모델별 합계
@@ -136,7 +136,7 @@ lib/approvals.ts        승인·거절 호출과 오류 문구
 lib/connections.ts      연결 상태·해제 호출, 콜백 결과 코드별 안내
 lib/memories.ts         기억 목록·삭제 호출과 오류 문구, 날짜 표시
 lib/automations.ts      예약·감시 목록·켜기/끄기·삭제 호출, 409 코드별 문구, 시각·간격 표시, '예약 작업' 대화방 판정
-lib/suggestions.ts      답변에서 [제안] 줄 찾기, 칩을 붙일 메시지(예약 작업 결과, 서버 origin 기준) 고르기
+lib/suggestions.ts      칩을 붙일 메시지(예약 작업 결과, 서버 origin 기준) 고르기. 제안은 서버가 구조화해 준다(6단계 보강)
 lib/usage.ts            /api/usage/daily 호출, 금액·토큰·날짜 표기, 용도 이름, 한도 사용률
 lib/stepOutput.ts       단계 출력에서 외부 콘텐츠 읽기, 안전한 링크 판정
 lib/toolText.ts         도구 칸 이름·시각을 사람이 읽는 글자로

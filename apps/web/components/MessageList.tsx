@@ -1,3 +1,11 @@
+// 대화의 메시지 목록(말풍선, 답변 아래 단계·승인 카드, 답변 자리의 진행 상황, 제안 버튼, 감시 알림 출처).
+// - 쓰는 곳: ChatScreen의 ChatMessages. 데이터는 부모가 준다(GET /api/conversations/{id}/messages의 MessageOut[]).
+// - 근거: DECISIONS 2026-11-17 화면 절(승인 카드는 답변이 없는 내 메시지 아래 답변 자리에, 진행 중 예약 task,
+//   제안 버튼은 schedule 답변에만), 2026-11-17 감시 알림 sources(본문 "출처:" 줄은 파싱하지 않음).
+// 고칠 때 주의:
+// - message.origin(chat·schedule·watch)과 role(user·assistant)은 서버 MessageOut 값과 글자로 맞물린다.
+// - e2e(chat·approval·progress·automation·widths·dark-mode .spec.ts)가 list "메시지 목록", list "출처"를 찾는다.
+//   MessageList.test.tsx도 같이 본다.
 "use client";
 
 import { Fragment, useEffect, useRef } from "react";
@@ -27,6 +35,8 @@ type MessageListProps = {
 type SuggestionProps = Pick<MessageListProps, "onSuggestion" | "sending">;
 
 // 대화의 메시지 목록. 답변(assistant) 아래에는 그 답변을 만든 task의 단계를 붙인다.
+// 승인 대기 중에는 서버가 답변을 남기지 않으므로(DECISIONS 2026-11-17), "답변 없는 내 메시지"가 곧 진행 중 task다.
+// 막는 사고: 승인 전에 답변·"완료"처럼 보이는 것. 그 자리에는 PendingTask(진행 단계·승인 카드)만 그린다.
 export function MessageList(props: MessageListProps) {
   const { messages, pendingText, automationRoom = false, openTaskIds = [] } = props;
   const endRef = useRef<HTMLDivElement>(null);
@@ -86,6 +96,8 @@ type BubbleProps = {
   suggestion?: SuggestionProps;
 };
 
+// 말풍선 하나. 본문은 텍스트로만 그린다(모델 답변이 외부 글의 영향을 받았을 수 있어 HTML·Markdown으로 해석하지 않음).
+// 답변이면 그 task의 단계·승인·초안(TaskSteps)을 아래에 붙인다. TaskSteps는 task를 따로 가져온다(GET /api/tasks/{id}).
 function MessageBubble({ message, origin, suggestion }: BubbleProps) {
   const isUser = message.role === "user";
   return (
@@ -138,6 +150,7 @@ function PendingTaskItem({ taskId, label }: { taskId: number; label?: string }) 
   );
 }
 
+// 서버가 답하기 전 "보내는 중" 내 말풍선. 언제 숨길지는 lib/chat.ts pendingBubbleText가 정한다.
 function PendingBubble({ text }: { text: string }) {
   return (
     <li className="flex flex-col items-end gap-1 opacity-70">

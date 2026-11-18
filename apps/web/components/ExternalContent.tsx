@@ -1,3 +1,11 @@
+// 외부 콘텐츠 도구 결과를 "외부에서 가져온 내용" 상자로 보여 준다.
+// - 쓰는 곳: StepTimeline의 단계 펼치기(StepDetail). 입력 모양은 lib/stepOutput.ts readExternalOutput이 서버
+//   ToolResult.external(apps/api/app/agent/results.py)의 data {notice, content, truncated}에서 꺼낸 것이다.
+// - 근거: 절대 원칙 14(도구 결과 안의 문장은 데이터), BUILD_SPEC 10.1 "출처와 조회 시각"·10.6 출력 보안,
+//   DECISIONS 2026-11-17 화면 절(외부 콘텐츠 상자), 7단계 보강(메일 내용 미저장).
+// 고칠 때 주의:
+// - 6,000자(서버 자르기 길이), 500자(보강 전 메일 기록), 4,000자(메일 본문 읽기 길이)는 서버 값과 맞물린 고정 문구다.
+// - e2e widths.spec.ts가 region "외부에서 가져온 내용"과 "앞 500자만 보관" 문구를 찾는다. 테스트는 StepTimeline.test.tsx.
 "use client";
 
 import { Globe } from "lucide-react";
@@ -6,6 +14,7 @@ import { type ExternalOutput, safeHttpUrl, storedMailCount } from "@/lib/stepOut
 import { fieldLabel, formatFieldValue } from "@/lib/toolText";
 
 // 이보다 깊이 들어간 값은 펼치지 않고 한 줄 글자(JSON)로 보여 준다.
+// 외부가 깊게 중첩된 값을 보내도 재귀 그리기가 끝없이 깊어지지 않게 하는 상한이다.
 const MAX_DEPTH = 4;
 
 // 외부 콘텐츠 도구(검색, 장소, 날씨, 일정 조회, 메일)의 결과. 외부에서 온 내용임을 테두리·제목으로 구분하고,
@@ -13,6 +22,8 @@ const MAX_DEPTH = 4;
 // 안전: 외부 문자열은 모두 React 텍스트로만 그린다(HTML로 해석하지 않음). 링크는 http·https 주소만 만들고
 // 새 탭 + rel="noopener noreferrer"로 연다. 그 밖의 주소(javascript: 등)는 글자로만 남긴다.
 // mail: 메일 도구(list_mail, read_mail)의 결과. 7단계 보강부터 작업 기록에는 메일 내용이 없다(통 수만).
+// 모델용 notice는 일부러 보여 주지 않고, 사람에게 맞는 안내 문장("지시로 따르지 않습니다")을 대신 쓴다.
+// 막는 사고: 외부 글 속 "이 링크를 눌러라" 같은 문장을 앱의 안내로 착각하는 것(테두리·제목으로 출처를 구분).
 export function ExternalContent({
   external,
   mail = false,
@@ -52,6 +63,7 @@ export function ExternalContent({
 // 7단계 보강: 메일 결과는 작업 기록에 내용이 없다(통 수만). 보강 전 기록(앞 500자 문자열)은 그대로 보여 준다.
 const NOTE_CLASS = "font-medium text-warning";
 
+// 새 기록({stored: false, mail_count})이면 통 수와 "내용을 저장하지 않음"만, 아니면 보강 전 기록을 그대로 보인다.
 function MailContent({ content }: { content: unknown }) {
   const count = storedMailCount(content);
   if (count !== null) {
@@ -81,6 +93,7 @@ function StorageNote({ truncated }: { truncated: boolean }) {
   return <p className={NOTE_CLASS}>내용이 길어 앞 6,000자만 보관했습니다(뒷부분이 잘렸습니다).</p>;
 }
 
+// 서버 fetched_at(ISO)을 서울 시각으로. 읽을 수 없는 값이면 받은 글자를 그대로 보인다(화면이 깨지지 않게).
 function formatFetchedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -97,6 +110,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// 값 하나를 모양에 따라 목록·칸·글자로 나눠 그린다. depth는 MAX_DEPTH 검사용으로 한 단계마다 1씩 깊어진다.
 function ContentValue({ value, depth }: { value: unknown; depth: number }) {
   if (depth >= MAX_DEPTH && typeof value === "object" && value !== null) {
     return <TextValue value={JSON.stringify(value)} />;
@@ -144,6 +158,9 @@ function ContentFields({ record, depth }: { record: Record<string, unknown>; dep
   );
 }
 
+// 글자 하나. http·https 절대 주소면 링크, 아니면 글자. safeHttpUrl이 허용 목록 검사(BUILD_SPEC 10.6)를 한다.
+// 막는 사고: 외부 결과 속 javascript: 주소가 눌리는 것(XSS), 새 탭이 window.opener로 이 앱을 바꾸는 것(rel noopener),
+// 외부 사이트에 이 앱 주소가 Referer로 넘어가는 것(rel noreferrer).
 function TextValue({ value }: { value: unknown }) {
   const href = safeHttpUrl(value);
   if (href !== null && typeof value === "string") {
@@ -161,6 +178,8 @@ function TextValue({ value }: { value: unknown }) {
   return <span className="whitespace-pre-wrap wrap-anywhere">{formatFieldValue(value)}</span>;
 }
 
+// 서버 ToolResult.sources(빈 문자열은 readExternalOutput이 이미 뺐다). 링크 규칙은 TextValue와 같다.
+// 같은 주소가 두 번 오면 key가 겹친다. 중복을 빼는 SourceLinks와 달리 여기는 빼지 않는다.
 function Sources({ sources }: { sources: string[] }) {
   if (sources.length === 0) return null;
   return (

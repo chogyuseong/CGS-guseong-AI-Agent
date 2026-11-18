@@ -1,3 +1,12 @@
+// Next.js 설정: /api 프록시(rewrites), 개발 서버 교차 출처 허용, 서비스 워커 응답 헤더.
+// 근거: DECISIONS 2026-11-16(API는 127.0.0.1에만 열고 폰은 Next rewrites로만 닿는다, Cache Components 끔),
+// 2026-11-17 화면 절(/sw.js 헤더, DEV_TUNNEL_HOST만 허용).
+//
+// 고칠 때 주의:
+// - 로그인 Origin 검사는 API 서버의 APP_ORIGIN과 비교한다. 접속 주소(폰 IP·터널)를 바꾸면 루트 .env의 APP_ORIGIN도
+//   바꿔야 로그인된다(apps/web/README.md "폰에서 접속하기").
+// - /sw.js 헤더는 lib/push.ts의 SERVICE_WORKER_URL과 같은 경로여야 한다.
+// - next.config.ts는 서버(개발 서버·빌드)를 다시 시작해야 반영된다.
 import { networkInterfaces } from "node:os";
 import type { NextConfig } from "next";
 
@@ -25,6 +34,7 @@ function getLanAddresses(): string[] {
 // 폰에서 푸시를 확인할 때 쓰는 https 터널 주소의 호스트 이름(예: abc-def.trycloudflare.com). 개발 서버는 처음 보는
 // 출처의 개발용 요청을 막으므로 터널을 쓸 때만 환경변수로 넣는다(docs/PUSH-CHECK.md). 늘 열어 두지 않으려고
 // 와일드카드(*.trycloudflare.com)는 쓰지 않는다. 호스트 이름 모양이 아니면 무시한다.
+// 막는 사고: 와일드카드를 늘 열어 두면 그 도메인의 아무 사이트나 개발 서버의 개발용 자원을 요청할 수 있다.
 function getTunnelHosts(): string[] {
   const host = process.env.DEV_TUNNEL_HOST?.trim().toLowerCase();
   return host && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? [host] : [];

@@ -6,6 +6,14 @@ import { useMe } from "@/lib/auth";
 
 // 로그인한 사람에게만 children을 보여 준다. (Django의 @login_required)
 // 서버 세션 쿠키는 HttpOnly라 JS가 읽을 수 없으므로 /api/auth/me로 물어본다.
+//
+// 쓰는 곳: app/(tabs)/layout.tsx(탭 화면 전체를 감싸고, 하단 탭도 이 안에 있다). 로그인 화면(app/login)은 밖이다.
+// 서버 호출: lib/auth.ts의 useMe(GET /api/auth/me, retry 없음. 401 → null, 그 밖의 실패 → 오류).
+//
+// 고칠 때 주의:
+// - 이 확인은 화면 표시용이다. 실제 보호는 서버 API가 요청마다 세션을 확인하는 것이다(화면을 우회해도 데이터는 못 받는다).
+// - 로그인 안 됨(null)과 서버 오류(isError)를 구분한다. 서버가 잠깐 죽었을 때 로그인 화면으로 튕기지 않게 하려는 것이다.
+// - 테스트: e2e/login.spec.ts(로그인 전 /chat → /login).
 export function AuthGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { data: user, isPending, isError } = useMe();

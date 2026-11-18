@@ -1,3 +1,11 @@
+// 공통 UI 부품: 가운데 뜨는 대화상자(Dialog). shadcn(style "base-nova", components.json)이 Base UI Dialog 위에 만든 생성 코드다.
+// 쓰는 곳: 2026-11-18 기준 이 파일을 가져다 쓰는 화면이 없다(Grep "components/ui/dialog" 결과 없음). 옆으로 열리는
+//   시트는 sheet.tsx(같은 Base UI Dialog)를 쓴다.
+// 고칠 때 주의:
+// - 닫기 버튼의 화면 읽기 문구가 영어("Close")다(sheet.tsx는 "닫기"). 화면에서 쓰기 시작하면 한국어 문구와
+//   44px 닫기 버튼(기본은 icon-sm 28px)을 먼저 정한다. ConversationSheet처럼 showCloseButton={false} 뒤 직접 두는 방법이 있다.
+// - 이 폴더는 Biome 검사와 lib/theme.test.ts의 고정 색 검사에서 빠진다. 색은 globals.css 토큰만 쓴다.
+// - `shadcn add dialog`로 다시 받으면 이 파일(주석 포함)이 덮어써진다.
 "use client"
 
 import * as React from "react"
@@ -39,6 +47,10 @@ function DialogOverlay({
   )
 }
 
+/**
+ * 대화상자 본체. 포털로 body 끝에 그리고 뒤에 반투명 막(DialogOverlay)을 깐다.
+ * props: showCloseButton(기본 true, 오른쪽 위 X 버튼), className, children, 나머지 Base UI Popup 속성.
+ */
 function DialogContent({
   className,
   children,
@@ -90,6 +102,8 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// 아래쪽 버튼 줄. 폰 폭에서는 세로로 쌓고(flex-col-reverse: 뒤에 둔 버튼이 위로) sm 이상에서 가로 오른쪽 정렬.
+// showCloseButton(기본 false)을 켜면 영어 "Close" 버튼이 붙는다.
 function DialogFooter({
   className,
   showCloseButton = false,

@@ -14,6 +14,20 @@ import { BriefingSetup } from "./BriefingSetup";
 
 // 자동화 탭(6단계): 예약 작업과 조건 감시의 목록, 켜기·끄기, 삭제(화면 안 확인 한 번), 마지막 실행 결과.
 // 만들기·내용 고치기는 없다(명세 화면 항목에 없고 API도 없다). 예약과 감시는 채팅에서 말로 만든다.
+//
+// 쓰는 곳: app/(tabs)/automation/page.tsx. 서버 호출은 lib/automations.ts(useSchedules → GET /api/schedules,
+//   useWatches → GET /api/watches, 켜기·끄기·삭제는 AutomationControls, 브리핑 켜기는 BriefingSetup).
+// 근거: BUILD_SPEC 8절, DECISIONS 2026-11-17 "자동화 탭"·화면 위 안내 문장·6단계 보강(브리핑은 사용자가 켤 때만,
+//   budget_paused 표시).
+//
+// 고칠 때 주의:
+// - WATCH_EMPTY의 "30분", "30일"과 SCHEDULE_EMPTY의 "하루 한 번"은 서버 apps/api/app/automation/rules.py의
+//   MIN_WATCH_INTERVAL_MINUTES·WATCH_LIFETIME·예약 구조(시각 하나 + 요일)와 글자로 맞물려 있다. 값이 바뀌면 같이 고친다.
+//   활성 개수 한도는 글자로 적지 않고 서버의 max_active를 그대로 쓴다.
+// - '예약 작업' 대화방 이름은 rules.py AUTOMATION_CONVERSATION_TITLE·lib/automations.ts와 같은 글자다.
+// - 테스트: components/AutomationList.test.tsx, components/BriefingSetup.test.tsx, e2e/automation.spec.ts.
+//
+// 안내 줄(feedback)은 탭 전체에 하나다. 아래 어느 항목에서 눌렀든 결과가 같은 자리에 뜬다.
 export function AutomationList() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   return (
@@ -27,6 +41,8 @@ export function AutomationList() {
   );
 }
 
+// 화면 위에 늘 보이는 안내(DECISIONS 2026-11-17: 조회만 함, 결과는 '예약 작업' 대화방, 만들기는 채팅에서).
+// 두 번째 줄은 절대 원칙 7(예약·감시 모델에는 READ 도구만)을 사용자 말로 옮긴 것이다.
 const GUIDE_LINES = [
   "아침 브리핑은 직접 켜야 실행됩니다. 계정을 만들었다고 저절로 돌지 않습니다.",
   "자동 작업은 조회만 합니다. 일정 등록처럼 무언가를 바꾸는 일은 결과에 제안 버튼으로 알려 드립니다. 누르면 입력창에 문장이 채워지고, 직접 보내야 평소처럼 승인을 거칩니다.",
@@ -35,6 +51,8 @@ const GUIDE_LINES = [
 ];
 
 // 6단계 보강: 하루 비용 한도에 닿으면 서버가 budget_paused를 준다. 예약·감시는 건너뛰고 서울 자정이 지나면 다시 돈다.
+// 두 목록 쿼리를 섹션과 같은 queryKey로 부르므로 요청이 더 생기지 않는다(TanStack Query 캐시 공유).
+// 둘 중 하나라도 true면 보인다. 한도 값 자체는 비용 화면(UsageReport)에서 보여 준다.
 function BudgetPausedNotice() {
   const schedules = useSchedules();
   const watches = useWatches();
@@ -97,6 +115,8 @@ function SectionShell({ id, title, query, summary, children }: SectionShellProps
   );
 }
 
+// 켜진 개수 / 최대. 꺼진 항목은 자리를 차지하지 않는다(rules.py와 같은 기준). 다 차면 미리 알리지만
+// 실제 거부는 서버가 한다(409 limit_reached → automationErrorText 문구).
 function CountLine({ noun, count, max }: { noun: string; count: number; max: number }) {
   return (
     <div className="flex flex-col gap-1 text-sm">
@@ -129,11 +149,13 @@ const SCHEDULE_EMPTY = [
 ];
 
 // 브리핑이 바뀌면(켜기·시각 변경) 입력칸을 서버 값으로 다시 맞춘다.
+// BriefingSetup은 시각을 useState 초기값으로만 받으므로, 이 값을 React key로 줘서 바뀔 때 새로 그리게 한다.
 function briefingKey(schedules: Schedule[]): string {
   const briefing = schedules.find((item) => item.is_briefing);
   return briefing ? `${briefing.id}-${briefing.time_of_day}-${briefing.is_active}` : "none";
 }
 
+// 예약 섹션. 브리핑 설정 카드는 브리핑이 없어도 늘 보인다(사용자가 켜야 생기므로 켜는 자리가 있어야 한다).
 function ScheduleSection({ report }: { report: Report }) {
   const query = useSchedules();
   const data = query.data;
