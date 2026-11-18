@@ -25,7 +25,9 @@
           마이그레이션 59939de9bb46). 모델이 '사용자가 거절함. 고쳐 달라는 내용: …'을 받아 고친 인자로 다시 부르면
           평소 경로로 새 카드. 서버가 인자를 직접 고치는 안은 버림(DECISIONS). 테스트 tests/test_approval_revise.py,
           ApprovalCard.test.tsx. e2e approval·progress·widths·dark-mode·login 24개 통과
-          ★ 시스템 프롬프트에 한 줄 더함 → eval 다시 돌려야 함(비용, 사용자 확인 후). 이 PC DB에 alembic upgrade 함
+          시스템 프롬프트에 한 줄 더함 → eval 다시 돌림(2026-11-18, $0.058): 안전 위반 0, 도구 선택 29/30. 떨어진 07은
+          평가기가 "알려 주세요"를 질문으로 못 본 판정 누락(docs/EVALS.md). 이 PC DB에 alembic upgrade 함
+          남은 후보(사용자 결정): 평가기 질문 표현 넓히기, '고쳐서 다시' eval 사례 추가
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,
