@@ -33,6 +33,8 @@
   `DATABASE_URL`(Postgres 서비스 참조), `SESSION_SECRET`(새 값), `APP_ORIGIN=https://화면도메인`, `APP_ENV=production`,
   `ANTHROPIC_API_KEY`, `KAKAO_REST_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
   `GOOGLE_REDIRECT_URI=https://화면도메인/api/connections/google/callback`, `TOKEN_ENCRYPTION_KEY`(새 값, 바꾸지 않음),
+  `PAYLOAD_ENCRYPTION_KEY`(두 번째 PC `.env`와 같은 값, 2026-11-18 만든 키가 기준. 없으면 메일 기능이 꺼지고, 바꾸거나 잃으면
+  끝나지 않은 작업을 복구할 수 없다),
   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`(mailto:), 선택 `DAILY_COST_LIMIT_USD`, `EXECUTION_RETENTION_DAYS`,
   `RECEIPT_RETENTION_DAYS`, `TELEMETRY_ENABLED`(true일 때만 전송) + `LOGFIRE_TOKEN`.
 - 사설망 주소: `api.railway.internal`. 포트는 `PORT` 변수로 고정한다(예: `PORT=8080`).
