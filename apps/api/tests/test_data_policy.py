@@ -37,7 +37,7 @@ def test_no_tool_accepts_secrets_and_public_tools_accept_only_public() -> None:
     for name, policy in data_policy.TOOL_POLICIES.items():
         assert data_policy.DataClass.SECRET not in policy.accepts, name
         assert policy.timeout_seconds > 0 and policy.retry and policy.dedupe and policy.retention, name
-    for name in ("web_search", "search_places", "get_weather"):
+    for name in ("web_search", "search_places", "get_weather", "compare_products"):
         assert data_policy.TOOL_POLICIES[name].accepts == frozenset({data_policy.DataClass.PUBLIC})
         assert data_policy.TOOL_POLICIES[name].service is not None
 
@@ -68,6 +68,8 @@ async def test_public_search_is_blocked_after_reading_mail(tool_deps: AgentDeps,
     assert refusal is not None
     assert refusal.error_code == "data_policy"
     assert "공개해도 되는 검색어" in (refusal.user_message or "")
+    shopping_refusal = await data_policy.outbound_refusal(tool_deps, "compare_products", {"product": "KB100"})
+    assert shopping_refusal is not None and shopping_refusal.error_code == "data_policy"
     # 앱 안의 도구(할 일)와 내 캘린더 쓰기는 막지 않는다.
     assert await data_policy.outbound_refusal(tool_deps, "add_todo", {"title": "x"}) is None
 

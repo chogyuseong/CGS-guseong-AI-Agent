@@ -142,6 +142,16 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "get_weather": public_lookup("Open-Meteo·카카오 좌표", "날씨와 출처"),
     "search_places": public_lookup("카카오 로컬", "장소 목록과 출처(결과에 없는 영업시간·가격은 말하지 않음)"),
     "web_search": public_lookup("네이버 검색", "검색 결과와 출처 링크"),
+    "compare_products": ToolPolicy(
+        "쿠팡 파트너스",
+        PUBLIC_ONLY,
+        DataClass.PUBLIC,
+        HTTP_TIMEOUT,
+        NO_RETRY,
+        "조회라 불필요",
+        STEPS,
+        "조건 일치·확인 필요·제외 이유와 조회 시각",
+    ),
     "list_events": ToolPolicy(
         "Google Calendar", USER, DataClass.USER_PRIVATE, HTTP_TIMEOUT, READ_RETRY, "조회라 불필요", STEPS, "일정 목록"
     ),
@@ -172,7 +182,7 @@ AUTOMATION_REFUSAL = (
 )
 # 2026-11-18 사용자 결정(BUILD_SPEC 15절 30번): 웹 검색 결과를 읽은 문맥에서도 자동화 생성 도구를 주지 않는다
 # (검색 결과 속 지시로 예약·감시 생성 금지). 날씨·장소는 조회 뒤 감시를 거는 흐름 때문에 막지 않는다.
-SEARCH_TOOLS = ("web_search",)
+SEARCH_TOOLS = ("web_search", "compare_products")
 SEARCH_AUTOMATION_REFUSAL = (
     "이 대화에서 웹 검색 결과를 읽었기 때문에 예약·감시를 만들지 않았습니다. 필요하면 새 대화에서 직접 요청해 주세요."
 )

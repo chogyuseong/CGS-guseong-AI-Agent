@@ -102,6 +102,7 @@ async def request_json(
     headers: dict[str, str] | None = None,
     json: Any = None,
     data: dict[str, str] | None = None,
+    retry_read: bool = True,
 ) -> Any:
     """요청을 보내고 JSON을 돌려준다. 본문이 없는 성공 응답(예: 삭제 204)은 {}.
 
@@ -110,7 +111,8 @@ async def request_json(
     GET이 아니면 outcome_unknown=True(→ unknown, 도구 규격의 reconcile이 재조회).
     로그에는 서비스 이름·메서드·code만 남긴다(주소·쿼리·본문·헤더 없음).
     """
-    attempts = READ_ATTEMPTS if method == "GET" else 1
+    # 쿠팡 상품 검색은 시간당 10회이므로 예약한 한 건만 호출한다.
+    attempts = READ_ATTEMPTS if method == "GET" and retry_read else 1
     message, code = "", "network"
     for _ in range(attempts):
         try:

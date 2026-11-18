@@ -74,7 +74,8 @@ export function StepTimeline({ steps }: { steps: Step[] }) {
 // 한 줄. 아이콘에 role=img·aria-label로 상태 이름을 붙여 화면 낭독기와 e2e가 상태를 읽는다.
 // showName 글자는 aria-hidden이다(아이콘 이름과 두 번 읽히지 않게).
 function StepRow({ step }: { step: Step }) {
-  const [open, setOpen] = useState(false);
+  // 2026-11-18 쇼핑 비교는 가격과 판매처 링크를 채팅 답변 아래에 바로 표시한다.
+  const [open, setOpen] = useState(step.tool_name === "compare_products");
   const { icon: Icon, name, className, showName } = STATUS_ICONS[step.status];
   return (
     <li className="rounded-md border bg-background text-sm">
@@ -111,11 +112,15 @@ function StepDetail({ step }: { step: Step }) {
   }
   return (
     <div className="flex min-w-0 flex-col gap-2 border-t px-3 py-2 text-xs">
-      <JsonBlock title="입력" value={step.input} />
+      {step.tool_name !== "compare_products" && <JsonBlock title="입력" value={step.input} />}
       {external ? (
         <div className="flex min-w-0 flex-col gap-1">
           <p className="font-medium">출력</p>
-          <ExternalContent external={external} mail={isMailTool(step.tool_name)} />
+          <ExternalContent
+            external={external}
+            mail={isMailTool(step.tool_name)}
+            shopping={step.tool_name === "compare_products"}
+          />
         </div>
       ) : (
         <JsonBlock title="출력" value={step.output} />

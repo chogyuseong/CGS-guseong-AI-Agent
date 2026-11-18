@@ -79,6 +79,7 @@ const TOOL_NAMES: Record<string, string> = {
   list_events: "캘린더 일정 보기",
   search_places: "장소 찾기",
   web_search: "웹 검색",
+  compare_products: "쿠팡 상품 비교",
   get_weather: "날씨 보기",
   list_mail: "메일 찾기",
   read_mail: "메일 읽기",

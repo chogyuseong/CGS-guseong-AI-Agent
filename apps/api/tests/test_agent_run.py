@@ -200,7 +200,7 @@ async def test_chat_task_gets_all_tool_levels(
         await send(client, conversation, "안녕")
 
     assert model.seen_tool_names == [
-        sorted([*READ_TOOL_NAMES, *MAIL_TOOL_NAMES, *INTERNAL_TOOL_NAMES, *EXTERNAL_TOOL_NAMES])
+        sorted([*READ_TOOL_NAMES, *MAIL_TOOL_NAMES, *INTERNAL_TOOL_NAMES, *EXTERNAL_TOOL_NAMES, "compare_products"])
     ]
 
 

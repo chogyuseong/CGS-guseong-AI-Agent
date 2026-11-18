@@ -28,9 +28,11 @@ const MAX_DEPTH = 4;
 export function ExternalContent({
   external,
   mail = false,
+  shopping = false,
 }: {
   external: ExternalOutput;
   mail?: boolean;
+  shopping?: boolean;
 }) {
   const titleId = useId();
   return (
@@ -47,13 +49,15 @@ export function ExternalContent({
       </p>
       {mail ? (
         <MailContent content={external.content} />
+      ) : shopping && isRecord(external.content) ? (
+        <ShoppingCards content={external.content} />
       ) : (
         <>
           <StorageNote truncated={external.truncated} />
           <ContentValue value={external.content} depth={0} />
         </>
       )}
-      <Sources sources={external.sources} />
+      {(!shopping || !isRecord(external.content)) && <Sources sources={external.sources} />}
       {external.fetchedAt && (
         <p className="text-muted-foreground">조회 시각: {formatFetchedAt(external.fetchedAt)}</p>
       )}
@@ -63,6 +67,62 @@ export function ExternalContent({
 
 // 7단계 보강: 메일 결과는 작업 기록에 내용이 없다(통 수만). 보강 전 기록(앞 500자 문자열)은 그대로 보여 준다.
 const NOTE_CLASS = "font-medium text-warning";
+
+// 2026-11-18 생활 비서 A단계. 정렬·판정은 서버 결과 그대로 두고 긴 추적 URL은 상품명으로 표시한다.
+// 이전 기록이나 일부 칸 누락도 나머지 카드를 가리지 않게 한다. 필드 변경은 test_shopping과 함께 확인한다.
+function ShoppingCards({ content }: { content: Record<string, unknown> }) {
+  return (
+    <>
+      <p>
+        {[content.안내, content["요청 조건"], content["가격 기준"]]
+          .filter((v) => typeof v === "string")
+          .join(" · ")}
+      </p>
+      {typeof content["출처 안내"] === "string" && <p>{content["출처 안내"]}</p>}
+      {["조건 일치", "확인 필요", "제외 이유"].map((group) => {
+        const values = content[group];
+        if (!Array.isArray(values) || !values.length) return null;
+        return (
+          <section key={group} aria-label={group}>
+            <p className="font-medium">{group}</p>
+            <ul className="grid gap-2">
+              {withUniqueKeys(values.filter(isRecord), (row) => String(row.링크)).map(
+                ({ key, item }) => (
+                  <ShoppingOffer key={key} row={item} />
+                ),
+              )}
+            </ul>
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+// 사용자가 링크를 열 때만 판매처에 접속한다. 외부 제목은 React 텍스트로 표시한다.
+function ShoppingOffer({ row }: { row: Record<string, unknown> }) {
+  const href = safeHttpUrl(row.링크);
+  const title = typeof row.상품 === "string" ? row.상품 : "상품 보기";
+  return (
+    <li className="grid gap-1 rounded border bg-background p-2 wrap-anywhere">
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+          {title}
+        </a>
+      ) : (
+        title
+      )}
+      {["판매처", "비교 가격", "표시가", "배송비", "단가"].map((key) =>
+        typeof row[key] === "string" ? (
+          <p key={key}>
+            {key} <span>{row[key]}</span>
+          </p>
+        ) : null,
+      )}
+      {typeof row.이유 === "string" && <p>{row.이유}</p>}
+    </li>
+  );
+}
 
 // 새 기록({stored: false, mail_count})이면 통 수와 "내용을 저장하지 않음"만, 아니면 보강 전 기록을 그대로 보인다.
 function MailContent({ content }: { content: unknown }) {

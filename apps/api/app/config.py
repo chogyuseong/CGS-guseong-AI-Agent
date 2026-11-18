@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     # 외부 도구 (4단계부터 사용)
     kakao_rest_api_key: SecretStr = SecretStr("")
     naver_client_id: str = ""
+    # 2026-11-18 파트너스 최종 승인 계정의 쇼핑 조회 키. 판매자 API·네이버 키와 분리한다.
+    coupang_access_key: SecretStr = SecretStr("")
+    coupang_secret_key: SecretStr = SecretStr("")
     naver_client_secret: SecretStr = SecretStr("")
     google_client_id: str = ""
     google_client_secret: SecretStr = SecretStr("")

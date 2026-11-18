@@ -42,7 +42,7 @@ from app.agent.deps import AgentDeps
 from app.agent.plans import EXTERNAL_TOOL_SPECS
 from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
 from app.models.enums import RiskLevel, TaskOrigin
-from app.tools import automation, drafts, gcal, gmail, memories, notes, places, weather, websearch
+from app.tools import automation, coupang, drafts, gcal, gmail, memories, notes, places, weather, websearch
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +122,14 @@ internal_tools = FunctionToolset[AgentDeps](
 )
 # 일정 쓰기 도구. 함수 첫 줄은 모두 begin_execution(ctx, 인자)다(두 번째 방어선, app/tools/gcal.py).
 external_tools = build_external_toolset([gcal.create_event, gcal.update_event, gcal.delete_event])
+# 2026-11-18 생활 비서 A단계. 가격 감시는 후속 단계이고 검색 할당량은 모든 대화가 공유한다.
+shopping_tools = FunctionToolset[AgentDeps](
+    [coupang.compare_products], id="shopping_tools", metadata=risk_metadata(RiskLevel.READ), sequential=True
+)
 
 # 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4). 메일(mail_tools)은 READ지만 chat에만 넘긴다.
 TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
-    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools],
+    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools, shopping_tools],
     TaskOrigin.SCHEDULE: [read_tools],
     TaskOrigin.WATCH: [read_tools],
 }
@@ -136,6 +140,7 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "get_weather": weather.get_weather_label,
     "search_places": places.search_places_label,
     "web_search": websearch.web_search_label,
+    "compare_products": lambda _: "쿠팡 상품 조건 비교하는 중",
     **gcal.LABELS,
     **automation.LABELS,
     **gmail.LABELS,

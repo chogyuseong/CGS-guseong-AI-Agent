@@ -1,0 +1,50 @@
+[
+  {
+    "title": "KB100 한글 갈축 교체 키캡",
+    "price": 5000,
+    "shipping": 0,
+    "store": "판매처 1",
+    "url": "https://example.org/products/1",
+    "condition": "신품"
+  },
+  {
+    "title": "KB100 한글 갈축",
+    "price": 85000,
+    "shipping": null,
+    "store": "판매처 2",
+    "url": "https://example.org/products/2",
+    "condition": "신품"
+  },
+  {
+    "title": "KB100 한글 갈축",
+    "price": 90000,
+    "shipping": 2500,
+    "store": "판매처 3",
+    "url": "https://example.org/products/3",
+    "condition": "신품"
+  },
+  {
+    "title": "KB100 한글 청축",
+    "price": 60000,
+    "shipping": 0,
+    "store": "판매처 4",
+    "url": "https://example.org/products/4",
+    "condition": "신품"
+  },
+  {
+    "title": "KB100 한글 갈축 중고",
+    "price": 70000,
+    "shipping": 0,
+    "store": "판매처 5",
+    "url": "https://example.org/products/5",
+    "condition": "중고"
+  },
+  {
+    "title": "KB1000 한글 갈축",
+    "price": 1000,
+    "shipping": 0,
+    "store": "판매처 6",
+    "url": "https://example.org/products/6",
+    "condition": "신품"
+  }
+]
