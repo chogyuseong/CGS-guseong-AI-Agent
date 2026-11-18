@@ -332,7 +332,7 @@ pnpm --dir apps/web e2e
 정직하게 적습니다. 전체 목록은 [docs/SAFETY.md의 "알려진 한계"](docs/SAFETY.md#알려진-한계)와 [docs/DECISIONS.md의 "예정된 결정"](docs/DECISIONS.md#예정된-결정-아직-구현하지-않음).
 
 **아직 확인하지 못한 것**
-- 실제 Google 계정 연결과 "금요일 저녁 7시 성수동 약속 잡아줘" → 승인 → 실제 캘린더 등록(테스트는 문서 형식으로 만든 Google 응답으로만 했습니다).
+- 실제 Google 연결 성공은 확인했습니다. 연결 뒤 앱의 승인 카드를 거쳐 실제 캘린더에 등록되는지 확인이 남았습니다.
 - 실제 폰에서 푸시 수신(`VAPID_SUBJECT`를 채우고 https 주소에서 확인해야 합니다), 폰의 키보드가 올라온 상태([docs/PHONE-CHECK.md](docs/PHONE-CHECK.md)).
 - 실제 Gmail 읽기, 실제 모델로 아침 브리핑·감시 판정, 메일 주입에 실제 감시 모델이 mismatch를 내는지.
 - eval 반복 측정(`--repeat 3`), Logfire 실제 화면(토큰 넣은 뒤).
@@ -348,7 +348,7 @@ pnpm --dir apps/web e2e
 - 다크 모드는 시스템 설정만 따릅니다(앱 안 테마 선택 없음).
 
 **생활 비서 D(취업)에서 남은 것**
-- 실제 모델로 공고 준비 흐름 확인(eval 사례 없음), 프롬프트 변경 뒤 eval 재실행(2026-11-18 밤 미실행), 경험 고치기·공고 저장·채용 API(고용24·사람인 발급 조건 확인 필요)는 제안으로 둠.
+- 실제 모델로 가상 공고와 경험을 대조해 카드 5칸을 확인했습니다. 경험 수정·공고 저장·채용 API는 후속 제안입니다.
 
 **다음 할 일 (9단계)**
 - 배포는 미뤘습니다(2026-11-18). 당분간 이 PC에서 `pnpm dev`로 쓰고, 예약·감시는 PC가 켜져 있을 때만 돕니다. 나중에 Railway Hobby([docs/DEPLOY.md](docs/DEPLOY.md)) 또는 PC + 무료 터널([docs/PUSH-CHECK.md](docs/PUSH-CHECK.md)).

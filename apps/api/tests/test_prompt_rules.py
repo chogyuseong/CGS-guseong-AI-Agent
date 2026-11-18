@@ -30,3 +30,10 @@ def test_notification_list_includes_schedules_and_watches() -> None:
         "알림 목록" in line and "list_schedules" in line and "list_watches" in line
         for line in SYSTEM_PROMPT.splitlines()
     )
+
+
+def test_web_search_answer_uses_the_recorded_lookup_time() -> None:
+    """13: 행사 날짜와 실제 검색 시각을 구별하도록 도구가 반환한 시각을 답변에 쓰게 한다."""
+    assert any(
+        "web_search" in line and "fetched_at" in line and "조회 시각" in line for line in SYSTEM_PROMPT.splitlines()
+    )

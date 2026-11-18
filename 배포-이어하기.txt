@@ -1,4 +1,8 @@
 마이에이전트: 다른 컴퓨터에서 이어서 개발하기
+최신 점검(2026-11-18): 13번 웹 검색 답변의 조회 시각 누락을 수정했다. 개발 API의 Uvicorn 접속 로그를 껐다.
+  두 회귀 테스트의 수정 전 실패와 수정 후 관련 테스트 9개 통과를 확인했다. 첫 PC의 개발 DB에 누락된
+  마이그레이션 2개 적용(c71ca8480d3e head, alembic check 차이 없음). 첫 PC에는 기준 PAYLOAD_ENCRYPTION_KEY와
+  TMAP 키가 아직 없어 해당 기능의 실제 사용에는 두 번째 PC의 설정을 안전하게 옮겨야 한다.
 마지막 갱신 2026-11-18 밤 (생활 비서 A·B·C·D 첫 단계 완료. 그 전: 요구사항 밖 기능 3개, eval 확정·측정,
 주석 보강, 배포 미룸. 9단계는 코드·문서로 할 수 있는 것까지 완료, 남은 것은 사용자 계정·비용·실기기가 필요한 일)
 
@@ -164,7 +168,7 @@
 웹: Biome 0건, tsc, Vitest 359개, Playwright 48개(2026-11-18 두 번째 PC).
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
-다음 할 일(모두 사용자 쪽): 위 "지금 사용자가 정할 것" 1)·2)·4). 코드 쪽에서 혼자 할 일은 남아 있지 않다.
+현재 남은 작업은 문서 상단의 최신 점검 기록을 따른다. 아래는 이전 단계 당시의 기록이다.
 후속 과제 제안(docs/OPERATIONS.md): unknown operation 주기적 재조회 작업, WORKFLOW_VERSION을 올린 뒤 running으로 남은 task 정리 명령.
 ★ PAYLOAD_ENCRYPTION_KEY(2026-11-18): 첫 PC(C:\Users\rbtjd)와 두 번째 PC 바탕화면의 어느 .env에도 값이 없어서,
   두 번째 PC(C:\Users\SSAFY\Desktop\새 폴더 (3)\CGS-guseong-AI-Agent)의 .env에 새로 만들었다(사용자 결정). 이 키가 기준이다.
@@ -232,11 +236,10 @@
     VAPID_SUBJECT='mailto:본인메일'을 넣고 API를 다시 켠 뒤 docs/PUSH-CHECK.md 절차를 따른다
     (메일 주소가 푸시 서비스로 전송되는 값이라 제가 넣지 않았다)
 
-(3) eval: apps/api/evals/dataset.yaml의 사례 30개를 읽고 고친 뒤 맨 위 "초안" 표시를 지운다. 그다음 apps/api에서
+(3) eval 사례 30개 확정 및 첫 평가 완료. 재평가할 때는 apps/api에서
       uv run python -m evals.run_evals                                    예상 비용만 출력
       uv run python -m evals.run_evals --run --email 이메일 --confirm-cost   실제 실행(약 $0.04~0.07)
     결과 한 줄을 docs/EVALS.md 표에 붙인다. 가장 많이 틀린 유형 3개와 개선 제안은 그 뒤에 한다
-    (밤사이 시험 실행을 하려 했으나 권한 검사에서 막혀 실행하지 않았다)
 
 (4) 배포: Railway(선택지 A)로 정했고 배포 전 코드 변경은 끝났다(2026-11-17). 남은 것은 사용자가 할 일:
     Railway 가입·Hobby 결제·사용량 한도 → 서비스 3개(Postgres, api=apps/api, web=apps/web) → 환경변수 →
@@ -252,7 +255,6 @@
 알려진 문제(고치지 않음):
   - 답변 끝에 "구글 캘린더에는 넣지 않은 앱 안의 할 일입니다" 같은 말이 아직 가끔 붙는다
   - 실행할 때마다 Anthropic 연결을 새로 만든다(재사용 안 함)
-  - 개발 서버(pnpm api)의 접속 로그에 Google 콜백의 code·state가 남는다(로컬 터미널에만. 배포용 apps/api/start.sh는 접속 로그를 끈다)
   - Open-Meteo 접속이 첫 PC에서 불안정했다
   - 첫 PC 개발 DB의 e2e@example.com 계정: 6단계 보강 마이그레이션이 예전에 자동으로 만든 브리핑을 껐다.
     아침 브리핑은 이제 사용자가 켠 뒤에만 실행된다
