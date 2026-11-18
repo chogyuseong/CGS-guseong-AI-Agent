@@ -1,4 +1,9 @@
-"""웹 푸시 구독 요청·응답. 화면은 브라우저의 PushSubscription.toJSON()을 그대로 보낸다."""
+"""웹 푸시 구독 요청·응답. 화면은 브라우저의 PushSubscription.toJSON()을 그대로 보낸다.
+
+라우터는 app/routers/push.py, 화면 사용처는 apps/web/lib/push.ts. 근거: DECISIONS 2026-11-17(허용 호스트로 SSRF 방지).
+고칠 때 주의: 허용 호스트를 넓히면 서버가 요청을 보낼 수 있는 곳이 늘어난다. 브라우저 푸시 서비스의 공식 호스트만 더하고
+tests/test_push.py에 그 호스트의 허용·거부 사례를 더한다. 필드를 바꾸면 gen:api.
+"""
 
 from typing import Annotated
 from urllib.parse import urlsplit
@@ -11,10 +16,16 @@ from pydantic import BaseModel, Field, field_validator
 # - Safari·아이폰 홈 화면 앱: web.push.apple.com / 옛 Edge: *.notify.windows.com
 ALLOWED_PUSH_HOSTS = ("googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com")
 
+# 브라우저가 주는 키 값의 모양(base64url, 끝의 '=' 패딩 0~2개 허용). 다른 모양은 저장 전에 422로 막는다.
 Base64Url = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+={0,2}$")]
 
 
 def is_push_service_url(url: str) -> bool:
+    """https이고 호스트가 ALLOWED_PUSH_HOSTS 중 하나이거나 그 하위 도메인이면 True.
+
+    "." + allowed 접미사로 비교해 evilgoogleapis.com 같은 비슷한 이름을 막는다(SSRF·다른 서버로 요청 보내기 방지).
+    http, 호스트 없는 주소도 False다.
+    """
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     if parts.scheme != "https" or not host:
@@ -29,6 +40,7 @@ class PushKeys(BaseModel):
 
 
 class PushEndpoint(BaseModel):
+    # 구독·해지 본문 공통. 해지도 같은 검사를 거친다(허용 호스트가 아니면 저장된 구독일 수 없다).
     endpoint: str = Field(min_length=1, max_length=2048)
 
     @field_validator("endpoint")

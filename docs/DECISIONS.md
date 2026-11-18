@@ -36,6 +36,7 @@
 ## 1단계 (2026-11-16)
 
 ### 사용자가 정한 것 ("완성도 높은 방향으로 진행")
+- 2026-11-18 (다시 확인) 모델 호출은 계속 API 키 방식이다. 키는 Max 요금제 월 API 크레딧이 연결된 Claude Console 조직에서 발급한다(BUILD_SPEC 6.1). 구독 로그인 직접 호출은 약관·명세상 쓰지 않고, 로컬 모델 전환도 하지 않는다(사용자 선택).
 - 2026-11-16 `usage_logs`에 `user_id`(NOT NULL, FK)를 새 마이그레이션으로 넣는다. task가 없는 사용(감시 판정, eval)도 사용자별 하루 비용 합계에 들어가야 하기 때문이다. 첫 마이그레이션은 이미 커밋돼 고치지 않는다.
 - 2026-11-16 `list_todos`, `list_memories`는 READ다. SPEC의 설계 표는 INTERNAL이라고 적었지만 마스터 프롬프트의 READ가 맞다(조회만 한다).
 - 2026-11-16 1단계 도구는 `save_note`, `add_todo`, `complete_todo`(INTERNAL), `list_todos`, `list_notes`(READ)다. `list_notes`는 명세에 없지만 `save_note`만 있으면 메모를 다시 볼 방법이 없어 넣는다. 기억 도구는 5단계 몫이다.

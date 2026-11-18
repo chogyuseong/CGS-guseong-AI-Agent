@@ -10,6 +10,22 @@
   감시 = 켜진 감시 중 같은 도구 + 같은 입력 + 같은 조건(공백·대소문자 무시).
 - 실패는 AutomationError(code, 한국어 message). 도구는 ToolResult.failure로, 화면 API는 404·409로 바꾼다.
 - 커밋은 호출한 쪽이 한다.
+
+진입점: app/tools/automation.py(create_·list_·delete_schedule/watch, 만들기는 채팅 도구로만),
+app/routers/automations.py(목록, PATCH 켜기·끄기, DELETE, PUT 아침 브리핑), check.py('예약 작업' 대화방).
+근거: BUILD_SPEC 8절, DECISIONS 2026-11-17 "6단계"(중복 거절, 서버 제한, 다시 켤 때 같은 제한)와
+"6단계 보강"(브리핑은 사용자가 켤 때만, 숫자 조건, 단발성 날짜 만료).
+
+변경 이력:
+- 2026-11-17 6단계: 예약·감시 만들기·켜기·끄기·지우기, '예약 작업' 대화방.
+- 2026-11-17 6단계 보강: 아침 브리핑 자동 생성을 없애고 enable_briefing(사용자가 켤 때만), 숫자 조건(check_condition),
+  조회 인자 date가 있는 감시는 그 날이 끝나면 만료(watch_expiry).
+
+고칠 때 주의:
+- 모든 조회·수정에 user_id 조건을 건다. 남의 id는 "없음(not_found)"으로 답해 있는지조차 드러내지 않는다.
+- 제한 값은 rules.py가 정본이다. 오류 code를 더하면 routers/automations.py의 http_error(404/409)와
+  AutomationErrorOut 설명, 화면 문구를 확인한다. message는 모델·화면에 그대로 보인다.
+- 테스트: tests/test_automation_tools.py, test_automation_api.py, test_briefing_consent.py, test_watch_conditions.py.
 """
 
 from datetime import datetime, time, timedelta
@@ -32,10 +48,15 @@ class AutomationError(Exception):
         self.message = message
 
 
+# 라우터가 이 code만 404로, 나머지는 409로 바꾼다(routers/automations.py http_error).
 NOT_FOUND = "not_found"
 
 
 async def lock_user(session: AsyncSession, user_id: int) -> None:
+    """사용자 행을 FOR UPDATE로 잠근다(커밋까지 유지). 같은 사용자의 만들기·켜기를 한 줄로 세운다.
+
+    잠그지 않으면 동시에 온 두 요청이 둘 다 "9개라 괜찮다"를 보고 11개가 되거나 같은 감시가 두 개 생긴다.
+    """
     await session.execute(select(User.id).where(User.id == user_id).with_for_update())
 
 
@@ -50,6 +71,10 @@ async def active_schedule_count(session: AsyncSession, user_id: int) -> int:
 async def find_same_schedule(
     session: AsyncSession, user_id: int, prompt_text: str, time_of_day: time, weekdays: list[int]
 ) -> ScheduledJob | None:
+    """같은 시각·같은 요일 집합·같은 프롬프트(공백·대소문자 무시)인 예약. 꺼진 것도 찾는다.
+
+    weekdays는 clean_weekdays로 정렬된 값이어야 한다(비교가 정렬된 목록끼리다).
+    """
     rows = await session.scalars(
         select(ScheduledJob).where(ScheduledJob.user_id == user_id, ScheduledJob.time_of_day == time_of_day)
     )
@@ -58,6 +83,7 @@ async def find_same_schedule(
 
 
 async def ensure_schedule_room(session: AsyncSession, user_id: int) -> None:
+    """켜진 예약이 상한(10개)이면 limit_reached. lock_user 뒤에 불러야 동시 요청에서도 맞다."""
     if await active_schedule_count(session, user_id) >= rules.MAX_ACTIVE_SCHEDULES:
         raise AutomationError(
             "limit_reached",
@@ -76,7 +102,11 @@ async def add_schedule(
     weekdays: list[int],
     now: datetime,
 ) -> ScheduledJob:
-    """예약 작업을 만든다. 시각은 서울 기준 'HH:MM', 요일은 0(월)~6(일)."""
+    """예약 작업을 만든다. 시각은 서울 기준 'HH:MM', 요일은 0(월)~6(일).
+
+    순서: 형식 검사 → 사용자 잠금 → 중복 → 상한 → 다음 실행 시각 계산. 실패는 AutomationError(아무것도 쓰지 않음).
+    flush만 하고 커밋은 도구가 한다. 하루 1회 제한은 "시각 하나 + 요일 목록" 구조로 지켜진다.
+    """
     time_of_day, days = rules.parse_time_of_day(time_text), rules.clean_weekdays(weekdays)
     if time_of_day is None:
         raise AutomationError("invalid", "시각은 24시간 'HH:MM' 형식이어야 합니다. 예: 21:00")
@@ -103,6 +133,7 @@ async def add_schedule(
 
 
 async def owned_schedule(session: AsyncSession, user_id: int, job_id: int) -> ScheduledJob:
+    """내 예약 하나. 없거나 남의 것이면 not_found. 세션 캐시 대신 최신 값을 읽는다."""
     job = await session.scalar(
         select(ScheduledJob)
         .where(ScheduledJob.id == job_id, ScheduledJob.user_id == user_id)
@@ -128,11 +159,13 @@ async def set_schedule_active(
 
 
 async def delete_schedule(session: AsyncSession, user_id: int, job_id: int) -> None:
+    """예약을 지운다. 이미 잡힌 실행은 끝까지 돌고, 그 task와 결과 메시지는 대화방에 남는다(DECISIONS 6단계 보강)."""
     await session.delete(await owned_schedule(session, user_id, job_id))
     await session.flush()
 
 
 async def list_schedules(session: AsyncSession, user_id: int) -> list[ScheduledJob]:
+    """내 예약 전부(꺼진 것 포함), 시각 순."""
     rows = await session.scalars(
         select(ScheduledJob).where(ScheduledJob.user_id == user_id).order_by(ScheduledJob.time_of_day, ScheduledJob.id)
     )
@@ -143,11 +176,16 @@ async def list_schedules(session: AsyncSession, user_id: int) -> list[ScheduledJ
 
 
 async def active_watches(session: AsyncSession, user_id: int) -> list[Watch]:
+    """켜진 감시(상한·중복 검사용). 만료됐지만 1분 검사가 아직 끄지 않은 것도 켜진 것으로 센다."""
     rows = await session.scalars(select(Watch).where(Watch.user_id == user_id, Watch.is_active.is_(True)))
     return list(rows)
 
 
 def same_watch(watch: Watch, tool_name: str, tool_input: dict[str, Any], condition_text: str) -> bool:
+    """같은 도구 + 같은 입력(키 순서 무시) + 같은 조건 문장(공백·대소문자 무시).
+
+    숫자 조건(condition_spec)은 비교하지 않는다(조건 문장이 같으면 같은 감시로 본다).
+    """
     return (
         watch.tool_name == tool_name
         and rules.input_key(watch.tool_input) == rules.input_key(tool_input)
@@ -178,6 +216,7 @@ async def ensure_watch_allowed(
 
 
 def check_interval(interval_minutes: int) -> None:
+    """감시 간격 30~1,440분. 도구 인자 검증(Interval)과 겹치지만 서버 제한은 여기서 한 번 더 강제한다."""
     low, high = rules.MIN_WATCH_INTERVAL_MINUTES, rules.MAX_WATCH_INTERVAL_MINUTES
     if not low <= interval_minutes <= high:
         raise AutomationError("invalid", f"감시 간격은 {low}분 이상 {high}분(하루) 이하여야 합니다.")
@@ -237,6 +276,7 @@ async def add_watch(session: AsyncSession, user_id: int, *, fields: dict[str, An
 
 
 async def owned_watch(session: AsyncSession, user_id: int, watch_id: int) -> Watch:
+    """내 감시 하나. 없거나 남의 것이면 not_found."""
     watch = await session.scalar(
         select(Watch).where(Watch.id == watch_id, Watch.user_id == user_id).execution_options(populate_existing=True)
     )
@@ -262,11 +302,13 @@ async def set_watch_active(session: AsyncSession, user_id: int, watch_id: int, *
 
 
 async def delete_watch(session: AsyncSession, user_id: int, watch_id: int) -> None:
+    """감시를 지운다. 확인 도중이면 check.finish_watch가 행이 없음을 보고 결과를 저장하지 않고 알리지 않는다."""
     await session.delete(await owned_watch(session, user_id, watch_id))
     await session.flush()
 
 
 async def list_watches(session: AsyncSession, user_id: int) -> list[Watch]:
+    """내 감시 전부(꺼진·만료된 것 포함), 만든 순."""
     rows = await session.scalars(select(Watch).where(Watch.user_id == user_id).order_by(Watch.created_at, Watch.id))
     return list(rows)
 
@@ -275,7 +317,11 @@ async def list_watches(session: AsyncSession, user_id: int) -> list[Watch]:
 
 
 async def automation_conversation(session: AsyncSession, user_id: int) -> Conversation:
-    """사용자의 '예약 작업' 대화방(가장 먼저 만든 것). 없으면 만든다."""
+    """사용자의 '예약 작업' 대화방(가장 먼저 만든 것). 없으면 만든다(flush만, 커밋은 부른 쪽).
+
+    별도 컬럼 없이 제목으로 찾는다(DECISIONS 2026-11-17). 그래서 사용자가 이 제목으로 대화를 만들지 못하게
+    schemas/conversations.py가 막는다. 제목을 바꾸면 기존 대화방을 못 찾아 새로 만든다.
+    """
     found = await session.scalar(
         select(Conversation)
         .where(Conversation.user_id == user_id, Conversation.title == rules.AUTOMATION_CONVERSATION_TITLE)
@@ -291,6 +337,7 @@ async def automation_conversation(session: AsyncSession, user_id: int) -> Conver
 
 
 async def find_briefing(session: AsyncSession, user_id: int) -> ScheduledJob | None:
+    """내 아침 브리핑(kind='briefing', 가장 먼저 만든 것). 없으면 None."""
     return await session.scalar(
         select(ScheduledJob)
         .where(ScheduledJob.user_id == user_id, ScheduledJob.kind == rules.BRIEFING_KIND)

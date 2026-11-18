@@ -7,6 +7,30 @@ list_schedules·list_watches = READ (toolsets.py에서 정한다. 명세 도구 
   인자 제약(Field)은 모델에게 보이는 안내이자 첫 번째 검사이고, 도구 함수를 직접 불러도 store가 다시 막는다.
 - 만든 예약·감시는 자동 작업이라 READ 도구만으로 실행된다(절대 원칙 4). 자동 작업에는 이 생성 도구가 없으므로
   예약 작업이 스스로 예약·감시를 늘릴 수 없다.
+
+진입점: 모델이 chat task에서 부른다(toolsets.py의 read_tools·internal_tools, TOOLSETS_BY_ORIGIN). 같은 일을 화면에서
+하는 API는 app/routers/automations.py이고, 둘 다 app/automation/store.py를 거친다(제한 검사가 한 곳).
+외부 API 호출 없음. 근거: BUILD_SPEC 8절(자동화), docs/DECISIONS.md "6단계"·"6단계 보강"(2026-11-17).
+
+변경 이력:
+- 2026-11-17 6단계: 도구 6개, 서버 제한은 store가 강제.
+- 2026-11-17 6단계 보강: create_watch에 숫자 조건(number_field·number_op·number_value)을 더함
+  (서버 비교, 모델 비용 없음).
+- 7단계 보강·2026-11-18: 메일이나 웹 검색 결과를 읽은 문맥에서는 create_schedule·create_watch를 모델에게 보이지 않고
+  실행 직전에도 막는다. 이 파일이 아니라 app/agent/data_policy.py(visible_tool, automation_refusal)가 한다.
+
+고칠 때 주의:
+- 제한 값(활성 10개, 간격 30~1440분, 만료 30일, 도구 입력 1,000자)은 app/automation/rules.py가 정본이다. Interval의
+  ge/le는 rules를 읽지만 도구 docstring과 Field description 속 숫자("30 이상 1440 이하", "10개까지", "30일")는
+  글자라서 rules를 바꾸면 같이 고친다.
+- 도구 이름을 바꾸거나 늘리면: toolsets.py 등록 목록, 아래 LABELS, data_policy.TOOL_POLICIES(tests/test_data_policy.py가
+  빠진 도구를 잡는다), data_policy.AUTOMATION_CREATE_TOOLS(생성 도구일 때), rules.NOT_WATCHABLE_TOOLS(조회 도구일 때).
+- NumberField 설명의 예시 키(precipitation_probability_max, todos)는 weather.summarize·notes.list_todos 결과의 키다.
+  그 키를 바꾸면 이미 저장된 감시의 condition_spec이 값을 못 읽어 unknown이 된다(app/automation/conditions.py).
+- 모델에게 돌려주는 결과 모양(schedule_view·watch_view)을 바꾸면 eval(evals/)과
+  tests/test_automation_tools.py를 확인한다.
+- 테스트: tests/test_automation_tools.py, test_automation_api.py, test_automation_runs.py, test_mail_automation.py,
+  test_search_automation.py.
 """
 
 from collections.abc import Callable
@@ -78,11 +102,21 @@ NumberValue = Annotated[float | None, Field(description="숫자 조건의 기준
 
 
 def now_utc() -> datetime:
-    """지금(app.clock). eval은 사례의 고정 시각을 쓴다."""
+    """지금(app.clock). eval은 사례의 고정 시각을 쓴다.
+
+    다음 실행 시각·감시 만료일 계산의 기준이다. datetime.now()를 직접 쓰면 eval의 고정 시각(evals/harness.py
+    frozen_clock)이 먹지 않아 '내일' 감시의 만료일이 실행 날짜마다 달라진다.
+    """
     return clock.now_utc()
 
 
 def schedule_view(job: ScheduledJob) -> dict[str, Any]:
+    """모델에게 돌려줄 예약 한 건. 주기·다음 실행을 서울 기준 문장으로 넣는다.
+
+    모델이 시각을 직접 계산하지 않고 그대로 말하게 하려는 것이다.
+
+    꺼진 예약은 next_run이 None이다(다음 실행이 없다고 말하게). DB를 읽거나 쓰지 않는다.
+    """
     return {
         "id": job.id,
         "title": job.title,
@@ -94,6 +128,10 @@ def schedule_view(job: ScheduledJob) -> dict[str, Any]:
 
 
 def watch_view(watch: Watch) -> dict[str, Any]:
+    """모델에게 돌려줄 감시 한 건. 만료일은 서울 날짜(YYYY-MM-DD)만 준다(도구 설명이 "만료일을 말하라"고 한다).
+
+    DB를 읽거나 쓰지 않는다.
+    """
     return {
         "id": watch.id,
         "description": watch.description,
@@ -108,6 +146,11 @@ def watch_view(watch: Watch) -> dict[str, Any]:
     }
 
 
+# 도구(INTERNAL). docstring은 모델에게 보이는 도구 설명이라 여기 주석으로 적는다.
+# - store.add_schedule이 사용자 행을 FOR UPDATE로 잠근 뒤 중복·활성 10개를 검사한다. 같은 사용자의 두 요청이 동시에
+#   와도 상한을 넘지 못하게 하려는 것이다(DECISIONS 6단계 "서버 제한").
+# - 거절(AutomationError)이면 커밋하지 않고 세션을 닫아 아무것도 남지 않는다. 성공이면 한 트랜잭션으로 커밋한다.
+# - 모델이 Field 제약을 지켜도, 도구를 직접 불러도 store가 같은 검사를 다시 한다(모델 지시만으로 제한을 넘지 못함).
 async def create_schedule(
     ctx: RunContext[AgentDeps],
     title: ScheduleTitle,
@@ -135,6 +178,7 @@ async def create_schedule(
     return ToolResult.success({**schedule_view(job), "saved_to": "앱 예약 작업(자동화 화면)"})
 
 
+# 도구(READ). 예약 작업 task(origin=schedule)도 read_tools로 받지만 감시에는 쓸 수 없다(rules.NOT_WATCHABLE_TOOLS).
 async def list_schedules(ctx: RunContext[AgentDeps]) -> ToolResult:
     """내 예약 작업 목록(꺼진 것 포함)과 각 반복 주기·다음 실행 시각."""
     async with ctx.deps.db() as session:
@@ -142,6 +186,8 @@ async def list_schedules(ctx: RunContext[AgentDeps]) -> ToolResult:
     return ToolResult.success({"schedules": [schedule_view(job) for job in rows]})
 
 
+# 도구(INTERNAL). store.owned_schedule이 user_id 조건으로 찾으므로 남의 예약 id는 not_found로 끝난다.
+# 이미 잡혀 실행 중인 예약은 끝까지 돈다(DECISIONS 6단계 보강 "예약 삭제·끄기와 실행 경합").
 async def delete_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> ToolResult:
     """예약 작업 하나를 지운다. schedule_id는 list_schedules 결과의 id."""
     async with ctx.deps.db() as session:
@@ -153,6 +199,12 @@ async def delete_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> ToolR
     return ToolResult.success({"deleted_id": schedule_id})
 
 
+# 도구(INTERNAL). 서버 검사는 store.add_watch 순서대로: 간격 → 숫자 조건 모양 → 만료일(date 인자면 그 날
+# 서울 자정, 지난 날짜 거부) → 감시할 수 있는 도구·입력(automation/watchable.py, READ 도구만·메일 제외)
+# → 사용자 잠금 → 중복·활성 10개.
+# 메일 도구는 감시에 쓸 수 없다(명세 금지, toolsets.py mail_tools 주석·DECISIONS 7단계).
+# READ만 허용하는 것은 절대 원칙 7.
+# 아래 세 숫자 칸 검사는 "일부만 넣은 숫자 조건"이 문장 조건으로 조용히 바뀌어 모델 판정 비용이 드는 일을 막는다.
 async def create_watch(
     ctx: RunContext[AgentDeps],
     description: WatchDescription,
@@ -194,6 +246,7 @@ async def create_watch(
     return ToolResult.success({**watch_view(watch), "saved_to": "앱 조건 감시(자동화 화면)"})
 
 
+# 도구(READ). list_schedules와 같이 감시에는 쓸 수 없다(감시가 자기 설정을 보는 것은 뜻이 없다, DECISIONS 6단계).
 async def list_watches(ctx: RunContext[AgentDeps]) -> ToolResult:
     """내 감시 목록(꺼진 것 포함)과 각 간격·만료일."""
     async with ctx.deps.db() as session:
@@ -201,6 +254,7 @@ async def list_watches(ctx: RunContext[AgentDeps]) -> ToolResult:
     return ToolResult.success({"watches": [watch_view(watch) for watch in rows]})
 
 
+# 도구(INTERNAL). user_id 조건으로 찾는다(남의 감시 id는 not_found).
 async def delete_watch(ctx: RunContext[AgentDeps], watch_id: int) -> ToolResult:
     """감시 하나를 지운다. watch_id는 list_watches 결과의 id."""
     async with ctx.deps.db() as session:
@@ -213,6 +267,7 @@ async def delete_watch(ctx: RunContext[AgentDeps], watch_id: int) -> ToolResult:
 
 
 # ---- 타임라인 문구 (step.label) ----
+# toolsets.TOOL_LABELS가 모은다. 도구 이름 키가 빠지면 "도구이름 실행하는 중"으로 보인다(toolsets.label_for).
 
 LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "create_schedule": lambda args: f"예약 작업 '{short(args.get('title', ''))}' 만드는 중",

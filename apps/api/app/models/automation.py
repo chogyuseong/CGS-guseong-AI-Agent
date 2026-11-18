@@ -1,4 +1,17 @@
-"""스스로 도는 작업의 설정: scheduled_jobs(예약 작업), watches(조건 감시)."""
+"""스스로 도는 작업의 설정: scheduled_jobs(예약 작업), watches(조건 감시), automation_occurrences(발생 기록).
+
+진입점: 만들기·끄기·지우기와 서버 제한은 app/automation/store.py(도구 app/tools/automation.py, 화면 API
+app/routers/automations.py), 실행은 1분 검사 app/automation/check.py. 제한 값은 app/automation/rules.py.
+근거: BUILD_SPEC 8.1, DECISIONS 2026-11-16(DB 기본값 만료·CHECK 간격), 6단계·6단계 보강.
+
+고칠 때 주의:
+- 컬럼을 바꾸면 Alembic 마이그레이션(`uv run python -m alembic revision --autogenerate`)을 만들고 생성 파일을 읽는다.
+  화면 API 모양이 바뀌면 `pnpm --dir apps/web gen:api`.
+- DB 기본값·CHECK(감시 간격 30분, 만료 30일)는 rules.py의 MIN_WATCH_INTERVAL_MINUTES·WATCH_LIFETIME과 같아야 한다.
+  rules.py 머리의 "제한 값을 바꾸면" 목록(도구 설명, 화면 안내, 테스트)도 함께 고친다.
+- automation_occurrences는 예정 시각이 보관 기간(7일)보다 오래되면 retention.py가 지운다(docs/DATA_POLICY.md).
+- kind·condition_type·status는 enum이 아닌 문자열 컬럼이다(CHECK 없음). 허용 값은 코드(rules.py 등)가 지킨다.
+"""
 
 from datetime import datetime, time
 from typing import Any
@@ -23,6 +36,12 @@ from app.models.base import TimestampedTable
 
 
 class ScheduledJob(TimestampedTable):
+    """예약 작업 하나. 실행 때마다 origin=schedule task를 '예약 작업' 대화방에 만들고, READ 도구만으로 돈다.
+
+    next_run_at은 서버가 time_of_day·weekdays·timezone으로 계산한다(rules.next_schedule_run). 1분 검사가 이 값이
+    지난 행을 잡을 때 행 잠금과 "next_run_at = 예정 시각" 비교로 같은 실행을 한 번만 시작한다(check.claim_schedule_run).
+    """
+
     __tablename__ = "scheduled_jobs"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -44,6 +63,12 @@ class ScheduledJob(TimestampedTable):
 
 
 class Watch(TimestampedTable):
+    """조건 감시 하나. task 없이 tool_name(READ, 메일 제외)을 tool_input으로 직접 부르고 조건을 판정한다.
+
+    tool_name·tool_input은 app/automation/watchable.py가 만들 때와 실행 때 다시 검사한다. 조건이 맞으면 알린 뒤
+    repeat=false면 끄고 true면 12시간 뒤에 다시 본다(check.finish_watch). 만료되면 1분 검사가 끈다.
+    """
+
     __tablename__ = "watches"
     # 간격 30분 이상은 서버 코드(6단계)에서도 검사하지만, DB에서도 한 번 더 막는다.
     __table_args__ = (CheckConstraint("interval_minutes >= 30", name="interval_at_least_30"),)

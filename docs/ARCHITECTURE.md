@@ -182,7 +182,7 @@ POST /api/approvals/{id}/approve (또는 reject)
 | `budget.py` | UsageLimits, 비용 계산(MODEL_PRICES), 하루 비용 검사 |
 | `history.py` | 이전 기록 저장 형식(JSON), 자르기, 실패한 run 기록 정리, 승인 대기 기록 저장·결과 없는 호출 찾기. 7단계 보강: 메일 도구 결과는 앞 500자를 PAYLOAD_ENCRYPTION_KEY로 암호화해 저장(`seal_mail_returns`), 모델에게 줄 때만 푼다(`open_mail_returns`) |
 | `prompts.py` | 시스템 프롬프트(명세 문장 + 승인 카드 재확인 금지), 동적 지시문(오늘 날짜·요일, 이번 주 날짜표, 다음 주 월요일 / 5단계: 기억 최근 30줄을 요청마다 DB에서 읽어 안내문 + `<user_memories>`로 감쌈, `memory_instruction`) |
-| `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장, settings, http), ToolResult(`external()`: 지시문 무시 안내로 감싸고 6,000자로 자름), EXTERNAL_CONTENT_TOOLS, `is_wrapped_external`. 7단계: MAIL_TOOLS, `output_for_storage`(메일 결과 저장분 500자), STORED_TEXT_TOOLS·MEMORY_BLOCKING_TOOLS(remember 검사 목록) |
+| `deps.py`, `results.py` | AgentDeps(user_id, task_id, origin, db 세션 공장, settings, http), ToolResult(`external()`: 지시문 무시 안내로 감싸고 6,000자로 자름), EXTERNAL_CONTENT_TOOLS, `is_wrapped_external`. 7단계: MAIL_TOOLS, `output_for_storage`(메일 결과 저장분 500자), STORED_TEXT_TOOLS·MEMORY_BLOCKING_TOOLS(remember 검사 목록. 5단계 보강에서 원문 인용 검증으로 바뀌어 지금은 쓰지 않음, 2026-11-18 확인) |
 
 ### 도구 (1단계 + 4단계 + 5단계 + 6단계 + 7단계)
 

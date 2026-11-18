@@ -34,6 +34,20 @@ scope_missing(캘린더 권한을 빼고 허용함), mail_scope_missing(메일 �
 주소에 넣지 않고 코드만 넣는다.
 GOOGLE_REDIRECT_URI는 화면 주소를 거치는 {APP_ORIGIN}/api/connections/google/callback이어야 세션 쿠키가 함께 온다
 (Next.js가 /api/*를 API로 넘긴다).
+
+인증·소유자: callback을 뺀 모든 경로는 로그인 필요(start는 CurrentUser 대신 session_from_request로
+로그인 세션 행까지 읽어 state를 그 세션에 묶는다). 모든 조회·삭제는 user.id 기준이다.
+콜백은 GET이라 Origin 검사가 없고, 대신 state(로그인 세션·10분·한 번 사용, PKCE)가
+다른 사람의 code를 내 계정에 붙이는 공격(OAuth CSRF)을 막는다.
+근거: BUILD_SPEC 9.3(OAuth 시작은 POST), DECISIONS 2026-11-17(범위 calendar.events.owned, 토큰 암호화 키 없으면 막기,
+연결 해제는 철회 실패해도 DB 토큰 삭제, 해제 시 대기 계획 무효화, POST start 전환, 메일 동의 users.mail_consent_at).
+
+고칠 때 주의:
+- 경로·응답 모양·오류 code를 바꾸면 gen:api 후 apps/web/lib/connections.ts(목록·start·해제·mail-consent)를 고친다.
+- 콜백의 리디렉션 쿼리(google=connected|error, reason, added=mail)는 OpenAPI에 드러나지 않는다. 바꾸면 연결 화면
+  (apps/web의 /connections 페이지)이 읽는 쿼리를 직접 찾아 함께 고친다.
+- 연결 해제가 대기 계획을 cancelled로 바꾸는 부분은 operation 상태 전이다(docs/STATE_MACHINES.md).
+- 관련 테스트: tests/test_google_connection.py, test_google_reconnect.py, test_mail_privacy.py, test_openapi.py.
 """
 
 import logging
@@ -58,19 +72,28 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/connections", tags=["connections"])
 
+# 콜백 뒤 돌아갈 화면 경로(apps/web의 연결 화면). 화면 경로를 옮기면 같이 바꾼다.
 CONNECTIONS_PAGE = "/connections"
 MAIL_SCOPE_PARAM = "mail"  # POST /google/start {"scope": "mail"}, 콜백 성공 시 ?google=connected&added=mail
 
 
 def page_redirect(settings: Settings, **params: str) -> RedirectResponse:
+    """연결 화면으로 302. 목적지는 설정의 APP_ORIGIN으로 고정한다.
+
+    요청에서 받은 주소로 보내지 않으므로 열린 리디렉션(공격자 사이트로 보내기)이 생기지 않는다.
+    params에는 고정 코드만 넣는다(토큰·Google 응답 본문은 주소·로그에 남지 않게).
+    """
     url = f"{settings.app_origin.rstrip('/')}{CONNECTIONS_PAGE}?{urlencode(params)}"
     return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
 
 
 def error_redirect(settings: Settings, reason: str) -> RedirectResponse:
+    """?google=error&reason=<코드>. reason은 이 파일 머리의 '콜백 reason 코드' 목록 중 하나여야 한다."""
     return page_redirect(settings, google="error", reason=reason)
 
 
+# 연결 상태(지금은 google 한 줄). 읽기만 한다. 토큰은 응답에 넣지 않는다.
+# 다시 연결이 필요한 행(invalid_grant)은 connected·calendar·mail을 모두 false로, reconnect_required=true로 보인다.
 @router.get("")
 async def list_connections(request: Request, user: CurrentUser, session: DbSession) -> list[ConnectionOut]:
     settings: Settings = request.app.state.settings
@@ -95,6 +118,9 @@ async def list_connections(request: Request, user: CurrentUser, session: DbSessi
     ]
 
 
+# 메일 동의(커밋). mail_consent_at IS NULL 조건으로 처음 동의 시각을 지킨다(두 번 눌러도 시각이 바뀌지 않음).
+# 동의는 Google 권한과 별개다: 도구는 플래그 → 동의 순으로 확인한다(app/tools/gmail.py mail_refusal).
+# 아래 docstring은 OpenAPI 설명이다.
 @router.put("/google/mail-consent", status_code=status.HTTP_204_NO_CONTENT)
 async def give_mail_consent(user: CurrentUser, session: DbSession) -> Response:
     """7단계 보강: 메일 데이터 처리 동의.
@@ -109,6 +135,7 @@ async def give_mail_consent(user: CurrentUser, session: DbSession) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# 동의 철회(커밋). 이미 철회한 상태여도 204. 아래 docstring은 OpenAPI 설명이다.
 @router.delete("/google/mail-consent", status_code=status.HTTP_204_NO_CONTENT)
 async def withdraw_mail_consent(user: CurrentUser, session: DbSession) -> Response:
     """동의 철회. 이후 메일 도구는 Gmail을 부르지 않는다. Google 쪽 메일 권한은 그대로다(연결 해제는 따로)."""
@@ -117,6 +144,7 @@ async def withdraw_mail_consent(user: CurrentUser, session: DbSession) -> Respon
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# OpenAPI에 409 본문 모양(ConnectionErrorOut)을 드러내는 표. description을 바꾸면 gen:api를 다시 돌린다.
 NOT_CONFIGURED_RESPONSE: dict[int | str, dict[str, Any]] = {
     409: {
         "model": ConnectionErrorOut,
@@ -125,6 +153,10 @@ NOT_CONFIGURED_RESPONSE: dict[int | str, dict[str, Any]] = {
 }
 
 
+# 연결 시작. 401(로그인 없음) / 409 not_configured(Google 설정 또는 TOKEN_ENCRYPTION_KEY 없음: 토큰을 평문으로
+# 저장하지 않으려고 연결 자체를 막는다) / 409 mail_disabled. 성공하면 oauth_states 행을 커밋한다.
+# POST라 Origin 검사를 거친다(다른 사이트가 내 브라우저로 state를 만들게 하지 못한다).
+# 아래 docstring은 OpenAPI 설명이다.
 @router.post("/google/start", responses=NOT_CONFIGURED_RESPONSE)
 async def google_start(request: Request, session: DbSession, body: GoogleStartRequest | None = None) -> GoogleStartOut:
     """Google 동의 화면 주소를 만든다. state를 이 로그인 세션에 묶어 DB에 남긴다(만료 10분, 한 번 사용)."""
@@ -159,7 +191,15 @@ async def google_start(request: Request, session: DbSession, body: GoogleStartRe
 async def callback_problem(
     request: Request, session: DbSession, settings: Settings
 ) -> tuple[str | None, User | None, google_auth.PendingAuthorization | None]:
-    """콜백 요청을 검사해 (오류 코드, 사용자, 인증 요청)을 돌려준다. state는 여기서 한 번 쓰이고 끝난다."""
+    """콜백 요청을 검사해 (오류 코드, 사용자, 인증 요청)을 돌려준다. state는 여기서 한 번 쓰이고 끝난다.
+
+    오류 코드가 None이면 사용자·인증 요청이 모두 있다. 검사 순서에 뜻이 있다:
+    - state 소비(consume_state + 커밋)를 Google의 error 확인보다 먼저 한다. 거부·오류로 돌아온 state도 다시 못 쓴다.
+    - state가 맞지 않으면(invalid_state) Google에 아무 요청도 보내지 않는다
+      (남이 만든 code를 내 계정에 붙이는 공격 방지).
+    - 토큰 암호화 키가 없으면 state를 읽지 않아 pending이 None이다(Google 오류가 없으면 invalid_state).
+    부수 효과: oauth_states 행 소비를 커밋한다.
+    """
     params = request.query_params
     found = await session_from_request(request, session)
     if found is None:
@@ -183,6 +223,10 @@ async def callback_problem(
     return None, user, pending
 
 
+# Google이 브라우저를 보내는 콜백. 언제나 302로 연결 화면에 돌아간다(JSON 오류를 내지 않는다).
+# 순서: 요청 검사(state 소비) → 토큰 교환(PKCE verifier) → 캘린더 권한 확인 → 암호화 저장(커밋) → 화면으로.
+# 캘린더 권한을 빼고 허용하면 받은 토큰을 바로 철회하고 저장하지 않는다(쓸 수 없는 토큰을 쥐고 있지 않게).
+# 교환 실패 로그에는 사용자 id만 남긴다(응답 본문·토큰 금지).
 @router.get("/google/callback", response_class=RedirectResponse, status_code=status.HTTP_302_FOUND)
 async def google_callback(request: Request, session: DbSession) -> RedirectResponse:
     settings: Settings = request.app.state.settings
@@ -215,6 +259,11 @@ def finished_redirect(settings: Settings, tokens: GoogleTokens, *, wanted_mail: 
 
 
 async def store(session: DbSession, user_id: int, tokens: GoogleTokens, settings: Settings) -> None:
+    """받은 토큰을 암호화해 저장하고 커밋한다. 이 사용자의 연결 행 하나를 만들거나 고친다(google_auth.save_tokens).
+
+    Google은 다시 연결할 때 refresh token을 주지 않을 수 있다. 그때 이전 refresh token을 이어 쓰지 않으면
+    access token이 만료되는 순간 연결이 끊긴다.
+    """
     cipher = token_cipher(settings)
     assert cipher is not None  # google_available에서 이미 확인했다
     previous = await google_auth.load_tokens_or_none(session, user_id, cipher)
@@ -225,6 +274,10 @@ async def store(session: DbSession, user_id: int, tokens: GoogleTokens, settings
     await session.commit()
 
 
+# 연결 해제. provider가 google이 아니면 404. 연결이 없어도 204(여러 번 눌러도 같은 결과).
+# 순서: Google 쪽 철회 시도(실패해도 계속) → 이 연결로 만든 대기 실행 계획 무효화(connection_removed) → 행 삭제 → 커밋.
+# (BUILD_SPEC 10.5) 무효화를 빼면 해제 뒤에도 이미 받은 승인으로 외부 실행이 시도된다. 대화·작업 기록은 지우지 않는다.
+# 메일 동의(users.mail_consent_at)는 여기서 지우지 않는다.
 @router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect(provider: str, request: Request, user: CurrentUser, session: DbSession) -> Response:
     if provider != google_auth.PROVIDER:

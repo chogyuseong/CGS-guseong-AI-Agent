@@ -17,6 +17,21 @@
   (7단계 보강, seal_mail_returns). 모델에게 넘기기 직전에만 푼다(open_mail_returns, runner.execute_agent).
 - 답변 없이 끝난 task(실패, 상한 초과)는 끝에 "중단됨" 응답을 붙여 저장한다. 이미 실행된 도구 호출과 결과는
   남기므로 다음 task의 모델이 "그때 할 일을 이미 추가했다"는 사실을 안다.
+
+진입점(모두 runner): prepare_run(chat task만. 예약 task는 이어받지 않는다, DECISIONS 2026-11-17)과
+prepare_resume이 load_conversation_history, execute_agent가 open_mail_returns, finish 단계가 history_for_storage,
+prepare_resume이 pending_tool_call_ids. evals/harness.py와 테스트가 dump_messages·load_messages를 쓴다.
+근거: DECISIONS 2026-11-16(task 단위로 자르기, 10개·40,000자), 2026-11-17(승인 대기 기록은 결과 없는 호출까지 저장),
+7단계 보강(메일 결과 암호화, app/payload_crypto.py).
+
+고칠 때 주의:
+- tasks.message_history의 모양(Pydantic AI 메시지 JSON)은 보관 정리(app/automation/retention.py, 7일 뒤 비움)와
+  docs/DATA_POLICY.md "모델 기록" 줄의 설명과 맞아야 한다. 새 내용을 저장하면 그 표에 넣는다.
+- 메일 도구 이름 목록은 results.MAIL_TOOLS 하나만 본다. 메일 도구를 늘리면 그쪽만 고치면 여기도 따라온다.
+- seal/open의 data 모양({"notice", "sealed"|"content", "truncated"})을 바꾸면 이미 저장된 기록을 못 풀 수 있다.
+  옛 모양도 그대로 돌려주게 두었다(봉하지 않은 결과는 opened_content가 손대지 않는다).
+- 한도(MAX_TASKS·MAX_CHARS)를 늘리면 TASK_MAX_TOKENS 상한과 하루 예산에 닿는 task가 늘어난다(위 계산 참고).
+- 테스트: tests/test_history.py(자르기·저장 규칙), tests/test_payload_crypto.py(메일 봉하기·풀기).
 """
 
 import json
@@ -44,19 +59,25 @@ from app.models import Task
 from app.models.enums import TaskStatus
 from app.payload_crypto import open_json, seal_json
 
+# 이어받지 않는 task 상태: 기록이 아직 자라는 중이거나 결과 없는 도구 호출로 끝나 있다(load_conversation_history 참고).
+# 이 목록에 없는 cancel_requested·reconciling 같은 상태의 기록은 finalize_for_storage로 짝을 맞춰 넣는다.
 UNFINISHED_STATUSES = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL)
+# 이어받을 task 수·글자 수 한도. 근거는 파일 머리 "자르는 규칙"(DECISIONS 2026-11-16).
 MAX_TASKS = 10
 MAX_CHARS = 40_000
+# 아래 세 문장은 모델에게 보이는 기록 속 안내다(사용자 화면이 아니다). 모델이 "실제로 한 일"을 오해하지 않게 한다.
 INTERRUPTED_NOTE = "(이 작업은 답변을 마치기 전에 중단되었다. 위의 도구 호출 결과까지만 실제로 일어난 일이다.)"
 DROPPED_MAIL_NOTE = "(메일 내용은 저장하지 않았다. 다시 봐야 하면 read_mail로 다시 읽는다.)"
 UNREADABLE_MAIL_NOTE = "(저장된 메일 내용을 풀 수 없다. 다시 봐야 하면 read_mail로 다시 읽는다.)"
 
 
 def dump_messages(messages: Sequence[ModelMessage]) -> list[Any]:
+    """메시지 목록을 JSONB에 넣을 수 있는 값으로 바꾼다(tasks.message_history 저장, 글자 수 계산)."""
     return ModelMessagesTypeAdapter.dump_python(list(messages), mode="json")
 
 
 def load_messages(data: list[Any]) -> list[ModelMessage]:
+    """저장된 JSON을 메시지 객체로 되돌린다. 모양이 틀리면 pydantic ValidationError(잡지 않는다)."""
     return ModelMessagesTypeAdapter.validate_python(data)
 
 
@@ -71,6 +92,11 @@ def without_unfinished_tail(messages: Sequence[ModelMessage]) -> list[ModelMessa
 
 
 def finalize_for_storage(messages: Sequence[ModelMessage], *, finished: bool) -> list[ModelMessage]:
+    """저장·이어받기용으로 끝을 정리한다. finished=False이고 요청으로 끝나면 INTERRUPTED_NOTE 응답을 붙인다.
+
+    붙이는 이유: 다음 task의 모델이 그 작업이 중단됐고 위 도구 결과까지만 실제로 일어났다는 것을 알게 한다.
+    load_conversation_history는 끝난 task도 finished=False로 부른다(답변으로 끝난 기록에는 아무것도 붙지 않는다).
+    """
     cleaned = without_unfinished_tail(messages)
     if cleaned and not finished and isinstance(cleaned[-1], ModelRequest):
         cleaned.append(ModelResponse(parts=[TextPart(INTERRUPTED_NOTE)]))
@@ -78,6 +104,7 @@ def finalize_for_storage(messages: Sequence[ModelMessage], *, finished: bool) ->
 
 
 def without_interrupted(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
+    """state='interrupted'(도중에 끊긴 응답)를 뺀다. state 속성이 없는 메시지는 완료로 본다."""
     return [m for m in messages if getattr(m, "state", "complete") != "interrupted"]
 
 
@@ -117,6 +144,10 @@ def seal_mail_returns(messages: Sequence[ModelMessage], cipher: Fernet | None) -
 
 
 def sealed_content(part: ToolReturnPart, cipher: Fernet | None) -> Any:
+    """메일 결과 하나를 봉한 모양으로 바꾼다. ToolResult가 아닌 값은 성공 결과로 감싼 뒤 다룬다.
+
+    cipher가 None이면 내용을 DROPPED_MAIL_NOTE로 바꾼다: 키 없이 평문 메일을 DB에 남기는 사고를 막는다.
+    """
     content = to_jsonable_python(part.content)
     if not isinstance(content, dict):
         content = ToolResult.success(content).model_dump(mode="json")
@@ -140,6 +171,10 @@ def open_mail_returns(messages: Sequence[ModelMessage], cipher: Fernet | None) -
 
 
 def opened_content(part: ToolReturnPart, cipher: Fernet | None) -> Any:
+    """봉한 메일 결과 하나를 푼다. sealed가 없는 결과(실패, 옛 모양, 이미 비운 것)는 그대로 돌려준다.
+
+    풀지 못해도 예외를 내지 않는다: 키가 바뀌었다고 대화 전체가 멈추면 안 되고, 모델은 다시 읽으면 된다.
+    """
     content = part.content
     if not isinstance(content, dict):
         return content
@@ -176,7 +211,12 @@ def pending_tool_call_ids(messages: Sequence[ModelMessage]) -> list[str]:
 def build_history(
     task_histories: Sequence[list[ModelMessage]], *, max_tasks: int = MAX_TASKS, max_chars: int = MAX_CHARS
 ) -> list[ModelMessage]:
-    """task별 기록(오래된 것부터)을 받아 최근 것부터 한도 안에서 고르고, 다시 시간 순서로 이어 붙인다."""
+    """task별 기록(오래된 것부터)을 받아 최근 것부터 한도 안에서 고르고, 다시 시간 순서로 이어 붙인다.
+
+    한도를 넘는 task를 만나면 거기서 멈춘다. 그보다 오래된 task는 작아도 넣지 않아,
+    고른 기록은 항상 최근 쪽으로 이어진다.
+    글자 수는 ensure_ascii=False JSON 기준이라 한국어 한 글자가 1로 센다.
+    """
     chosen: list[list[ModelMessage]] = []
     used_chars = 0
     for messages in reversed(task_histories[-max_tasks:] if max_tasks > 0 else []):
@@ -196,6 +236,8 @@ async def load_conversation_history(
     아직 끝나지 않은 task(실행 중, 승인 대기)는 넣지 않는다. 승인 대기 task의 기록은 결과 없는 도구 호출로 끝나서
     다음 task의 모델이 "실행됐는지 모르는 호출"을 보게 된다. 취소된 task처럼 그런 호출이 남은 기록은
     finalize_for_storage로 정리해서 넣는다(호출과 결과의 짝이 깨지지 않게).
+    대화 소유자 확인은 부른 쪽(runner가 task에서 읽은 conversation_id)이 한다. 읽기만 하고 커밋하지 않는다.
+    메일 결과는 봉한 채로 돌려준다(푸는 곳은 runner.execute_agent의 open_mail_returns뿐).
     """
     rows = await session.scalars(
         select(Task.message_history)

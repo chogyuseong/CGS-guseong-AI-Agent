@@ -24,6 +24,31 @@ resume_task 흐름 (마지막 승인 결정 → resume_task 워크플로):
     3~5. run_task와 같다(재개한 run이 또 EXTERNAL을 부르면 다시 승인 대기가 된다).
 
 어떤 예외도 잡아 failed/budget_exceeded로 끝낸다. HTTP 요청 객체를 모른다(RunServices만 받는다).
+
+진입점(누가 부르는지):
+- workflows.run_task_workflow·resume_task_workflow(채팅 task, ID "task-{id}", "task-{id}-resume-{n}").
+- automation/check.run_scheduled_job(예약 task, done_kind로 브리핑 푸시 종류를 바꿈). check.py는 lock_task도 쓴다.
+- evals/harness.py(워크플로 밖에서 run_task를 직접 부름. 그때 durable_step은 그냥 함수 실행이다).
+- 테스트도 run_task·resume_task를 직접 부른다(durable.py 설명 참고).
+
+근거: BUILD_SPEC 4.4·9.2(task 상태, 결과 불명이면 done 아님), 명세 푸시 규칙(task_done은 20초 넘게 걸렸거나 자동 작업),
+docs/DECISIONS.md 2026-11-16(FOR UPDATE claim), 2026-11-17(단계 구성 claim→prepare→agent.run→finish→notify,
+도구 실행은 단계로 감싸지 않음, 메일 결과 봉하기·푸는 곳은 execute_agent뿐).
+
+고칠 때 주의:
+- durable_step 이름("claim_task", "prepare_run", "claim_resume", "prepare_resume", "finish_task", "notify")과 순서,
+  단계 안팎의 경계를 바꾸면 workflows.WORKFLOW_VERSION을 올린다(docs/OPERATIONS.md 3절, DECISIONS에 한 줄).
+  단계 함수의 결과(TaskInfo, Prepared, PushKind)는 DBOS에 직렬화되어 저장되고 복구 때 그대로 돌아오므로
+  필드를 바꾸면 옛 기록과의 호환도 본다.
+- 단계 함수는 "커밋 뒤, 결과 기록 전에 죽으면 다시 실행"(at-least-once)이다. 그래서 claim은 reclaimed로,
+  finish는 IN_PROGRESS 검사로, notify는 notification_key로 두 번째 실행을 무해하게 만든다. 새 단계도 같게 만든다.
+- task 상태 전이는 docs/STATE_MACHINES.md 1절 표와 같아야 한다. 전이 함수 이름(claim_run, mark_claimed, reclaimed,
+  claim_resume, finish, save_outcome, has_unresolved_operation, execute_agent, prepare_run, prepare_resume,
+  close_unexecuted_steps)을 바꾸면 표도 고친다(tests/test_state_machines.py가 이름을 확인한다).
+- 사용자에게 보이는 실패 문구(아래 *_MESSAGE)는 tests/test_outage.py·test_workflows.py가 상수로 가져다 쓴다.
+  문장을 바꾸면 docs/OPERATIONS.md 5절(장애 때 화면)과 맞는지 확인한다.
+- 관련 테스트(runner를 직접 쓰는 것): tests/test_agent_run.py, test_workflows.py, test_cancel.py,
+  test_automation_runs.py, test_outage.py, test_push.py, test_state_machines.py.
 """
 
 import logging
@@ -84,6 +109,8 @@ from app.security import payload_cipher
 
 logger = logging.getLogger(__name__)
 
+# 아래 *_MESSAGE는 task.error와 assistant 메시지로 사용자에게 그대로 보인다. 내부 오류 내용은 넣지 않는다
+# (예외 메시지에 개인 정보·제공자 응답이 섞일 수 있어서). 일부는 docs/OPERATIONS.md 5절 표에 그대로 적혀 있다.
 DAILY_BUDGET_MESSAGE = "오늘 쓸 수 있는 비용 한도를 다 써서 작업을 시작하지 않았습니다. 내일 다시 시도해 주세요."
 TASK_BUDGET_MESSAGE = "이 작업에 정해 둔 요청 수나 토큰 한도를 넘어 중간에 멈췄습니다. 위 단계까지만 처리되었습니다."
 MODEL_BEHAVIOR_MESSAGE = "모델이 도구를 올바르게 부르지 못해 작업을 끝내지 못했습니다."
@@ -93,11 +120,14 @@ PLAN_REJECTED_MESSAGE = "이 외부 작업은 서버 정책상 실행 계획을 
 NOT_EXECUTED_MESSAGE = "작업이 이 단계 전에 멈춰 실행하지 않았습니다."
 # 명세: task_done 푸시는 20초 넘게 걸렸거나 origin이 schedule·watch일 때만.
 TASK_DONE_NOTIFY_AFTER_SECONDS = 20.0
+# task_failed 푸시를 보내는 상태. cancelled는 여기에 없어 푸시하지 않는다(push_kind_for).
 FAILED_STATUSES = (TaskStatus.FAILED, TaskStatus.BUDGET_EXCEEDED)
 # finish가 결과를 저장할 수 있는 상태. 실행 중 취소 요청이 와도 끝난 결과는 저장한다.
 IN_PROGRESS = (TaskStatus.RUNNING, TaskStatus.CANCEL_REQUESTED)
 # 모델의 마지막 답을 그대로 답변으로 남기는 상태. needs_review도 답은 있다(확인 필요는 카드·푸시로 알린다).
 ANSWERED_STATUSES = (TaskStatus.DONE, TaskStatus.NEEDS_REVIEW)
+# 실행했는지 아직 모르는 외부 작업 상태. 하나라도 남으면 done 대신 needs_review(BUILD_SPEC 9.2, 성공은 영수증 근거).
+# OperationStatus에 "결과 불명" 상태를 더하면 여기에도 넣는다(docs/STATE_MACHINES.md 2절).
 UNRESOLVED_OPERATIONS = (OperationStatus.UNKNOWN, OperationStatus.RECONCILING, OperationStatus.EXECUTING)
 
 
@@ -115,6 +145,11 @@ class RunServices:
 
 @dataclass(frozen=True)
 class TaskInfo:
+    """claim 단계의 결과. DBOS에 저장되어 복구 때 같은 값으로 돌아오므로 이후 단계는 task 행 대신 이것을 쓴다.
+
+    필드를 바꾸면 끝나지 않은 옛 워크플로의 기록을 읽을 수 있는지 확인한다(WORKFLOW_VERSION 규칙).
+    """
+
     id: int
     user_id: int
     conversation_id: int
@@ -138,6 +173,8 @@ class RunInput:
 
 @dataclass
 class Outcome:
+    """run 한 번의 결과(finish가 저장한다). error는 사용자에게 보이는 문구, deferred는 승인 대기 호출들."""
+
     status: TaskStatus
     final_answer: str | None = None
     error: str | None = None
@@ -148,7 +185,10 @@ class Outcome:
 
 @dataclass
 class Prepared:
-    """prepare 단계의 결과. run_input이 있으면 agent.run을, 없으면 outcome으로 바로 끝낸다."""
+    """prepare 단계의 결과. run_input이 있으면 agent.run을, 없으면 outcome으로 바로 끝낸다.
+
+    DBOS 단계 결과로 저장된다(키가 있으면 암호화). 이전 기록 속 메일 결과는 봉한 채 들어 있다(execute_agent가 푼다).
+    """
 
     run_input: RunInput | None = None
     outcome: Outcome | None = None
@@ -159,6 +199,7 @@ class Prepared:
 
 
 async def task_info(session: AsyncSession, task: Task) -> TaskInfo:
+    """잠근 task에서 TaskInfo를 만든다. started_at은 지금 시각이고 claim 단계 결과로 고정된다(푸시 20초 규칙)."""
     request_text = None
     if task.trigger_message_id is not None:
         request_text = await session.scalar(select(Message.content).where(Message.id == task.trigger_message_id))
@@ -168,6 +209,12 @@ async def task_info(session: AsyncSession, task: Task) -> TaskInfo:
 
 
 async def lock_task(session: AsyncSession, task_id: int) -> Task | None:
+    """task 행을 SELECT … FOR UPDATE로 잠그고 최신 값으로 읽는다(세션 캐시를 덮어씀). 잠금은 커밋까지 유지된다.
+
+    claim·finish와 1분 검사의 승인 만료(check.expire_overdue_approvals)가 쓴다. 승인 결정(approvals)·취소(cancel)는
+    같은 task 행을 각자 FOR UPDATE로 잠가 상태 전이가 겹치지 않는다(DECISIONS 2026-11-16).
+    user_id 조건이 없다: 서버 내부에서 task id로만 부르는 함수다. API에서 쓰려면 소유자 검사를 따로 한다.
+    """
     return await session.scalar(
         select(Task).where(Task.id == task_id).with_for_update().execution_options(populate_existing=True)
     )
@@ -183,7 +230,11 @@ def reclaimed(task: Task, workflow_id: str | None) -> bool:
 
 
 async def claim_run(services: RunServices, task_id: int, workflow_id: str | None) -> TaskInfo | None:
-    """queued인 task만 running으로 바꾼다. 행을 잠가 같은 task가 두 번 시작되지 않게 한다."""
+    """queued인 task만 running으로 바꾼다. 행을 잠가 같은 task가 두 번 시작되지 않게 한다.
+
+    None이면 실행하지 않는다(이미 다른 워크플로가 잡았거나, 취소됐거나, 없는 task). 성공하면 커밋까지 한다.
+    "claim_task" 단계로 실행되어 복구 때는 기록된 결과를 재생한다.
+    """
     async with services.session_factory() as session:
         task = await lock_task(session, task_id)
         if task is None or not (task.status == TaskStatus.QUEUED or reclaimed(task, workflow_id)):
@@ -192,7 +243,11 @@ async def claim_run(services: RunServices, task_id: int, workflow_id: str | None
 
 
 async def claim_resume(services: RunServices, task_id: int, workflow_id: str | None) -> TaskInfo | None:
-    """승인 대기이고 pending 승인이 없는 task만 running으로 바꾼다. 동시에 두 번 불려도 한 번만 통과한다."""
+    """승인 대기이고 pending 승인이 없는 task만 running으로 바꾼다. 동시에 두 번 불려도 한 번만 통과한다.
+
+    다른 ID의 재개 워크플로가 겹쳐도 행 잠금과 상태 검사가 두 번째를 None으로 막는다(이미 running이므로).
+    None이면 재개하지 않는다. 성공하면 커밋까지 한다. "claim_resume" 단계로 실행된다.
+    """
     async with services.session_factory() as session:
         task = await lock_task(session, task_id)
         if task is None:
@@ -205,6 +260,11 @@ async def claim_resume(services: RunServices, task_id: int, workflow_id: str | N
 
 
 async def mark_claimed(session: AsyncSession, task: Task, workflow_id: str | None, kind: RunKind) -> TaskInfo:
+    """잠근 task를 running으로 바꾸고 agent_runs 회차를 남긴 뒤 커밋한다(잠금 해제).
+
+    tasks.workflow_id는 resume_workflow_id가 다음 재개 번호를 계산하는 근거다. 워크플로 밖(테스트·eval)이면
+    workflow_id가 None이라 바꾸지 않는다.
+    """
     task.status = TaskStatus.RUNNING
     if workflow_id is not None:
         task.workflow_id = workflow_id
@@ -232,7 +292,10 @@ async def record_run_start(session: AsyncSession, task_id: int, workflow_id: str
 async def record_run_finish(
     session: AsyncSession, task_id: int, status: TaskStatus, responses: list[ModelResponse]
 ) -> None:
-    """아직 끝나지 않은 마지막 회차에 결과 상태·요청 수·토큰을 채운다."""
+    """아직 끝나지 않은 마지막 회차에 결과 상태·요청 수·토큰을 채운다. 커밋은 save_outcome이 한다.
+
+    열린 회차가 없으면 아무것도 하지 않는다. 요청 수·토큰은 이번 회차의 새 응답만 센다.
+    """
     run = await session.scalar(
         select(AgentRun)
         .where(AgentRun.task_id == task_id, AgentRun.finished_at.is_(None))
@@ -258,6 +321,7 @@ def output_type_for(origin: TaskOrigin) -> Any:
 
 
 def outcome_of(output: object, new_messages: list[ModelMessage]) -> Outcome:
+    """agent.run의 출력을 task 상태로 바꾼다. 승인 대기(approvals만 있는 DeferredToolRequests)면 waiting_approval."""
     if isinstance(output, AutomationReply):
         return Outcome(
             TaskStatus.DONE, final_answer=output.text, new_messages=new_messages, suggestions=output.suggestion_rows()
@@ -272,6 +336,7 @@ def outcome_of(output: object, new_messages: list[ModelMessage]) -> Outcome:
 
 
 def deps_for(services: RunServices, info: TaskInfo) -> AgentDeps:
+    """도구가 받는 의존성. user_id·task_id·origin은 claim 때 읽은 task 값이라 도구의 모든 조회가 이 사용자로 묶인다."""
     return AgentDeps(
         user_id=info.user_id,
         task_id=info.id,
@@ -282,6 +347,13 @@ def deps_for(services: RunServices, info: TaskInfo) -> AgentDeps:
     )
 
 
+# execute_agent 보충(40줄 제한으로 함수 위에 둔다):
+# - 결과: 항상 Outcome. 예외를 밖으로 내지 않는다. 멈춘 경우에도 그때까지의 새 메시지(captured)를 돌려줘
+#   finish가 기록·사용량(usage_logs)을 남긴다(이미 쓴 토큰을 빠뜨리지 않게).
+# - 부수 효과: 모델 호출(비용 예약·정산은 budget의 capability가 호출마다 한다), 도구 실행(DB 쓰기·외부 API·steps 기록).
+# - 복구: 이 함수는 단계 밖이라 다시 실행되지만, 모델 응답은 DBOSDurability 단계로 재생되고 끝난 도구 호출은
+#   StepTracking이 재생한다. 그래서 같은 EXTERNAL 호출을 두 번 실행하지 않는다.
+# - 메일 결과를 푸는 곳은 여기뿐이다. 푼 history를 반환값·단계 결과에 넣지 않는다(DBOS·DB에 평문이 남지 않게).
 async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInput) -> Outcome:
     """agent.run 한 번. DBOS 단계가 아니라 입력·중간 결과가 DBOS에 저장되지 않는다(모델 응답만 단계 결과로 남는다).
 
@@ -327,7 +399,12 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
 
 
 async def draft_for(services: RunServices, info: TaskInfo, tool_name: str, args: dict[str, Any]) -> PlanDraft:
-    """서버가 인자를 다시 검증·정규화하고 실행 계획 값을 확정한다(2단계 보강). 실패하면 PlanRejectedError."""
+    """서버가 인자를 다시 검증·정규화하고 실행 계획 값을 확정한다(2단계 보강). 실패하면 PlanRejectedError.
+
+    모델이 낸 인자를 그대로 승인 카드에 쓰면 검증 안 된 값이 고정 인자가 되므로 여기서 한 번 더 거른다(절대 원칙 3·4).
+    계획 초안은 정의 그대로의 toolsets_for를 쓴다(run_toolsets의 메일 필터는 모델 표시용, DECISIONS 2026-11-17).
+    DB 세션은 초안을 만든 뒤 닫고, 대상 버전 읽기(외부 조회)는 세션 밖에서 한다. 저장은 finish가 한다.
+    """
     async with services.session_factory() as session:
         draft = await plans.draft_plan(
             session, user_id=info.user_id, toolsets=toolsets_for(info.origin), tool_name=tool_name, args=args
@@ -335,6 +412,10 @@ async def draft_for(services: RunServices, info: TaskInfo, tool_name: str, args:
     return await plans.with_target_version(deps_for(services, info), draft)
 
 
+# prepare_requests 보충: finish_task 단계 안에서 돈다. 감시 에이전트 호출은 모델 비용이 들고, 예산 예약 키를
+# "guard:{task}:{tool_call_id}"로 고정해 단계가 다시 실행돼도 같은 호출은 다시 예약하지 않는다(DECISIONS 2026-11-17).
+# 일정 수정·삭제의 preview와 draft_for의 대상 버전 읽기는 외부 조회(Google 일정 GET)를 한다. 승인 요청 저장은
+# 하지 않는다(finish가 같은 트랜잭션에서 한다). PlanRejectedError는 밖으로 나가고 finish가 잡는다.
 async def prepare_requests(
     services: RunServices, info: TaskInfo, deferred: DeferredToolRequests
 ) -> tuple[list[approvals.ApprovalRequest], list[GuardReview]]:
@@ -377,6 +458,7 @@ async def prepare_requests(
 
 
 def usage_log(info: TaskInfo, purpose: UsagePurpose, model: str, input_tokens: int, output_tokens: int) -> UsageLog:
+    """usage_logs 한 행(세션에 넣지 않음). 비용 화면·하루 한도 합계의 근거다. 모델 이름은 컬럼 길이 100자로 자른다."""
     return UsageLog(
         user_id=info.user_id,
         task_id=info.id,
@@ -424,6 +506,12 @@ async def close_unexecuted_steps(session: AsyncSession, task_id: int) -> None:
     await approvals.set_operation_status(session, task_plans, OperationStatus.CANCELLED, NOT_STARTED)
 
 
+# save_outcome 보충(40줄 제한으로 함수 위에 둔다):
+# - finish가 task 행을 잠근 세션으로 부른다. 승인 요청·감시 사용량과 이 함수의 쓰기가 한 트랜잭션이고 마지막에 커밋한다.
+# - needs_review 승격: 결과를 모르는 외부 작업이 남았는데 done이라 하면 "성공은 영수증에 근거"(절대 원칙 10)를 어긴다.
+# - 승인 대기가 아니면 close_unexecuted_steps로 남은 승인 step·operation을 닫는다
+#   (끝난 task의 승인이 나중에 실행되지 않게).
+# - 기록(message_history)은 history_for_storage가 상태에 맞게 다듬고 메일 결과를 봉한다(cipher가 없으면 내용을 비움).
 async def save_outcome(
     session: AsyncSession,
     info: TaskInfo,
@@ -470,7 +558,10 @@ async def save_outcome(
 
 
 async def has_unresolved_operation(session: AsyncSession, task_id: int) -> bool:
-    """이 task에 결과를 확인하지 못한 외부 작업(unknown·reconciling·executing)이 있는가."""
+    """이 task에 결과를 확인하지 못한 외부 작업(unknown·reconciling·executing)이 있는가.
+
+    task id로만 찾는다(호출한 쪽이 이미 그 task를 잠근 내부 함수). True면 save_outcome이 done을 needs_review로 바꾼다.
+    """
     found = await session.scalar(
         select(Operation.id)
         .join(ActionPlan, ActionPlan.id == Operation.plan_id)
@@ -481,7 +572,11 @@ async def has_unresolved_operation(session: AsyncSession, task_id: int) -> bool:
 
 
 def push_kind_for(info: TaskInfo, status: TaskStatus, *, finished_at: float) -> PushKind | None:
-    """명세의 푸시 규칙. 승인 필요·실패는 항상, 완료는 20초 넘게 걸렸거나 자동 작업일 때만."""
+    """명세의 푸시 규칙. 승인 필요·실패는 항상, 완료는 20초 넘게 걸렸거나 자동 작업일 때만.
+
+    None이면 푸시하지 않는다(빠른 채팅 완료, cancelled). started_at이 claim 단계 값이라 복구 뒤 계산해도
+    처음 시작 시각 기준이다. finished_at은 finish 단계 안의 시각이고 그 결과(PushKind)가 단계로 기록된다.
+    """
     if status == TaskStatus.WAITING_APPROVAL:
         return PushKind.APPROVAL_NEEDED
     if status in FAILED_STATUSES:
@@ -494,6 +589,12 @@ def push_kind_for(info: TaskInfo, status: TaskStatus, *, finished_at: float) -> 
     return None
 
 
+# finish 보충(40줄 제한으로 함수 위에 둔다): "finish_task" 단계로 실행된다.
+# - 순서: 승인 요청 준비(외부 조회·감시 모델 호출, task 잠금 전) → task 잠금 → 상태 검사 → 저장·커밋.
+#   준비가 끝난 뒤 상태를 다시 보므로 그 사이 들어온 취소 요청도 반영된다.
+# - 안전 분기: 자동 작업의 승인 요청은 실패로(절대 원칙 7, 자동 작업은 READ만), 계획을 못 만드는 호출은 실패로,
+#   취소 요청 뒤의 승인 대기는 cancelled로 바꿔 승인 카드를 만들지 않는다.
+# - 결과 None: 푸시 없음(이미 저장됨, 또는 푸시 규칙상 없음).
 async def finish(
     services: RunServices, info: TaskInfo, outcome: Outcome, previous: Sequence[ModelMessage]
 ) -> PushKind | None:
@@ -531,12 +632,17 @@ async def finish(
 
 
 def notification_key(info: TaskInfo, kind: PushKind) -> str:
-    """같은 task·같은 실행 회차(워크플로)·같은 종류의 알림은 하나다. 복구로 notify 단계가 다시 돌아도 한 번만 보낸다."""
+    """같은 task·같은 실행 회차(워크플로)·같은 종류의 알림은 하나다. 복구로 notify 단계가 다시 돌아도 한 번만 보낸다.
+
+    키는 PushNotifier가 notifications에서 (user, key)로 중복을 막는 데 쓴다. 워크플로 밖이면 run 워크플로 ID 형식
+    (outbox.run_workflow_id와 같은 "task-{id}")을 쓴다. 예약 실행은 schedule-… 워크플로 ID가 들어간다.
+    """
     workflow = current_workflow_id() or f"task-{info.id}"
     return f"{kind.value}:task-{info.id}:{workflow}"
 
 
 async def send_push(services: RunServices, info: TaskInfo, kind: PushKind, key: str) -> int:
+    """notify 단계 본문. 본문은 종류별 고정 문구라 task 내용이 푸시 서버로 나가지 않는다. 보낸 기기 수를 돌려준다."""
     return await services.notifier.notify(info.user_id, kind, f"/chat/{info.conversation_id}", key)
 
 
@@ -546,6 +652,7 @@ async def complete(
     """prepare 결과로 run을 실행(또는 바로 끝내기)하고, 결과를 저장한 뒤 푸시를 보낸다.
 
     done_kind: 완료(task_done) 푸시 대신 보낼 고정 문구 종류(6단계: 아침 브리핑은 briefing).
+    run_task·resume_task가 함께 쓰는 뒷부분이다. execute_agent는 단계가 아니고 finish_task·notify는 단계다.
     """
     outcome = prepared.outcome
     if prepared.run_input is not None:
@@ -566,6 +673,8 @@ async def prepare_run(services: RunServices, info: TaskInfo, prompt: str) -> Pre
 
     '예약 작업' 대화방에는 지난 실행들의 검색 결과·일정 제목 같은 외부 글이 쌓이므로, 넘기면 주입 문장이
     다음 자동 실행으로 계속 옮겨 가고 토큰도 늘어난다.
+    "prepare_run" 단계로 실행된다. 하루 한도를 넘었으면 모델을 부르지 않고 budget_exceeded로 끝낼 결과를 돌려준다.
+    읽기만 한다.
     """
     async with services.session_factory() as session:
         if await daily_cost_exceeded(session, info.user_id, services.settings):
@@ -579,7 +688,11 @@ async def prepare_run(services: RunServices, info: TaskInfo, prompt: str) -> Pre
 
 
 async def run_task(services: RunServices, task_id: int, *, prompt: str, done_kind: PushKind | None = None) -> None:
-    """task 하나를 실행하고 결과를 저장한다. 예외를 밖으로 내지 않는다."""
+    """task 하나를 실행하고 결과를 저장한다. 예외를 밖으로 내지 않는다.
+
+    단계: claim_task → prepare_run → (agent.run) → finish_task → notify. 이 이름·순서는 WORKFLOW_VERSION과 묶여 있다.
+    claim이 None이면(이미 잡힘·취소) 아무것도 하지 않는다. done_kind는 예약 실행(check.run_scheduled_job)만 넘긴다.
+    """
     info = await durable_step("claim_task", claim_run, services, task_id, current_workflow_id())
     if info is None:
         return
@@ -588,7 +701,11 @@ async def run_task(services: RunServices, task_id: int, *, prompt: str, done_kin
 
 
 async def previous_usage(session: AsyncSession, task_id: int) -> RunUsage:
-    """이 task가 앞선 run에서 쓴 요청 수와 토큰(usage_logs의 agent 행 합계)."""
+    """이 task가 앞선 run에서 쓴 요청 수와 토큰(usage_logs의 agent 행 합계).
+
+    재개한 run이 작업당 요청 수·토큰 한도(build_usage_limits)를 처음부터 다시 세지 않게 이어받는다.
+    감시(guard) 행은 빼고 센다.
+    """
     row = (
         await session.execute(
             select(
@@ -602,6 +719,11 @@ async def previous_usage(session: AsyncSession, task_id: int) -> RunUsage:
 
 
 async def load_resume_input(session: AsyncSession, info: TaskInfo, task_messages: list[ModelMessage]) -> RunInput:
+    """재개 입력: 이전 대화 + 이 task 기록, 승인·거절 결과(DeferredToolResults), 이어받을 사용량.
+
+    승인된 호출은 계획에 저장된 정규화 인자(override_args)로 실행된다(approvals.build_results, 절대 원칙 4).
+    prompt는 None이다(새 사용자 메시지 없이 기록 끝의 승인 대기 호출부터 잇는다).
+    """
     earlier = await load_conversation_history(session, conversation_id=info.conversation_id, before_task_id=info.id)
     results = await approvals.build_results(session, info.id, pending_tool_call_ids(task_messages))
     return RunInput(
@@ -614,6 +736,10 @@ async def load_resume_input(session: AsyncSession, info: TaskInfo, task_messages
 
 
 async def prepare_resume(services: RunServices, info: TaskInfo) -> Prepared:
+    """prepare_resume 단계 본문. 하루 한도를 넘었거나 준비 중 오류면 run 없이 끝낼 결과를 돌려준다.
+
+    어느 경우든 previous에 이 task 기록을 담아 finish가 기록을 잃지 않게 한다. 읽기만 한다.
+    """
     async with services.session_factory() as session:
         task_messages = load_messages((await session.get_one(Task, info.id)).message_history or [])
         try:
@@ -628,7 +754,10 @@ async def prepare_resume(services: RunServices, info: TaskInfo) -> Prepared:
 
 
 async def resume_task(services: RunServices, task_id: int) -> None:
-    """승인이 모두 결정된 task를 이어서 실행한다. 예외를 밖으로 내지 않는다. 여러 번 불려도 한 번만 실행된다."""
+    """승인이 모두 결정된 task를 이어서 실행한다. 예외를 밖으로 내지 않는다. 여러 번 불려도 한 번만 실행된다.
+
+    단계: claim_resume → prepare_resume → (agent.run) → finish_task → notify(이름·순서는 WORKFLOW_VERSION과 묶임).
+    """
     info = await durable_step("claim_resume", claim_resume, services, task_id, current_workflow_id())
     if info is None:
         return

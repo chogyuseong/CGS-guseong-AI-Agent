@@ -27,6 +27,17 @@ https://pydantic.dev/docs/ai/logfire/ , https://logfire.pydantic.dev/docs/how-to
 로그(logging 모듈)는 Logfire로 보내지 않는다(LogfireLoggingHandler를 붙이지 않음). 설치된 dbos 3.5.0에는
 OTLP·OpenTelemetry 코드가 없다(8단계 보강에서 소스로 확인).
 트레이스에서 작업 하나가 어떻게 보이는지는 docs/OBSERVABILITY.md.
+
+진입점: create_app이 configure_observability → install_log_redaction → (라우터 등록 뒤) instrument_app 순으로 부른다.
+근거: docs/DECISIONS.md "Logfire" 절(2026-11-17), 3단계 보강 2026-11-17(앱 로그 예외 가리기), 절대 원칙 11.
+
+고칠 때 주의
+- 새 계측(httpx, DB, DBOS 등)을 켜거나 스팬에 값을 직접 남기면, 먼저 tests/test_observability.py처럼 메모리
+  exporter(extra_span_processors)로 프롬프트·메일 본문·토큰·쿼리 문자열이 스팬에 없는지 확인한다.
+- include_content를 True로 바꾸면 메일 본문·일정 제목·사용자 글이 Logfire로 나간다(하지 말 것, DECISIONS).
+- logfire를 올리면 OTLP 환경변수 동작, exception_callback(실험 기능), 기본 가리기 범위를 다시 소스로 확인한다.
+- LOGFIRE_TOKEN은 SecretStr로만 다루고 로그·오류 문장에 넣지 않는다. 관련 테스트: tests/test_observability.py,
+  tests/test_sensitive_records.py.
 """
 
 import logging
@@ -44,11 +55,15 @@ from opentelemetry.trace import Span, Status, StatusCode
 
 from app.config import Settings
 
+# Logfire에 실리는 서비스 이름(service.name). 트레이스를 이 서버 것으로 고를 때 쓴다.
 SERVICE_NAME = "myagent-api"
+# 예외 메시지 자리(스팬 이벤트, 앱 로그의 traceback 끝)에 넣는 고정 문구. 원래 메시지는 남기지 않는다
+# (tests/test_observability.py는 원래 메시지가 트레이스에 없는지로 확인한다).
 HIDDEN_MESSAGE = "(가림: 예외 메시지는 트레이스에 남기지 않는다)"
 
 # Logfire 기본 패턴에 더하는 가리기 패턴(대소문자 무시). 스팬 속성의 키와 문자열 값 모두에 적용되고,
-# 걸리면 그 값 전체가 "[Scrubbed due to ...]"로 바뀐다.
+# 걸리면 그 값 전체가 "[Scrubbed due to ...]"로 바뀐다. 근거: DECISIONS 2026-11-17 "가리기 패턴을 더했다".
+# 마지막 방어선이다(내용을 애초에 넣지 않는 것이 1차). 새 외부 서비스 키·토큰 모양을 쓰게 되면 여기에 더한다.
 EXTRA_SCRUB_PATTERNS: tuple[str, ...] = (
     r"sk-ant-",  # Anthropic API 키
     r"ya29\.",  # Google access token
@@ -71,11 +86,15 @@ OTLP_ENDPOINT_VARIABLES: tuple[str, ...] = (
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
 )
 # 트레이스를 만들지 않는 주소(정규식, 전체 URL에 대해 검사). OAuth code가 쿼리로 오는 주소다.
+# 막는 사고: 한 번 쓰는 인가 코드·state가 트레이스에 남아 재사용 시도의 재료가 되는 것. 콜백 경로를 바꾸면 같이 고친다.
 EXCLUDED_URLS: tuple[str, ...] = (r"/api/connections/google/callback",)
 
 
 def telemetry_sending(settings: Settings) -> bool:
-    """TELEMETRY_ENABLED=true이고 토큰이 있을 때만 True. 둘 중 하나라도 없으면 아무것도 보내지 않는다."""
+    """TELEMETRY_ENABLED=true이고 토큰이 있을 때만 True. 둘 중 하나라도 없으면 아무것도 보내지 않는다.
+
+    두 값을 다 요구하는 이유: 토큰만 .env에 남아 있어도 모르는 사이 전송이 켜지는 사고를 막는다(8단계 보강).
+    """
     return settings.telemetry_enabled and bool(settings.logfire_token.get_secret_value().strip())
 
 
@@ -143,12 +162,16 @@ def no_request_attributes(request: Any, attributes: dict[str, Any]) -> dict[str,
 
 
 def without_query(url: str) -> str:
+    """주소에서 쿼리와 조각(#…)을 뺀다. 경로까지만 남긴다."""
     parts = urlsplit(url)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
 def strip_query_hook(span: Span, scope: dict[str, Any]) -> None:
-    """요청 스팬이 시작될 때 주소 속성에서 쿼리 문자열을 지운다(OAuth code·state, 검색어 등)."""
+    """요청 스팬이 시작될 때 주소 속성에서 쿼리 문자열을 지운다(OAuth code·state, 검색어 등).
+
+    기록하지 않는 스팬은 건드리지 않는다. 콜백 주소는 EXCLUDED_URLS로 스팬 자체가 없다.
+    """
     if not span.is_recording():
         return
     attributes = getattr(span, "attributes", None) or {}
@@ -166,11 +189,16 @@ def frames_only(error: BaseException) -> str:
     return f"Traceback (most recent call last):\n{frames}{type(error).__qualname__}: {HIDDEN_MESSAGE}"
 
 
+# 가리기를 적용할 로거 이름의 앞부분. 이 앱의 모듈 로거(logging.getLogger(__name__))가 모두 "app."으로 시작한다.
+# 라이브러리 로거(uvicorn, sqlalchemy, dbos 등)는 건드리지 않는다.
 APP_LOGGER_PREFIX = "app"
 
 
 def redact_record_exception(record: logging.LogRecord) -> None:
-    """앱 로그 레코드의 예외를 '종류 + 코드 위치'로 바꾼다. 포매터는 exc_text를 그대로 붙인다."""
+    """앱 로그 레코드의 예외를 '종류 + 코드 위치'로 바꾼다. 포매터는 exc_text를 그대로 붙인다.
+
+    exc_info도 비우는 이유: 남겨 두면 exc_info를 직접 읽는 핸들러·포매터가 원래 예외 메시지를 꺼낼 수 있다.
+    """
     if not (record.name == APP_LOGGER_PREFIX or record.name.startswith(f"{APP_LOGGER_PREFIX}.")):
         return
     error = record.exc_info[1] if record.exc_info else None
@@ -180,7 +208,12 @@ def redact_record_exception(record: logging.LogRecord) -> None:
 
 
 def install_log_redaction() -> None:
-    """레코드 공장을 감싸 앱 로그의 예외 메시지를 지운다. 여러 번 불러도 한 번만 감싼다."""
+    """레코드 공장을 감싸 앱 로그의 예외 메시지를 지운다. 여러 번 불러도 한 번만 감싼다.
+
+    막는 사고: logger.warning(..., exc_info=True)로 남긴 예외 문장에 외부 API 응답·사용자 글·SQL 값이 섞여
+    서버 로그 파일에 남는 것. 핸들러가 아니라 레코드 공장에 거는 이유는 어떤 핸들러로 나가든 같게 하려는 것이다.
+    부수 효과: 프로세스 전역 logging 설정을 바꾼다(테스트에서도 create_app마다 불린다).
+    """
     current = logging.getLogRecordFactory()
     if getattr(current, "_myagent_redacting", False):
         return

@@ -82,7 +82,7 @@ enum에 있는지, "누가" 칸의 함수가 실제로 있는지. 상태·전이
 | `executing` → `failed` | `executor.finish_execution` | 외부 API가 실패를 확정 |
 | `executing` → `stale` | `executor.finish_execution` (`executor.operation_status_for`) | 대상이 승인 뒤 바뀜(target_changed, 일정 ETag 412 등). 다시 승인 필요 |
 | `executing` → `unknown` | `executor.finish_execution` | 쓰기 요청 시간 초과·연결 끊김. 곧바로 재조회한다 |
-| `executing`, `unknown` → `reconciling` | `executor.start_reconcile` (`executor.reconcile_operation`, `tracking.close_uncertain_step`) | 결과 불명 직후, 또는 복구 때 실행 도중 끊긴 호출 |
+| `executing`, `unknown` → `reconciling` | `executor.start_reconcile` (`executor.reconcile_operation`, `tracking.close_uncertain_step` → `executor.reconcile_step`) | 결과 불명 직후, 또는 복구 때 실행 도중 끊긴 호출 |
 | `reconciling` → `succeeded` | `executor.reconcile_operation` | 외부에 처리 기록이 있음. **영수증을 만든다** |
 | `reconciling` → `failed` | `executor.reconcile_operation` | 처리 기록이 없다고 확인(not_executed) |
 | `reconciling` → `unknown` | `executor.reconcile_operation` | 확인 못 함. task는 needs_review |

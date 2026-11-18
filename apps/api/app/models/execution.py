@@ -12,6 +12,19 @@
   (BUILD_SPEC 9.1: 모든 조회에 user_id를 붙이는 것만으로 끝내지 않는다).
 - connection_id는 외래 키가 아니다. 연결을 지우거나 다시 연결해도 계획에 적힌 값이 남아야
   실행기가 "그 사이 연결이 바뀌었다"를 알아볼 수 있다.
+
+진입점: 계획 초안은 app/agent/plans.py(draft_plan), 저장은 approvals.save_requests(계획·operation·승인을 함께),
+실행 검사·영수증은 app/agent/executor.py(begin_execution·finish_execution·reconcile_*), outbox_events는
+app/agent/outbox.py. 상태 전이는 docs/STATE_MACHINES.md 2절(operation)·4절(outbox).
+
+고칠 때 주의:
+- 컬럼을 바꾸면 Alembic 마이그레이션(`uv run python -m alembic revision --autogenerate`)을 만들고 생성 파일을 읽는다.
+  OperationStatus·OutboxStatus를 바꾸면 docs/STATE_MACHINES.md와 tests/test_state_machines.py도 고친다.
+- 보관: canonical_args는 끝난 7일 뒤 {}로 비우고(args_hash는 중복 방지용으로 남김), 처리한 outbox_events는 7일 뒤,
+  영수증은 90일 뒤 지운다(app/automation/retention.py, docs/DATA_POLICY.md). 결과를 모르는 operation
+  (approved·executing·unknown)의 계획은 재조회에 인자가 필요해 정리에서 빠진다.
+- 복합 외래 키((task_id, user_id) → tasks, (plan_id, user_id) → action_plans 등)를 지우지 않는다. 남의 레코드 아래에
+  내 행이 붙는 것을 DB가 막는 마지막 선이다.
 """
 
 import uuid
@@ -27,6 +40,14 @@ from app.models.enums import OperationStatus, OutboxKind, OutboxStatus
 
 
 class ActionPlan(TimestampedTable):
+    """승인 대상인 EXTERNAL 호출 하나의 고정된 실행 계획. 실행은 이 canonical_args로만 한다(절대 원칙 4).
+
+    args_hash: 도구 이름·버전·정규화 인자의 sha256(plans.args_hash). 실행 직전에 다시 계산해 비교한다.
+    tool_version: 도구 규격(ExternalToolSpec.version). 실행 때 지금 버전과 다르면 실행하지 않는다(stale).
+    target_version: 기존 대상을 바꾸는 도구의 대상 버전(일정 ETag). 승인 뒤 대상이 바뀌었는지 알아보는 데 쓴다.
+    policy_version: 어떤 규칙으로 만든 계획인지 기록만 한다(실행기는 비교하지 않는다).
+    """
+
     __tablename__ = "action_plans"
     __table_args__ = (
         # 모델이 만든 tool_call_id는 전체에서 유일하다고 보지 않는다. task·승인 회차 안에서만 고유하다.
@@ -55,6 +76,12 @@ class ActionPlan(TimestampedTable):
 
 
 class Operation(TimestampedTable):
+    """계획 하나의 실행 상태. 외부 멱등성 키는 이 행이 아니라 action_plans.operation_id(UUID)다.
+
+    succeeded는 영수증이 있을 때만이고, unknown은 실패가 아니다(재조회 대상). 전이는 docs/STATE_MACHINES.md 2절.
+    error_code에는 정해진 코드만 넣는다(자유 문장 금지, app/agent/executor.py 머리).
+    """
+
     __tablename__ = "operations"
     __table_args__ = (
         UniqueConstraint("id", "user_id"),

@@ -1,4 +1,9 @@
-"""비용 화면(9단계 2번) 응답 모양. 금액은 달러이고 소수 6자리까지(usage_logs.cost_usd NUMERIC(10,6))."""
+"""비용 화면(9단계 2번) 응답 모양. 금액은 달러이고 소수 6자리까지(usage_logs.cost_usd NUMERIC(10,6)).
+
+라우터는 app/routers/usage.py(GET /api/usage/daily), 값 계산은 app/usage_report.py, 화면 사용처는 apps/web/lib/usage.ts.
+고칠 때 주의: 필드를 바꾸면 gen:api, tests/test_usage_api.py. 용도(UsagePurpose) 값을 더하면 by_purpose가
+"항상 모든 용도"를 채우는 쪽(usage_report)과 화면 표시를 같이 본다.
+"""
 
 from datetime import date
 from typing import Literal
@@ -7,6 +12,8 @@ from pydantic import BaseModel
 
 from app.models.enums import UsagePurpose
 
+# 날짜 경계 시간대. 하루 비용 상한 검사와 같은 서울 0시를 쓴다(DECISIONS 2026-11-16).
+# UsageOut.timezone Literal과 맞춘다.
 USAGE_TIMEZONE = "Asia/Seoul"
 
 

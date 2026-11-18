@@ -23,7 +23,9 @@ BUILD_SPEC 13절 3단계 "장애 지점별 외부 효과와 DB 상태 표". 외�
 - 도구 실행은 DBOS 단계가 아니다. 끊긴 EXTERNAL 호출은 다시 보내지 않고 operation_id(외부 멱등성 키)로 결과를 묻는다.
 - 결과를 확인할 수 없으면 unknown으로 두고 사용자에게 확인을 요청한다. 새 operation으로 자동 재시도하지 않는다.
 - DBOS만으로 외부 API exactly-once를 주장하지 않는다. 중복 방지는 외부 서비스의 멱등성 키와 결과 조회에 기댄다.
-- Google 일정 도구는 아직 재조회 함수가 없다(안정적인 event ID는 4단계). 그래서 지금은 끊긴 일정 쓰기가 unknown·needs_review로 남는다.
+- (3단계 당시) Google 일정 도구는 재조회 함수가 없어 끊긴 일정 쓰기가 unknown·needs_review로 남았다.
+  4단계 보강부터 `gcal.reconcile_create`·`reconcile_update`·`reconcile_delete`가 도구 규격(`SPECS`의 `reconcile=`)에 있어
+  위 표와 같은 흐름으로 재조회한다(고정 event id·ETag로 결과 확인). 2026-11-18 문서 갱신.
 
 ## 로그·기록 민감 정보 (3단계 보강)
 

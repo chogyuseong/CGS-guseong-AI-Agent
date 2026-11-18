@@ -12,6 +12,17 @@
                    → 워크플로를 시작하지 못한 task(queued 등)를 이어서 시작
     lifespan 끝: DBOS 종료 → 외부 API HTTP 클라이언트 닫기 → DB 연결 정리
 테스트(httpx ASGITransport)는 lifespan을 돌리지 않는다. DBOS는 tests/conftest.py가 따로 시작한다.
+
+근거: docs/DECISIONS.md 2026-11-17(DBOS는 lifespan 안에서 launch, HTTP 클라이언트 하나, Logfire 배너 끄기),
+docs/ARCHITECTURE.md.
+
+고칠 때 주의
+- 순서가 의미를 가진다: configure_observability → build_agent(계측이 처음부터 적용), build_agent → launch_dbos
+  (DBOSDurability가 단계를 launch 전에 등록), bind_app_state는 app.state를 다 채운 뒤.
+- app.state에 새 실행 도구를 더하면 tests/conftest.py가 가짜로 바꿔 끼우는지 확인한다(실제 외부 호출 방지).
+- API 서버는 하나만 띄운다(같은 executor로 서로의 워크플로를 복구한다, AGENTS.md "실행").
+- 라우터·스키마를 바꾸면 `pnpm --dir apps/web gen:api`로 웹 타입을 다시 만든다. 문서 경로(/api/openapi.json)를
+  바꾸면 gen:api 스크립트도 같이 고친다. OpenAPI 모양 검사는 tests/test_openapi.py.
 """
 
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -38,6 +49,11 @@ from app.tools.http import build_http_client
 
 
 def build_lifespan(settings: Settings, engine: AsyncEngine) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """서버 시작·종료 때 할 일. 시작: DBOS launch(끝나지 않은 워크플로 복구) → 워크플로 없이 남은 task 재시작.
+
+    실행 중인 SelectorEventLoop 안에서 launch해야 한다(루프 밖이면 DBOS가 Windows 기본 루프를 새로 만든다).
+    """
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         workflows.launch_dbos(settings)
@@ -53,7 +69,11 @@ def build_lifespan(settings: Settings, engine: AsyncEngine) -> Callable[[FastAPI
 
 
 def create_app(settings: Settings | None = None, *, agent_models: Mapping[str, Model] | None = None) -> FastAPI:
-    """agent_models: 워크플로 안에서 끼워 쓸 모델 객체(테스트의 가짜 모델만 넘긴다)."""
+    """앱을 만들고 app.state에 실행 도구를 채운다. DB 엔진은 만들기만 한다(연결은 첫 쿼리 때).
+
+    settings: 없으면 .env(get_settings). 테스트는 .env를 읽지 않는 설정을 넘긴다.
+    agent_models: 워크플로 안에서 끼워 쓸 모델 객체(테스트의 가짜 모델만 넘긴다).
+    """
     settings = settings or get_settings()
     # Pydantic AI 2.68은 첫 실행 때 Logfire 안내 배너를 터미널에 찍는다. 서버 로그를 어지럽히므로 끈다.
     # (PYDANTIC_AI_NO_BANNER 환경변수와 같은 효과. 설치된 버전의 pydantic_ai.BANNER_ENABLED 문서 참고)

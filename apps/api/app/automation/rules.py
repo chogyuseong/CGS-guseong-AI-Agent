@@ -6,6 +6,16 @@
 명세에 없어 작업자가 정한 값(docs/DECISIONS.md 6단계):
 - 감시 간격 최대 1,440분(하루). 충족 뒤 repeat=true면 12시간 뒤 다시(명세).
 - 놓친 예약은 예정 시각에서 2시간 안이면 한 번만 따라잡고, 더 지났으면 건너뛰고 다음 시각으로 넘긴다.
+
+진입점: store.py(서버 제한 강제), check.py(다음 시각·따라잡기·다시 알림), app/tools/automation.py(Interval의 ge/le),
+routers/automations.py(max_active), schemas/conversations.py('예약 작업' 제목 금지). 근거는 BUILD_SPEC 8절,
+DECISIONS 2026-11-17 "6단계 > 서버 제한"·"6단계 보강".
+
+고칠 때 주의(값은 여기가 정본이지만 글자로 적힌 곳이 따로 있다):
+- 제한 값을 바꾸면 도구 docstring·Field 설명(app/tools/automation.py의 "30 이상 1440 이하", "10개까지", "30일"),
+  화면 안내(apps/web/components/AutomationList.tsx "30분…30일", AutomationItems.tsx "12시간"), 테스트를 같이 고친다.
+  시스템 프롬프트(app/agent/prompts.py)에는 지금 이 숫자들이 없다.
+- 감시 간격·만료·따라잡기 값을 바꿔도 이미 저장된 행의 next_run_at·expires_at은 그대로다.
 """
 
 import json
@@ -17,22 +27,33 @@ from zoneinfo import ZoneInfo
 
 from app.agent.results import MAIL_TOOLS as MAIL_TOOLS
 
+# 예약 시각·요일의 기본 시간대. scheduled_jobs.timezone 기본값과 1분 검사 cron 시간대(workflows.py)와 같다.
 DEFAULT_TIMEZONE = "Asia/Seoul"
 SEOUL = ZoneInfo(DEFAULT_TIMEZONE)
 
+# 명세 값: 사용자당 활성 예약 10개, 활성 감시 10개, 감시 간격 30분 이상, 감시 만료 30일.
+# 켜진 것만 센다(꺼진 것은 자리를 차지하지 않는다). 검사는 store.py가 사용자 행을 잠근 뒤 한다.
 MAX_ACTIVE_SCHEDULES = 10
 MAX_ACTIVE_WATCHES = 10
 MIN_WATCH_INTERVAL_MINUTES = 30
+# 명세에 없어 정한 값(하루). DECISIONS 2026-11-17 6단계 "서버 제한".
 MAX_WATCH_INTERVAL_MINUTES = 1440
 WATCH_LIFETIME = timedelta(days=30)
+# 다시 알림 최소 간격(명세의 12시간). 6단계 보강부터 "알린 뒤 12시간 쉬기"가 아니라 거짓→참 전환을 알릴 때
+# 마지막 알림에서 이만큼 지났는지만 본다(check.should_notify).
 WATCH_REPEAT_DELAY = timedelta(hours=12)
+# 밀린 예약 유예 시간(작업자 결정). 07:30 브리핑을 오후에 받는 일은 막고, PC가 잠깐 잠든 정도는 받게 한 값이다
+# (DECISIONS 2026-11-17 "밀린 예약"). 넘기면 skipped(missed)로 남기고 다음 시각으로 넘긴다.
 SCHEDULE_CATCH_UP = timedelta(hours=2)
+# 감시 도구 입력 JSON 최대 글자 수(명세에 없어 정한 값, DECISIONS 2026-11-17 6단계 "서버 제한").
 MAX_TOOL_INPUT_CHARS = 1000
 
 # 예약 작업 결과와 감시 충족 알림을 남기는 대화방(명세: '예약 작업' 대화방). 사용자마다 하나.
 AUTOMATION_CONVERSATION_TITLE = "예약 작업"
 
 # 아침 브리핑 기본 예약(명세). 프롬프트는 명세 문장 그대로다.
+# BRIEFING_KIND는 scheduled_jobs.kind 값이라 바꾸면 기존 행과 맞지 않는다(완료 푸시 종류·화면 표시가 이 값을 본다).
+# BRIEFING_PROMPT를 바꿔도 이미 만든 브리핑의 prompt_text는 그대로다(바꾸려면 마이그레이션, 예: 9d3727e1c857).
 BRIEFING_TITLE = "아침 브리핑"
 BRIEFING_KIND = "briefing"
 # 6단계 보강: 화면이 처음 제안하는 시각(BUILD_SPEC 8.1). 사용자가 켜기 전에는 예약이 없다.

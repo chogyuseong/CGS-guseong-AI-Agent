@@ -12,6 +12,24 @@
 4. 버리는 DB(myagent_eval)를 새로 만들어 쓰고 끝나면 지운다. 외부 API는 가짜, 승인은 하지 않는다(evals/harness.py).
 5. 끝나면 개발 DB의 usage_logs에 purpose=eval로 사례·모델별 사용량을 남기고, 결과 JSON(evals/results/, 실행 기록 포함)과
    안전 경계·모델 판단을 나눈 요약, docs/EVALS.md 표 한 줄을 출력한다.
+
+흐름: main(인자·초안 검사) → run → build_run_record(record) → estimates(estimate) → [--run이면] owner_id(하루 한도)
+→ evaluate(database로 eval DB 만들기 → harness로 사례 실행 → evaluators 판정 → eval DB 지우기) → record_usage
+→ summarize·render_summary·markdown_row(summary) → save_results.
+
+근거: BUILD_SPEC 8단계·16절, DECISIONS 2026-11-17(실행 명령은 python -m evals.run_evals, 인자 없으면 예상 비용만,
+--run --email --confirm-cost가 함께 있어야 실행, 초안 표시면 --run 거부, 오늘 비용 + 예상 상한 두 배 검사),
+2026-11-18(사례 30개 확정, 초안 표시 제거).
+
+고칠 때 주의
+- 실제 실행은 비용이 든다. 테스트·점검에서 --run을 쓰지 않는다(AGENTS.md: 예상 비용을 알리고 사용자 확인 뒤에만).
+- 안전 장치 1~3의 순서·조건을 바꾸면 docs/EVALS.md '실행 방법'과 AGENTS.md 실행 절의 eval 설명을 고친다.
+- DRAFT_MARK 문구는 dataset.yaml·docs/EVALS.md에서 찾는 글자 그대로다. tests/test_evals.py에도 같은 글자가 있다.
+- 결과 JSON(evals/results/)은 evals/results/.gitignore로 git에서 빠진다(docs/EVALS.md: 커밋하지 않음).
+
+변경 이력
+- 2026-11-17 처음 작성(8단계, --cases 포함). 같은 날 8단계 보강에서 실행 기록(record.py)·--repeat를 더함.
+- 2026-11-18 주석 보강(동작 변경 없음).
 """
 
 import argparse
@@ -35,12 +53,16 @@ from evals.harness import build_environment, case_task, eval_settings, record_ev
 from evals.record import RunRecord, build_run_record, model_id
 from evals.summary import EvalSummary, markdown_row, render_summary, summarize
 
+# dataset.yaml에 이 글자가 있으면 --run을 거부한다(DECISIONS 2026-11-17). 사용자가 사례를 확인하기 전에
+# 돈을 쓰고, 확인되지 않은 기대로 낸 숫자가 결과 표에 남는 것을 막는다.
 DRAFT_MARK = "초안 — 사용자 확인 전"
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+# --repeat 상한. 비용이 회수에 비례한다(docs/EVALS.md 상한 가정 1회 약 $0.0665 → 5회 약 $0.33).
 MAX_REPEAT = 5
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    """명령 인자. --repeat 범위 밖이면 argparse가 오류를 내고 끝낸다(모델을 부르기 전)."""
     parser = argparse.ArgumentParser(prog="python -m evals.run_evals", description="마이에이전트 eval")
     parser.add_argument("--run", action="store_true", help="실제 모델로 실행한다(비용이 든다)")
     parser.add_argument("--confirm-cost", action="store_true", help="예상 비용을 확인했다")
@@ -55,6 +77,10 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def selected(dataset: EvalDataset, cases: str | None) -> EvalDataset:
+    """--cases의 번호로 사례를 고른다. 사례 이름이 '01_…'처럼 번호와 밑줄로 시작한다는 dataset.yaml 규칙에 기댄다.
+
+    받은 dataset을 그 자리에서 바꾼다. 맞는 번호가 없으면 빈 데이터셋이 된다(예상 비용 $0으로 보인다).
+    """
     if cases:
         prefixes = {f"{p.strip()}_" for p in cases.split(",") if p.strip()}
         dataset.cases = [c for c in dataset.cases if any((c.name or "").startswith(p) for p in prefixes)]
@@ -62,6 +88,10 @@ def selected(dataset: EvalDataset, cases: str | None) -> EvalDataset:
 
 
 async def estimates(settings: Settings, dataset: EvalDataset, repeat: int) -> list[CostEstimate]:
+    """개발 DB 평균(있으면), 실측 하한, 실측 상한 세 가정의 예상 비용. 개발 DB는 읽기만 한다.
+
+    메인 비용은 FAST 모델 가격, 감시는 GUARD 모델 가격으로 잡는다.
+    """
     engine = create_engine_for(settings.database_url)
     try:
         async with create_session_factory(engine)() as session:
@@ -92,7 +122,12 @@ def print_preview(record: RunRecord, found: list[CostEstimate]) -> None:
 
 
 async def owner_id(settings: Settings, email: str, worst_usd: float) -> int:
-    """비용을 기록할 계정. 오늘 비용 + 예상 상한이 하루 한도를 넘으면 거부한다."""
+    """비용을 기록할 계정. 오늘 비용 + 예상 상한이 하루 한도를 넘으면 거부한다.
+
+    막는 사고: eval이 하루 한도(DAILY_COST_LIMIT_USD)를 다 써서 같은 날 그 계정의 실제 사용이 막히는 것.
+    worst_usd는 run이 넘긴 '가장 큰 예상의 두 배'다(DECISIONS 2026-11-17).
+    eval 실행 중에는 사례마다 예산 예약이 따로 걸리지만, 그 비용은 eval DB의 사용자에게 붙어 이 계정 한도와 무관하다.
+    """
     engine = create_engine_for(settings.database_url)
     try:
         async with create_session_factory(engine)() as session:
@@ -110,6 +145,10 @@ async def owner_id(settings: Settings, email: str, worst_usd: float) -> int:
 
 
 async def evaluate(settings: Settings, dataset: EvalDataset, record: RunRecord) -> Any:
+    """버리는 DB를 새로 만들고 모든 사례를 돌린 뒤, 성공·실패와 상관없이 DB를 지운다. 실제 모델을 부른다(비용).
+
+    부수 효과: myagent_eval 생성·삭제(이름 검사는 database.py). 돌려주는 값은 Pydantic Evals EvaluationReport.
+    """
     url = eval_database_url(settings.database_url)
     create_eval_database(url)
     engine = create_engine_for(url)
@@ -129,6 +168,10 @@ async def evaluate(settings: Settings, dataset: EvalDataset, record: RunRecord) 
 
 
 async def record_usage(settings: Settings, user_id: int, report: Any) -> int:
+    """개발 DB usage_logs에 purpose=eval 행을 남긴다(쓰기·커밋). eval DB는 이미 지워져 이 기록이 남는 유일한 비용이다.
+
+    실행 오류로 끝난 사례(report.failures)는 출력이 없어 기록되지 않는다.
+    """
     engine = create_engine_for(settings.database_url)
     try:
         async with create_session_factory(engine)() as session:
@@ -138,6 +181,7 @@ async def record_usage(settings: Settings, user_id: int, report: Any) -> int:
 
 
 def case_row(case: Any) -> dict[str, Any]:
+    """결과 JSON의 사례 한 줄: 판정(assertions), 실패 이유(reasons), 걸린 시간, 출력 전체(답변 원문 포함)."""
     return {
         "name": case.name,
         "spec_no": case.metadata.spec_no,
@@ -150,7 +194,10 @@ def case_row(case: Any) -> dict[str, Any]:
 
 
 def save_results(report: Any, record: RunRecord, summary: EvalSummary) -> Path:
-    """결과 JSON: 실행 기록 + 요약 + 사례별 결과. 파일 이름은 실행 시작 시각(커밋하지 않음)."""
+    """결과 JSON: 실행 기록 + 요약 + 사례별 결과. 파일 이름은 실행 시작 시각(커밋하지 않음).
+
+    부수 효과: evals/results/ 만들기, 파일 쓰기. 같은 분에 두 번 실행하면 앞 파일을 덮어쓴다.
+    """
     RESULTS_DIR.mkdir(exist_ok=True)
     failures = [{"name": f.name, "error": f.error_message} for f in report.failures]
     body = {
@@ -166,12 +213,14 @@ def save_results(report: Any, record: RunRecord, summary: EvalSummary) -> Path:
 
 
 async def run(args: argparse.Namespace, settings: Settings, dataset: EvalDataset) -> int:
+    """예상 비용을 먼저 보여 주고, --run과 확인 플래그가 모두 있을 때만 실제로 돌린다."""
     record = build_run_record(settings, dataset, repeat=args.repeat)
     found = await estimates(settings, dataset, args.repeat)
     print_preview(record, found)
     if not args.run:
         print("\n실제로 돌리려면: --run --email 내이메일 --confirm-cost (모델 비용이 듭니다)")
         return 0
+    # 막는 사고: 예상 비용을 보지 않고 --run 하나로 돈을 쓰는 것, 비용을 붙일 계정 없이 하루 한도를 건너뛰는 것.
     if not (args.confirm_cost and args.email):
         raise SystemExit("--run에는 --email과 --confirm-cost가 함께 필요합니다.")
     if not settings.anthropic_api_key.get_secret_value():
@@ -188,8 +237,10 @@ async def run(args: argparse.Namespace, settings: Settings, dataset: EvalDataset
 
 
 def main(argv: list[str] | None = None) -> int:
+    """진입점. 초안 검사는 --run일 때만 한다(예상 비용 보기는 초안이어도 된다)."""
     args = parse_args(argv)
     dataset = selected(load_dataset(), args.cases)
+    # 막는 사고: 사용자가 확인하지 않은 사례(기대가 틀릴 수 있는 초안)로 돈을 쓰고 결과를 남기는 것.
     if args.run and DRAFT_MARK in DATASET_PATH.read_text(encoding="utf-8") and not args.allow_draft:
         raise SystemExit("dataset.yaml이 아직 초안입니다. 사례를 확인하고 맨 위 초안 표시를 지운 뒤 실행하세요.")
     return run_async(run(args, get_settings(), dataset))

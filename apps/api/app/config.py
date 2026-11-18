@@ -2,6 +2,20 @@
 
 - 키와 토큰은 SecretStr로 받아 실수로 로그에 찍혀도 '**********'로 보이게 한다.
 - 이름은 소문자 필드지만 환경변수는 대소문자를 가리지 않으므로 DATABASE_URL이 database_url로 들어온다.
+
+진입점: get_settings()(서버 create_app, 명령줄 app.cli, evals/run_evals.py). 테스트는 .env를 읽지 않는
+하위 클래스(tests/conftest.py SettingsWithoutEnvFile)로 만들어 create_app(settings)에 넘긴다.
+.env에 이 클래스가 모르는 키가 있어도 무시한다(extra="ignore").
+
+고칠 때 주의
+- 설정을 더하면 저장소 루트 .env.example과 docs/DEPLOY.md "2. api 서비스 설정"의 환경변수 목록을 같이 고친다.
+- 키(SecretStr)는 값을 로그·오류 문장·화면에 넣지 않는다. 형식 오류 로그도 이름만 남긴다(app/security.py).
+- 암호화 키(TOKEN_ENCRYPTION_KEY, PAYLOAD_ENCRYPTION_KEY)를 바꾸거나 잃으면 저장된 Google 토큰 / 끝나지 않은
+  워크플로를 풀 수 없다. 교체 순서와 결과는 docs/OPERATIONS.md 4절, docs/DATA_POLICY.md "키 관리".
+- 모델 가격(MODEL_PRICES)이나 기본 모델을 바꾸면 비용 예약·정산(app/agent/budget.py)과 eval 예상 비용
+  (evals/estimate.py, docs/EVALS.md '예상 비용' 표)이 바뀐다.
+- 관련 테스트: tests/test_config_deploy.py(DATABASE_URL 드라이버), tests/test_settings.py(APP_ENV·https·Secure),
+  tests/test_budget*.py(가격표).
 """
 
 from dataclasses import dataclass
@@ -53,7 +67,10 @@ class Settings(BaseSettings):
 
     # 필수: 없으면 서버가 시작되지 않는다.
     database_url: str
+    # 0단계 서명 쿠키 세션의 키였다. 세션을 서버 저장형으로 바꾼 뒤(DECISIONS 0단계 보강) 읽는 곳은 없지만
+    # 필수 설정으로 남아 있다(docs/OPERATIONS.md 4절 표).
     session_secret: SecretStr
+    # 화면의 출처(예: http://localhost:3000). Origin 검사(CSRF)와 쿠키 Secure 여부가 이 값 하나로 정해진다.
     app_origin: str
 
     # 실행 환경(BUILD_SPEC 12.2). production이면 APP_ORIGIN이 https여야 하고 쿠키에 늘 Secure를 붙인다.
@@ -84,9 +101,12 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: SecretStr = SecretStr("")
     google_redirect_uri: str = ""
+    # Google 토큰·OAuth 시작 정보(PKCE verifier) 암호화(Fernet). 비었거나 형식이 틀리면 Google 연결을 막는다
+    # (app/security.py token_cipher). 바꾸면 사용자가 Google을 다시 연결해야 한다(docs/OPERATIONS.md 4절).
     token_encryption_key: SecretStr = SecretStr("")
     # 7단계 보강: 복구 payload 암호화 키(Fernet, BUILD_SPEC 12.2). DBOS 기록과 메일 결과의 모델 기록을 암호화한다.
-    # 비어 있으면 메일 기능을 켜지 않는다(app/payload_crypto.py, app/google_auth.py mail_enabled).
+    # 비어 있으면 메일 기능을 켜지 않는다(app/payload_crypto.py, app/agent/data_policy.py mail_enabled).
+    # 바꾸면 끝나지 않은 워크플로를 복구할 수 없다(docs/OPERATIONS.md 3·4절 순서대로 교체).
     payload_encryption_key: SecretStr = SecretStr("")
 
     # 웹 푸시 (3단계부터 사용)
@@ -112,6 +132,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_https_in_production(self) -> Self:
+        """배포에서 http 출처로 뜨는 것을 막는다(쿠키에 Secure가 빠져 세션 토큰이 평문으로 오가는 사고).
+
+        틀리면 ValueError → 설정을 만들 때 실패해 서버가 시작되지 않는다(tests/test_settings.py).
+        """
         if self.app_env == "production" and not self.app_origin.startswith("https://"):
             raise ValueError("APP_ENV=production이면 APP_ORIGIN은 https://로 시작해야 한다")
         return self
@@ -124,5 +148,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """프로세스당 한 번 읽어 재사용한다(lru_cache). .env를 고친 뒤에는 서버를 다시 띄워야 반영된다."""
     # 필수 값은 .env에서 채워지므로 인자 없이 만든다.
     return Settings()  # pyright: ignore[reportCallIssue]

@@ -6,17 +6,30 @@
 `clock.now_utc()`로 부른다(바꿔 낀 함수가 보이게).
 
 승인 만료·예산·세션처럼 실제 시간이 지나야 하는 검사는 이 모듈을 쓰지 않는다.
+
+근거: docs/DECISIONS.md 2026-11-17 "eval의 '지금'은 app/clock.py 한 곳에서 읽게 바꿨다".
+
+고칠 때 주의
+- 새로 "오늘 날짜"를 모델에게 보여 주거나 날짜 범위를 계산하는 곳은 datetime.now 대신 clock.now_utc()를 쓴다.
+  그러지 않으면 eval 사례가 고정 시각과 실제 시각이 섞인 채 돌아 결과가 날마다 달라진다.
+- today_seoul도 모듈 전역 now_utc를 거쳐 부르므로 frozen_clock(now_utc만 바꿈)이 같이 적용된다.
+  today_seoul 안에서 datetime.now를 직접 부르게 바꾸면 eval의 날짜가 풀린다.
+- 관련: evals/harness.py(frozen_clock), evals/record.py.
 """
 
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
+# 사용자가 한국에 있다는 전제(날짜 경계·"오늘"은 서울 기준). 예산(agent/budget.py)·비용 화면도 서울 0시를
+# 경계로 쓰지만 이 상수가 아니라 실제 시각으로 따로 계산한다(eval 고정 시각을 따르지 않게).
 SEOUL = ZoneInfo("Asia/Seoul")
 
 
 def now_utc() -> datetime:
+    """지금 시각(UTC, 시간대 있음). eval이 이 함수 하나를 바꿔 끼워 세상을 고정한다."""
     return datetime.now(UTC)
 
 
 def today_seoul() -> date:
+    """서울 기준 오늘 날짜. now_utc를 거치므로 eval의 고정 시각을 따른다."""
     return now_utc().astimezone(SEOUL).date()

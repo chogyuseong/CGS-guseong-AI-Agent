@@ -8,6 +8,20 @@
 
 결과는 외부 콘텐츠다(가게 이름·주소는 남이 쓴 글). ToolResult.external로 지시문 무시 안내를 붙인다.
 결과가 없으면 실패가 아니라 "없음"이라는 정상 답이다(ok=true, places=[], message).
+
+진입점: 모델(toolsets.read_tools의 search_places, 예약·감시 task 포함), weather.get_weather(locate로 좌표 변환).
+다른 도구 파일이 clip()을 가져다 쓴다(weather, websearch, drafts, gcal, gmail).
+근거: docs/TOOLS.md "search_places", docs/DECISIONS.md 4단계(2026-11-17 외부 호출 공통, 감싸는 도구에 장소 포함).
+데이터 정책: public만 받는다(data_policy.TOOL_POLICIES). 같은 작업에서 메일을 읽었거나 조회한 일정 제목이 인자에 있으면
+StepTracking이 실행 전에 막고, 메일을 읽은 문맥에서는 모델에게 보이지도 않는다(data_policy.visible_tool).
+
+고칠 때 주의:
+- 등록부 네 곳: toolsets.read_tools와 TOOL_LABELS(search_places_label), data_policy.TOOL_POLICIES,
+  results.EXTERNAL_CONTENT_TOOLS(외부 글 감싸기 확인·remember 검사).
+- KEYWORD_URL은 evals/fake_externals.py·evals/evaluators.py가 가져다 가짜 응답과
+  개인정보 전송 판정(PUBLIC_HOSTS)에 쓴다.
+- 응답 칸 이름을 바꾸면 tests/fixtures/kakao_*.json(README.md에 실제 응답인지 적혀 있다)과 tests/test_places.py,
+  docs/TOOLS.md를 같이 고친다. 키·한도 오류 해석은 app/tools/http.py에 있다.
 """
 
 from dataclasses import dataclass
@@ -25,7 +39,8 @@ KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 SERVICE = "카카오"
 MAX_RADIUS_M = 20000  # 카카오 radius 최대값
 MAX_SIZE = 15  # 카카오 size 최대값
-TEXT_LIMIT = 200  # 이름·주소·카테고리 한 칸의 최대 글자 수
+# 이름·주소·카테고리 한 칸의 최대 글자 수. 외부 글 한 칸이 결과 전체(6,000자 제한)를 차지하지 못하게 한다.
+TEXT_LIMIT = 200
 NO_KEY_MESSAGE = "카카오 API 키가 설정되지 않았습니다. .env의 KAKAO_REST_API_KEY를 채워 주세요."
 
 PlaceQuery = Annotated[str, Field(min_length=1, max_length=50, description="찾을 것. 예: 파스타, 카페, 약국")]
@@ -49,12 +64,21 @@ class Location:
 
 
 def clip(value: object, limit: int = TEXT_LIMIT) -> str:
+    """None·빈 값은 ""로, 앞뒤 공백을 지우고 limit자를 넘으면 끝을 '…'로 자른다.
+
+    외부 문자열을 결과·타임라인 문구에 넣을 때 쓴다.
+    """
     text = str(value or "").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 async def keyword_search(deps: AgentDeps, query: str, **params: Any) -> list[dict[str, Any]]:
-    """카카오 키워드 검색의 documents 목록을 돌려준다."""
+    """카카오 키워드 검색의 documents 목록을 돌려준다.
+
+    키가 비었으면 요청을 보내지 않고 ExternalApiError(NO_KEY_MESSAGE). HTTP 실패·한도 초과도 http.get_json이
+    ExternalApiError로 바꾼다. 응답 모양이 예상과 다르면 예외 대신 빈 목록이다(결과 없음과 같게 처리).
+    외부 호출 1회(GET, 재시도 규칙은 http.py). 키는 헤더에만 넣는다(주소·오류 문장에 남지 않게).
+    """
     key = deps.settings.kakao_rest_api_key.get_secret_value()
     if not key:
         raise ExternalApiError(NO_KEY_MESSAGE)
@@ -66,7 +90,11 @@ async def keyword_search(deps: AgentDeps, query: str, **params: Any) -> list[dic
 
 
 async def locate(deps: AgentDeps, place: str) -> Location:
-    """장소 이름을 좌표로 바꾼다. 정확도가 가장 높은 결과 1개를 쓴다. 못 찾으면 ExternalApiError."""
+    """장소 이름을 좌표로 바꾼다. 정확도가 가장 높은 결과 1개를 쓴다. 못 찾으면 ExternalApiError.
+
+    Open-Meteo 지오코딩이 동네·역 이름에 약해 명세대로 카카오를 쓴다(weather.py 머리 주석).
+    첫 결과가 다른 곳일 수 있어 matched_place를 남겨 사용자가 어느 장소 기준인지 확인하게 한다. 외부 호출 1회.
+    """
     documents = await keyword_search(deps, place, size=1)
     if not documents:
         raise ExternalApiError(f"'{place}' 위치를 찾지 못했습니다. 동네나 역 이름으로 다시 말해 주세요.")
@@ -96,6 +124,9 @@ def place_view(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 도구(READ). docstring은 모델에게 보이는 도구 설명이라 고치지 않는다.
+# near가 있으면 외부 호출이 두 번이다(locate로 중심 좌표 → 반경 검색). 오류는 예외로 던지지 않고 ToolResult로 바꾼다.
+# 결과는 ToolResult.external로 감싼다: 가게 이름·주소에 숨은 지시문을 따르지 않게(절대 원칙 14).
 async def search_places(
     ctx: RunContext[AgentDeps], query: PlaceQuery, near: NearPlace = None, radius_m: Radius = 2000, size: ResultSize = 5
 ) -> ToolResult:
@@ -119,5 +150,6 @@ async def search_places(
 
 
 def search_places_label(args: dict[str, Any]) -> str:
+    """타임라인 문구(toolsets.TOOL_LABELS에 이름으로 등록). 인자 값은 20자로 자른다."""
     near = args.get("near")
     return f"카카오맵에서 {clip(near, 20) + ' ' if near else ''}{clip(args.get('query'), 20)} 찾는 중"

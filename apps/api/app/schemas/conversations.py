@@ -1,3 +1,14 @@
+"""대화·메시지 요청과 응답(app/routers/conversations.py). 화면 사용처는 apps/web/lib/chat.ts.
+
+- MessageCreate.client_request_id: 재전송 중복 방지 키(DECISIONS 2026-11-17, tasks UNIQUE(user_id, client_request_id)).
+- MessageOut.origin: 8단계에 더한 필드. 화면은 이 값으로 [제안] 버튼·"예약 작업 결과"·"조건 감시 알림" 표시를 고른다
+  (DECISIONS 2026-11-17). 값을 더하면 화면 분기도 같이 본다.
+- 제목 '예약 작업'은 쓸 수 없다(not_automation_title).
+
+고칠 때 주의: 필드·Literal·제한 값을 바꾸면 gen:api, apps/web/lib/chat.ts, tests/test_conversations.py,
+test_chat_api.py, test_client_request_id.py, test_message_origin.py, test_suggestions.py.
+"""
+
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -7,13 +18,18 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 from app.automation.rules import AUTOMATION_CONVERSATION_TITLE
 from app.models.enums import MessageRole
 
+# 제목 없이 만든 대화의 이름(라우터가 채운다).
 DEFAULT_CONVERSATION_TITLE = "새 대화"
+# 메시지 한 통의 최대 글자 수(앞뒤 공백 제거 후). 넘으면 422. 바꾸면 화면 입력창 제한도 확인한다.
 MAX_MESSAGE_LENGTH = 4000
 
 
 def not_automation_title(title: str) -> str:
     """'예약 작업' 대화방은 서버가 제목으로 찾는다(app/automation/store.py). 사용자가 같은 제목의 대화를 만들면
-    자동 실행 결과가 그 대화로 들어갈 수 있어서 막는다(8단계, docs/DECISIONS.md)."""
+    자동 실행 결과가 그 대화로 들어갈 수 있어서 막는다(8단계, docs/DECISIONS.md).
+
+    TitleText의 strip_whitespace 뒤에 불리므로 앞뒤 공백만 다른 제목도 막힌다. 실패는 422(ValueError 문장이 detail에).
+    """
     if title == AUTOMATION_CONVERSATION_TITLE:
         raise ValueError(f"'{AUTOMATION_CONVERSATION_TITLE}'은 자동 실행 결과용 대화방 이름이라 쓸 수 없습니다.")
     return title

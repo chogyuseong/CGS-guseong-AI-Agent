@@ -1,6 +1,20 @@
 """요청 한 건의 실행 기록: tasks, steps, approvals, guard_checks, usage_logs.
 
 0단계에서는 테이블만 만든다. 이 테이블을 채우는 에이전트·승인 코드는 1~2단계에서 만든다.
+이력: 1단계 보강 agent_runs·client_request_id·TaskStatus 12가지, 2단계 보강 approvals.plan_id(계획별 승인)와
+tasks (id, user_id) 고유(복합 외래 키용).
+
+누가 쓰는가: tasks는 app/routers/conversations.py(메시지 보내기)와 자동화(예약 실행)가 만들고 runner가 상태를 바꾼다.
+steps는 tracking.StepTracking(승인 대기 step은 approvals.save_requests), approvals·guard_checks는 approvals,
+usage_logs는 runner와 app/automation/check.py(감시 판정).
+상태 전이는 docs/STATE_MACHINES.md(누가 바꾸는지까지).
+
+고칠 때 주의:
+- 컬럼을 바꾸면 Alembic 마이그레이션(`uv run python -m alembic revision --autogenerate`)을 만들고 생성 파일을 읽는다.
+  상태 enum을 바꾸면 docs/STATE_MACHINES.md·tests/test_state_machines.py(models/enums.py 머리 참고).
+- 보관: tasks.message_history와 steps.input·output은 끝난 7일 뒤 비운다(app/automation/retention.py). 새 내용 컬럼을
+  더하면 retention.py와 docs/DATA_POLICY.md 표에 넣는다. 승인 카드 문장(approvals.summary)은 정리하지 않는다.
+- tasks (id, user_id) 고유 제약은 action_plans·outbox_events의 복합 외래 키가 기대므로 지우지 않는다.
 """
 
 import uuid
@@ -26,6 +40,14 @@ from app.models.enums import (
 
 
 class Task(TimestampedTable):
+    """사용자 요청 한 건(채팅 메시지 하나, 또는 예약 실행 한 번)의 실행 단위. 감시 확인은 task를 만들지 않는다.
+
+    message_history: Pydantic AI 메시지 JSON(app/agent/history.py 저장 규칙. 메일 결과는 암호문).
+    다음 task가 이어받는다.
+    workflow_id: 마지막으로 이 task를 잡은 DBOS 워크플로 ID(task-{id}, task-{id}-resume-N). 재개 번호 계산에 쓴다.
+    request_count·total_tokens: 모든 회차 합계(회차별 값은 agent_runs).
+    """
+
     __tablename__ = "tasks"
     # 1단계 보강: 같은 사용자가 같은 client_request_id로 다시 보내면 새 task를 만들지 않는다(BUILD_SPEC 9.1).
     # (id, user_id) 고유: action_plans가 (task_id, user_id) 복합 외래 키로 소유자 일치를 강제한다(2단계 보강).
@@ -70,7 +92,13 @@ class AgentRun(TimestampedTable):
 
 
 class Step(TimestampedTable):
-    """도구 호출 한 번. risk_level은 도구 정의에서 복사해 둔다(나중에 등급이 바뀌어도 기록이 남게)."""
+    """도구 호출 한 번. risk_level은 도구 정의에서 복사해 둔다(나중에 등급이 바뀌어도 기록이 남게).
+
+    tracking.StepTracking이 실행 직전에 만들고(승인 대기 EXTERNAL 호출은 approvals.save_requests) 끝나면
+    output·status를 채운다. 복구 때 같은 tool_call_id의 행을 찾아 기록된 결과를 재생하거나,
+    도중에 끊긴 INTERNAL·EXTERNAL 호출을 unknown으로 닫는다(다시 실행하지 않음).
+    order는 task 안의 순서(UNIQUE). 메일 도구의 output에는 내용 없이 통 수만 남긴다(results.output_for_storage).
+    """
 
     __tablename__ = "steps"
     __table_args__ = (UniqueConstraint("task_id", "order"),)
@@ -116,6 +144,11 @@ class Approval(TimestampedTable):
 
 
 class GuardCheck(TimestampedTable):
+    """승인 대기 step 하나에 대한 감시 에이전트 판정(app/agent/guard.py). 승인 카드의 배지·이유로만 쓰인다.
+
+    model은 String(100)이라 guard.model_label이 100자로 자른다.
+    """
+
     __tablename__ = "guard_checks"
 
     step_id: Mapped[int] = mapped_column(ForeignKey("steps.id", ondelete="CASCADE"), unique=True)
@@ -125,6 +158,11 @@ class GuardCheck(TimestampedTable):
 
 
 class UsageLog(TimestampedTable):
+    """모델 호출 비용 기록(비용 화면, app/usage_report.py). 메시지 내용 없이 계속 보관한다(DATA_POLICY.md "비용 기록").
+
+    하루 한도 판단은 이 표가 아니라 daily_budgets 원장으로 한다(models/budget.py).
+    """
+
     __tablename__ = "usage_logs"
 
     # 하루 비용 상한을 사용자별로 합산한다. task가 없는 사용(감시 판정, eval)도 사용자에게 붙인다.

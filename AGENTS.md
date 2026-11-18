@@ -153,7 +153,8 @@
 5. **타임라인 문구**: 도구 파일의 `LABELS` 딕셔너리(→ `toolsets.TOOL_LABELS`)에 `"도구이름": lambda args: "…하는 중"`을 넣는다(예: "할 일에 '우유 사기' 추가하는 중").
 6. **외부 콘텐츠 도구**(검색 결과, 일정 제목, 메일 본문을 돌려주는 도구, 4단계부터)는 `ToolResult.external(content, sources)`로
    돌려준다(지시문 무시 안내로 감싸고 6,000자로 자름, 출처·조회 시각). 이름을 `results.EXTERNAL_CONTENT_TOOLS`에도 넣는다
-   (5단계 remember 검사가 이 목록과 감싸기로 외부 글을 알아본다. `toolsets`에서도 다시 내보낸다).
+   (`toolsets`에서도 다시 내보낸다. 5단계 보강 뒤 remember 검사는 원문 인용 검증이라 이 목록을 쓰지 않는다. 2026-11-18 확인.
+   웹 검색 뒤 예약·감시 차단은 이 목록이 아니라 `data_policy.SEARCH_TOOLS`를 본다).
    외부 HTTP는 `app/tools/http.py`(`get_json`, `request_json`)로만 부르고 `ExternalApiError`를 `ToolResult.from_api_error(error)`로 바꾼다
    (쓰기 요청이 시간 초과·연결 실패면 unknown, 조회 실패는 failed + retryable).
    키는 `ctx.deps.settings`, 클라이언트는 `ctx.deps.http`. 엔드포인트·한도는 `docs/TOOLS.md`에 적는다.

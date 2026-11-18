@@ -8,6 +8,10 @@
   3) (완료 2026-11-18) 9단계 보강 코드 부분. 남은 9단계: 실제 배포, 배포 환경 복원 연습, 실기기 확인, 7일 실사용 기록
   4) 실제 배포(Railway, docs/DEPLOY.md). 배포 환경변수에 PAYLOAD_ENCRYPTION_KEY(두 번째 PC .env와 같은 값)와
      TELEMETRY_ENABLED(관찰을 켤 때만 true)를 넣는다
+  5) (진행 중, 2026-11-18 사용자 지시) 나중에 고치기 쉽게 주석 보강. 규칙은 AGENTS.md "주석 규칙".
+     (가) 핵심 9개 + (나) API 전체(app·evals 90개 파일) 완료: 주석·docstring만, 코드 AST·도구 설명·OpenAPI는 그대로(직접 비교).
+     남음 (다) 웹 화면(apps/web) — 사용자가 고르면 진행.
+     모델 호출은 계속 Max 크레딧 API 키(사용자 재확인, DECISIONS 1단계)
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,

@@ -1,4 +1,15 @@
-"""자동화 화면 API 응답(6단계). 웹은 이 모양을 OpenAPI에서 타입으로 생성한다."""
+"""자동화 화면 API 응답(6단계). 웹은 이 모양을 OpenAPI에서 타입으로 생성한다.
+
+라우터는 app/routers/automations.py, 화면 사용처는 apps/web/lib/automations.ts.
+
+고칠 때 주의:
+- WatchStatus·WatchUnknownReason은 감시 실행 쪽(app/automation/check.py·watch.py·conditions.py)이
+  watches.last_result에 쓰는 값과 같아야 한다.
+  모르는 값이 기록되면 라우터의 result_out이 그 결과를 None으로 버린다(경고 로그만).
+- AutomationErrorCode는 app/automation/store.py의 AutomationError code와 같아야 한다.
+- BriefingUpdate의 시각 패턴(24시간 HH:MM)을 바꾸면 store.enable_briefing의 해석도 확인한다.
+- 관련 테스트: tests/test_automation_api.py, test_briefing_consent.py, test_budget_pause.py, test_watch_conditions.py.
+"""
 
 from datetime import datetime
 from typing import Any, Literal
@@ -109,6 +120,7 @@ class ActiveUpdate(BaseModel):
     is_active: bool
 
 
+# 자동화 API 오류 code. not_found만 404, 나머지는 409(라우터 http_error).
 type AutomationErrorCode = Literal["not_found", "limit_reached", "duplicate", "expired", "invalid"]
 
 

@@ -1,4 +1,10 @@
-"""외부 서비스 연결 상태 응답. 토큰은 절대 응답에 넣지 않는다."""
+"""외부 서비스 연결 상태 응답. 토큰은 절대 응답에 넣지 않는다.
+
+라우터는 app/routers/connections.py, 화면 사용처는 apps/web/lib/connections.ts.
+콜백 결과(?google=...&reason=...)는 리디렉션 쿼리라 여기 모델이 없다(라우터 머리 docstring의 reason 코드 목록).
+고칠 때 주의: 필드·Literal을 바꾸면 gen:api, tests/test_google_connection.py, test_google_reconnect.py,
+test_mail_privacy.py.
+"""
 
 from datetime import datetime
 from typing import Literal

@@ -1,3 +1,9 @@
+"""기억 화면 응답(app/routers/memories.py). 화면 사용처는 apps/web/lib/memories.ts.
+
+기억을 만들거나 고치는 요청 모델은 없다(기억은 채팅의 remember 도구로만 생긴다, 절대 원칙 9).
+고칠 때 주의: 필드를 바꾸면 gen:api, apps/web/lib/memories.ts, tests/test_memories.py, test_memory_quotes.py.
+"""
+
 from datetime import datetime
 
 from pydantic import BaseModel

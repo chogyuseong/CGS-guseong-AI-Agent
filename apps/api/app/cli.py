@@ -10,6 +10,15 @@
 웹의 e2e 준비 단계가 이 명령을 반복 실행하기 때문이다.
 
 send-test-push는 폰에서 푸시 수신을 확인하는 용도다(docs/PUSH-CHECK.md). 본문은 notify와 같은 고정 문구다.
+
+진입점: 루트 package.json의 `pnpm api:create-user`, 웹 e2e 준비(apps/web/e2e/global-setup.ts가 create-user 실행).
+근거: docs/DECISIONS.md 2026-11-17(send-test-push는 관리 명령이고 API가 아니다).
+
+고칠 때 주의
+- 비밀번호는 화면·로그에 찍지 않는다(--password를 빼면 getpass로 화면에 보이지 않게 묻는다).
+- 명령 이름·인자를 바꾸면 AGENTS.md "실행", docs/PUSH-CHECK.md, package.json, e2e global-setup을 같이 고친다.
+- 이 파일은 서버와 따로 엔진을 만들고 끝나면 닫는다(app.state를 쓰지 않는다). 비동기 실행은 run_async로만
+  (Windows SelectorEventLoop, app/event_loop.py).
 """
 
 import argparse
@@ -27,6 +36,7 @@ from app.users import create_user_if_missing, find_user_by_email, normalize_emai
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """명령 두 개(create-user, send-test-push)의 인자 해석기. --kind 선택지는 PushKind에서 만든다."""
     parser = argparse.ArgumentParser(prog="python -m app.cli", description="마이에이전트 관리 명령")
     commands = parser.add_subparsers(dest="command", required=True)
     create_user = commands.add_parser("create-user", help="로그인 계정을 만든다")
@@ -39,7 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def password_problem(password: str) -> str | None:
-    """비밀번호에 문제가 있으면 이유를, 없으면 None을 돌려준다."""
+    """비밀번호에 문제가 있으면 이유를, 없으면 None을 돌려준다.
+
+    bcrypt 한도(72바이트)를 미리 검사해 hash_password의 PasswordTooLongError가 traceback으로 보이지 않게 한다.
+    """
     if not password:
         return "비밀번호가 비어 있습니다."
     if len(password.encode("utf-8")) > BCRYPT_MAX_BYTES:
@@ -48,6 +61,7 @@ def password_problem(password: str) -> str | None:
 
 
 def prompt_password() -> str:
+    """화면에 보이지 않게 두 번 묻는다. 다르면 SystemExit(종료 코드 1, 계정을 만들지 않는다)."""
     first = getpass.getpass("비밀번호: ")
     second = getpass.getpass("비밀번호 확인: ")
     if first != second:
@@ -56,6 +70,7 @@ def prompt_password() -> str:
 
 
 async def create_user_command(email: str, password: str | None) -> int:
+    """계정을 만든다. 종료 코드: 0(만듦·이미 있음), 1(비밀번호 문제). 커밋은 create_user_if_missing이 한다."""
     engine = create_engine_for(get_settings().database_url)
     try:
         async with create_session_factory(engine)() as session:
@@ -78,6 +93,11 @@ async def create_user_command(email: str, password: str | None) -> int:
 
 
 async def send_test_push_command(email: str, kind: PushKind) -> int:
+    """그 계정의 구독 기기 전부에 고정 문구 푸시를 실제로 보낸다(외부 호출: 브라우저 푸시 서버).
+
+    종료 코드: 0(보냄, 0대여도), 1(VAPID 설정 없음·계정 없음). notification_key에 무작위 값을 붙여
+    같은 명령을 다시 실행해도 중복 방지(notifications)에 걸리지 않게 한다. 기록은 notifications에 남는다.
+    """
     logging.basicConfig(level=logging.WARNING)  # 발송 실패 경고(구독 id와 오류 종류만)를 화면에 보인다
     settings = get_settings()
     if not push_enabled(settings):
@@ -99,6 +119,7 @@ async def send_test_push_command(email: str, kind: PushKind) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """종료 코드를 돌려준다. 이메일은 '@'만 가볍게 검사한다(관리자가 직접 치는 값이다)."""
     args = build_parser().parse_args(argv)
     if "@" not in args.email:
         print("오류: 이메일 형식이 아닙니다.", file=sys.stderr)

@@ -6,6 +6,21 @@
 - 그 task의 마지막 결정이면 resume_task 워크플로(ID task-{id}-resume-{n})를 시작만 하고 바로 응답한다(3단계).
   응답의 task_status는 그 시점 상태(보통 waiting_approval 또는 running)다. 화면은 task 폴링으로 끝을 확인한다.
 - 오류 본문은 {"detail": {"code", "message"}}이고 OpenAPI에 ApprovalErrorOut 모델로 드러난다.
+
+엔드포인트(모두 로그인 필요, POST라 앱 전체 Origin 검사 미들웨어를 거친다):
+    POST /api/approvals/{id}/approve  본문 {confirm_mismatch?} → 200 ApprovalDecisionOut / 404 / 409 / 410
+    POST /api/approvals/{id}/reject                            → 200 ApprovalDecisionOut / 404 / 409 / 410
+승인 카드 목록은 이 라우터가 아니라 GET /api/tasks/{id}의 approvals로 나간다(approvals_of_task를 tasks.py가 부른다).
+
+근거: BUILD_SPEC 4.2(operation 상태), DECISIONS 2026-11-17(decide 잠금 순서 task → 승인, mismatch 409 강제,
+오류 code 분기, 재개 워크플로 ID 번호, outbox 3단계 보강). 상태 전이 표는 docs/STATE_MACHINES.md.
+
+고칠 때 주의:
+- 경로·응답 모양·오류 code를 바꾸면 `pnpm --dir apps/web gen:api` 후 apps/web/lib/approvals.ts
+  (approve·reject 호출, approvalErrorCode 분기, applyDecision)를 같이 고친다.
+- 오류 code 목록은 app/schemas/tasks.py의 ApprovalErrorCode와 app/agent/approvals.py의 예외 code가 같아야 한다.
+- 재개 시작 경로(outbox.dispatch, start_resume_if_waiting)를 바꾸면 docs/STATE_MACHINES.md·docs/FAULTS.md도 본다.
+- 관련 테스트: tests/test_approvals.py, test_approval_card_api.py, test_faults.py, test_workflows.py, test_openapi.py.
 """
 
 import logging
@@ -27,6 +42,8 @@ from app.security import CurrentUser
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
+# 아래 *_RESPONSE 표는 OpenAPI에 오류 본문 모양을 드러내려고 둔다(화면 타입 생성에 쓰인다, DECISIONS 2026-11-17).
+# description 문자열도 생성 파일에 들어가므로 바꾸면 gen:api를 다시 돌린다.
 NOT_FOUND_RESPONSE: dict[str, Any] = {
     "model": ApprovalErrorOut,
     "description": "detail.code가 not_found. 없는 승인이거나 다른 사용자의 승인",
@@ -50,12 +67,15 @@ REJECT_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: {"model": ApprovalErrorOut, "description": "detail.code가 task_not_waiting(작업이 승인 대기 상태가 아님)"},
     410: EXPIRED_RESPONSE,
 }
+# decide가 던지는 예외 → HTTP 상태. 남의 승인도 404로 묶어 존재를 드러내지 않는다.
+# 표에 없는 ApprovalError는 decide_and_resume에서 409로 떨어진다.
 ERROR_STATUS = {
     approvals.ApprovalNotFoundError: status.HTTP_404_NOT_FOUND,
     approvals.MismatchConfirmationRequiredError: status.HTTP_409_CONFLICT,
     approvals.TaskNotWaitingError: status.HTTP_409_CONFLICT,
     approvals.ApprovalExpiredError: status.HTTP_410_GONE,
 }
+# 사용자에게 보일 문장. 화면은 문구가 아니라 detail.code로 분기하므로 문장은 자유롭게 고쳐도 된다.
 ERROR_MESSAGES = {
     approvals.ApprovalNotFoundError: "승인 요청을 찾을 수 없습니다.",
     approvals.MismatchConfirmationRequiredError: "요청과 다를 수 있습니다. 그래도 진행할지 한 번 더 확인해 주세요.",
@@ -86,11 +106,20 @@ def account_text(plan: ActionPlan | None) -> str | None:
 
 
 def target_text(plan: ActionPlan | None) -> str:
+    """카드의 '어디에 하는 일인지'. 도구 규격의 target_label, 계획·규격이 없으면 기본 규격의 문구("외부 서비스").
+
+    기본 문구는 ExternalToolSpec의 기본값에서 가져오므로 그 기본값을 바꾸면 옛 승인 카드 문구도 바뀐다.
+    """
     spec = plans.EXTERNAL_TOOL_SPECS.get(plan.tool_name) if plan else None
     return spec.target_label if spec else plans.ExternalToolSpec(version="0").target_label
 
 
 def approval_view(row: CardRow) -> ApprovalOut:
+    """DB 행 묶음 → 승인 카드 응답. DB를 읽거나 쓰지 않는다.
+
+    receipt_confirmed는 영수증 행이 있을 때만 true다. 화면의 "실행 완료"는 이 값에만 기대야 한다
+    (절대 원칙 10: 성공 표시는 실행 영수증에 근거). operation 상태만으로 완료를 보이면 unknown을 성공으로 오인한다.
+    """
     approval, step, guard = row.approval, row.step, row.guard
     return ApprovalOut(
         id=approval.id,
@@ -112,7 +141,12 @@ def approval_view(row: CardRow) -> ApprovalOut:
 
 
 def approval_query() -> Select[Approval, Step, GuardCheck, ActionPlan, Operation, int]:
-    """승인 + step + 감시 결과 + 계획·operation·영수증 id(없으면 None, outer join)."""
+    """승인 + step + 감시 결과 + 계획·operation·영수증 id(없으면 None, outer join).
+
+    user_id 조건이 없다. 부르는 쪽이 task 소유자를 이미 확인했거나(approvals_of_task), decide가 소유자를
+    확인한 승인 id로만 부른다(decision_view). 새 호출처를 만들면 소유자 조건을 반드시 붙인다(남의 카드 노출).
+    계획·operation·영수증이 한 승인에 하나씩이라는 전제로 행이 늘지 않는다. 1:N이 되면 카드가 중복된다.
+    """
     return (
         select(Approval, Step, GuardCheck, ActionPlan, Operation, ExecutionReceipt.id)
         .join(Step, Step.id == Approval.step_id)
@@ -130,6 +164,11 @@ async def approvals_of_task(session: AsyncSession, task_id: int) -> list[Approva
 
 
 async def decision_view(session: AsyncSession, decision: approvals.Decision) -> ApprovalDecisionOut:
+    """결정 직후의 카드와 task 상태. 읽기만 한다.
+
+    task_status는 재개가 끝난 상태가 아니라 이 순간의 상태다(보통 waiting_approval·running). 화면은 폴링으로 끝을 본다.
+    decision.approval_id는 decide가 user_id로 확인한 승인이라 여기서 소유자를 다시 보지 않는다.
+    """
     session.expire_all()  # 재개 워크플로가 다른 세션에서 바꾼 값을 다시 읽는다
     row = (await session.execute(approval_query().where(Approval.id == decision.approval_id))).one()
     task = await session.get_one(Task, decision.task_id)
@@ -139,6 +178,12 @@ async def decision_view(session: AsyncSession, decision: approvals.Decision) -> 
 async def decide_and_resume(
     request: Request, session: AsyncSession, approval_id: int, user_id: int, *, approve: bool, confirm: bool
 ) -> ApprovalDecisionOut:
+    """승인·거절 공통 처리: 결정(잠금·커밋은 approvals.decide 안) → 마지막 결정이면 재개 시작 → 카드 응답.
+
+    오류면 세션을 되돌리고 {"code", "message"} 본문의 HTTPException으로 바꾼다(404·409·410).
+    재개 워크플로는 시작만 하고 기다리지 않는다. 시작 실패는 로그만 남기고 200으로 답한다:
+    결정과 같은 트랜잭션에 남은 outbox 요청을 1분 검사·서버 시작이 다시 처리하므로 사용자가 다시 누를 필요가 없다.
+    """
     try:
         decision = await approvals.decide(session, approval_id, user_id, approve=approve, confirm_mismatch=confirm)
     except approvals.ApprovalError as error:
@@ -157,6 +202,9 @@ async def decide_and_resume(
     return await decision_view(session, decision)
 
 
+# 승인. mismatch 판정이면 서버도 confirm_mismatch를 강제한다(화면 버그로 '한 번 더 묻기'를 건너뛰는 사고 방지).
+# 같은 승인에 두 번 눌러도 200 changed=false라 실행이 두 번 생기지 않는다(decide의 FOR UPDATE + pending 검사).
+# 아래 docstring은 OpenAPI 설명이라 고치면 gen:api 결과가 바뀐다.
 @router.post("/{approval_id}/approve", responses=APPROVE_ERROR_RESPONSES)
 async def approve_action(
     approval_id: int, request: Request, user: CurrentUser, session: DbSession, body: ApproveRequest | None = None
@@ -166,6 +214,8 @@ async def approve_action(
     return await decide_and_resume(request, session, approval_id, user.id, approve=True, confirm=confirm)
 
 
+# 거절. 마지막 결정이면 승인과 같은 재개 경로를 탄다(거절 결과를 모델에 넘겨야 task가 끝난다).
+# 아래 docstring은 OpenAPI 설명이다.
 @router.post("/{approval_id}/reject", responses=REJECT_ERROR_RESPONSES)
 async def reject_action(
     approval_id: int, request: Request, user: CurrentUser, session: DbSession

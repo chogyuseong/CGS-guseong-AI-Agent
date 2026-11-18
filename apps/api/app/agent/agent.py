@@ -23,6 +23,21 @@ Agent는 앱이 시작할 때 한 번 만든다(build_agent). DBOS.launch() 전�
   모델 '객체'를 실행 중에 바꿔 끼우려면(테스트의 가짜 모델) models=에 등록해야 한다(extra_models).
 - 도구 실행은 DBOS 단계가 아니다. 복구 때 같은 호출이 두 번 실행되지 않게 하는 일은 StepTracking이 한다(tracking.py).
 - 도구 호출은 순서대로(sequential) 실행한다. 복구 때 단계 번호가 달라지지 않게 하고, step 순서도 정해진다.
+
+진입점: app/main.py lifespan이 build_agent로 만들어 app.state.agent에 둔다. eval은 evals/harness.py가 같은 함수로 만든다
+(실제 앱과 같은 Agent). 실행은 runner.execute_agent가 agent.run(toolsets=toolsets.run_toolsets(origin), ...)으로 한다.
+근거: BUILD_SPEC 6.1(FAST 하나), DECISIONS 2026-11-16(instructions로 넘김, toolset sequential),
+2026-11-17(DBOSDurability를 Agent 생성 때 넣음, deps 타입을 가리지 않는 build_model_resolver).
+
+고칠 때 주의:
+- AGENT_NAME은 DBOS 단계 이름에 들어간다. 바꾸면 끝나지 않은 워크플로가 복구될 때 기록된 단계와 이름이 달라지므로
+  workflows.WORKFLOW_VERSION을 함께 올리고 docs/OPERATIONS.md의 배포 절차를 따른다.
+- output_type(str | DeferredToolRequests)을 바꾸면 runner의 output_type_for·결과 해석, 테스트의 가짜 모델 대본,
+  eval이 함께 바뀐다(DECISIONS 2026-11-17 "AgentReply 구조화 출력은 미룬다").
+  예약 task는 runner가 AutomationReply를 더한다.
+- instructions(시스템 프롬프트·순서)를 바꾸면 모델 판단이 달라지므로 eval을 다시 돌려 본다(비용 확인 후, docs/EVALS.md).
+- capability를 더하거나 빼면 BudgetCapability(호출 전 예약·후 정산)와 StepTracking(step 기록·취소 확인·복구 재생)이
+  빠지지 않았는지 본다. 둘 중 하나라도 빠지면 예산 상한이나 도구 기록·복구 규칙이 깨진다.
 """
 
 from collections.abc import Mapping
@@ -48,11 +63,16 @@ from app.config import Settings
 # 이 프로젝트의 Agent 타입: deps는 AgentDeps, 출력은 최종 답변(str) 또는 승인 대기(DeferredToolRequests).
 type MyAgent = Agent[AgentDeps, str | DeferredToolRequests]
 
+# DBOS 단계 이름의 앞부분. 감시('myagent-guard')·감시 판정('myagent-watch') Agent와 겹치지 않아야 한다.
 AGENT_NAME = "myagent"
 
 
 def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None = None) -> MyAgent:
-    """extra_models: 워크플로 안에서 agent.override(model=...)로 끼울 모델 객체(테스트의 가짜 모델만 쓴다)."""
+    """메인 Agent를 만든다. 앱 시작 때 한 번, DBOS.launch() 전에 부른다(DBOSDurability가 launch 전에 등록돼야 한다).
+
+    extra_models: 워크플로 안에서 agent.override(model=...)로 끼울 모델 객체(테스트의 가짜 모델만 쓴다).
+    운영에서는 None이다. 등록하지 않은 모델 객체는 워크플로 안에서 끼울 수 없다(AGENTS.md 도구 규약 7).
+    """
     return Agent(
         # 일반 요청은 FAST 하나로 한다. 도구 호출 횟수로 SMART로 바꾸지 않는다(BUILD_SPEC 6.1).
         settings.agent_model_fast,

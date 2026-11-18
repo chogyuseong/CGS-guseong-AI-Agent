@@ -3,13 +3,16 @@
 
     automation_check 워크플로 (DBOS 예약 실행, 매분)
       ID는 DBOS가 "sched-automation-check-{시각}"으로 정해 같은 분이 두 번 돌지 않는다
+      [check_clock]          지금 시각을 단계로 기록(workflows.py). 복구 때도 같은 now로 다시 계산한다
       run_check(now)
         [expire_approvals]   만료 시각이 지난 pending 승인 → expired, task cancelled (approvals.expire_task)
         [expire_watches]     만료일이 지난 켜진 감시 → 끔
+        [find_outbox]        3단계 보강: 시작하지 못한 outbox 요청 → outbox.dispatch_events로 다시 시작
         [find_due]           next_run_at ≤ now인 켜진 예약·감시
         예약마다 run_schedule 워크플로 시작  ID "schedule-{예약 id}-{예정 시각}"
         감시마다 run_watch 워크플로 시작     ID "watch-{감시 id}-{예정 시각}"
       같은 예정 시각은 같은 워크플로 ID라 몇 번 시작해도 DBOS가 한 번만 실행한다.
+        매시 17분이면 retention.prune_expired_records([prune_records] 단계 + DBOS 기록 삭제)
 
     run_schedule 워크플로
         [claim_schedule]  예약 행 잠금 → 켜져 있고 next_run_at이 그 예정 시각일 때만: 다음 시각 계산,
@@ -28,6 +31,30 @@
         [notify_watch]   met이면 watch_met 푸시
 
 [단계]는 DBOS 단계(durable_step)라 서버가 죽었다 살아나도 다시 실행하지 않는다. 워크플로 밖(테스트)에서는 그냥 실행된다.
+
+진입점: app/agent/workflows.py의 automation_check(DBOS apply_schedules, cron "* * * * *", Asia/Seoul,
+automatic_backfill=False), run_schedule, run_watch 워크플로. 시작기는 workflows.WorkflowLauncher(app.state.launcher).
+근거: BUILD_SPEC 8절(예약·감시·아침 브리핑), 절대 원칙 7(예약·감시 모델에는 READ 도구만).
+DECISIONS 2026-11-17 "6단계"(1분 검사와 중복·밀린 실행, 예약 실행, 감시 판정)와 "6단계 보강"(automation_occurrences,
+숫자 조건, 다시 알림 정책, 예산 멈춤 표시).
+
+변경 이력:
+- 2026-11-17 6단계: 1분 검사·예약 실행·감시 실행.
+- 2026-11-17 3단계 보강: 1분 검사가 밀린 outbox 요청도 다시 시작한다(find_outbox).
+- 2026-11-17 5단계 보강: 매시 17분 보관 기간 정리(retention.py).
+- 2026-11-17 6단계 보강: 발생 기록(automation_occurrences)으로 예정 시각마다 한 번, 숫자 조건, unknown 판정,
+  거짓→참 전환 때만 알림, 예산 멈춤(paused_budget). 브리핑 자동 생성(seed_briefings) 단계 제거.
+
+고칠 때 주의:
+- durable_step 이름·순서(이 파일과 retention.py의 단계)를 바꾸면 workflows.WORKFLOW_VERSION을 올린다
+  (진행 중인 워크플로가 복구 때 다른 단계 결과를 받게 된다). 단계 결과 모양(DueWork, WatchJob 등)도 마찬가지다.
+- 워크플로 ID 형식(schedule-…, watch-…)은 workflows.schedule_workflow_id·watch_workflow_id에 있다. 중복 실행 방지의
+  첫 겹이므로 바꾸면 이미 시작한 예정 시각이 다시 돌 수 있다.
+- 발생 기록 status·skip_reason 값을 바꾸면 docs/STATE_MACHINES.md 5절을 같이 고친다.
+- last_result의 키·status 값은 app/schemas/automations.py(WatchStatus·WatchResultOut, 모양이 틀리면 null로 줌)와
+  화면 apps/web/lib/automations.ts(상태 문구)가 읽는다. 값을 더하면 스키마·gen:api·화면 문구를 같이 고친다.
+- 테스트는 run_check(services, now)에 시각을 넣어 부르고, DBOS 예약(apply_schedules)을 등록하지 않는다
+  (테스트 DB에서 매분 검사가 돌게 된다).
 """
 
 import logging
@@ -55,7 +82,12 @@ logger = logging.getLogger(__name__)
 
 
 class AutomationLauncher(Protocol):
-    """예약·감시 워크플로를 시작하는 객체(app/agent/workflows.py의 WorkflowLauncher)."""
+    """예약·감시 워크플로를 시작하는 객체(app/agent/workflows.py의 WorkflowLauncher).
+
+    start_run·start_resume은 outbox.OutboxLauncher 몫이다(run_check가 밀린 outbox 요청을 다시 시작할 때 쓴다).
+    테스트의 시작기(tests/conftest.py)는 워크플로가 끝날 때까지 기다린다. 메서드 이름·인자를 바꾸면
+    WorkflowLauncher, outbox.OutboxLauncher, 테스트 시작기를 같이 고친다.
+    """
 
     async def start_schedule(self, job_id: int, run_at: datetime, checked_at: datetime) -> Any: ...
 
@@ -68,6 +100,8 @@ class AutomationLauncher(Protocol):
 
 @dataclass(frozen=True)
 class AutomationServices:
+    """자동화 워크플로가 쓰는 묶음. workflows.automation_services_from_state가 app.state로 만든다(테스트도 같다)."""
+
     run: RunServices
     watch_agent: WatchAgent
     launcher: AutomationLauncher
@@ -85,6 +119,8 @@ class CheckReport:
 
 @dataclass(frozen=True)
 class DueWork:
+    """find_due 단계 결과(DBOS에 기록). 모양을 바꾸면 WORKFLOW_VERSION을 올린다."""
+
     schedules: list[tuple[int, datetime]]  # (예약 id, 예정 시각)
     watches: list[tuple[int, datetime]]  # (감시 id, 예정 시각)
 
@@ -93,7 +129,13 @@ class DueWork:
 
 
 async def run_check(services: AutomationServices, now: datetime) -> CheckReport:
-    """검사 한 번. 예약·감시 실행은 워크플로를 시작만 하고(테스트의 시작기는 끝날 때까지 기다린다) 결과를 모른다."""
+    """검사 한 번. 예약·감시 실행은 워크플로를 시작만 하고(테스트의 시작기는 끝날 때까지 기다린다) 결과를 모른다.
+
+    now는 automation_check 워크플로의 check_clock 단계 값이다. 테스트는 여기에 원하는 시각을 직접 넣는다.
+    부수 효과: 승인 만료·감시 끄기(각 단계에서 커밋), outbox 요청과 예약·감시 워크플로 시작, 매시 17분 보관 정리.
+    중복 실행: 같은 분은 DBOS 워크플로 ID로 한 번만 돈다. 검사가 겹쳐도 시작하는 워크플로 ID가 예정 시각으로
+    정해져 있어 예약·감시는 한 번만 실행된다. 단계를 더하거나 순서를 바꾸면 WORKFLOW_VERSION을 올린다.
+    """
     factory = services.run.session_factory
     expired = await durable_step("expire_approvals", expire_overdue_approvals, factory, now)
     watches_expired = await durable_step("expire_watches", expire_watches, factory, now)
@@ -117,6 +159,7 @@ async def run_check(services: AutomationServices, now: datetime) -> CheckReport:
 
 
 async def overdue_task_ids(session: AsyncSession, now: datetime) -> list[int]:
+    """만료 시각이 지난 pending 승인을 가진 승인 대기 task id들(잠그지 않는다. 잠근 뒤 상태는 다시 본다)."""
     rows = await session.scalars(
         select(Task.id)
         .join(Step, Step.task_id == Task.id)
@@ -132,7 +175,12 @@ async def overdue_task_ids(session: AsyncSession, now: datetime) -> list[int]:
 
 
 async def expire_overdue_approvals(factory: async_sessionmaker[AsyncSession], now: datetime) -> int:
-    """만료된 승인을 정리한다(2단계 expire_task 재사용). task를 잠그고 아직 승인 대기일 때만 바꾼다."""
+    """만료된 승인을 정리한다(2단계 expire_task 재사용). task를 잠그고 아직 승인 대기일 때만 바꾼다.
+
+    결과: 실제로 바꾼 task 수. task마다 따로 커밋해 잠금을 짧게 쥔다.
+    승인 API도 expires_at을 직접 검사하고 같은 task 행을 FOR UPDATE로 잠그므로, 사용자의 승인과 겹쳐도
+    한쪽만 상태를 바꾼다(만료된 승인이 실행되는 사고를 막음). 푸시는 보내지 않는다(DECISIONS 2026-11-17).
+    """
     expired = 0
     async with factory() as session:
         for task_id in await overdue_task_ids(session, now):
@@ -145,6 +193,10 @@ async def expire_overdue_approvals(factory: async_sessionmaker[AsyncSession], no
 
 
 async def expire_watches(factory: async_sessionmaker[AsyncSession], now: datetime) -> int:
+    """만료일이 지난 켜진 감시를 확인 차례가 아니어도 끈다(last_result.status=expired). 끈 수를 돌려주고 커밋한다.
+
+    끄지 않으면 만료된 감시가 화면에 켜진 채로 보이고 활성 10개 칸(store.ensure_watch_allowed)을 계속 차지한다.
+    """
     async with factory() as session:
         result = await session.execute(
             update(Watch)
@@ -158,6 +210,11 @@ async def expire_watches(factory: async_sessionmaker[AsyncSession], now: datetim
 
 
 async def find_due(factory: async_sessionmaker[AsyncSession], now: datetime) -> DueWork:
+    """차례가 된 켜진 예약·감시와 그 예정 시각(DB의 next_run_at 그대로). 읽기만 한다.
+
+    예정 시각을 그대로 워크플로 ID에 넣으므로 검사가 여러 번 같은 행을 찾아도 같은 워크플로가 된다.
+    서버가 오래 꺼져 있었어도 행마다 next_run_at이 하나라 행당 많아야 1건이다.
+    """
     async with factory() as session:
         jobs = await session.execute(
             select(ScheduledJob.id, ScheduledJob.next_run_at)
@@ -174,7 +231,10 @@ async def find_due(factory: async_sessionmaker[AsyncSession], now: datetime) -> 
 
 # ---- 예약 작업 실행 ----
 
-# 6단계 보강: automation_occurrences의 값
+# 6단계 보강: automation_occurrences의 값. (kind, source_id, scheduled_for) 유일 조건이 같은 예정 시각의 두 번째
+# 실행을 막는다. 값을 바꾸면 이미 쌓인 행(보관 7일)과 달라지고, docs/STATE_MACHINES.md 5절과 모델 설명
+# (app/models/automation.py)도 고친다. 발생 기록은 API로 나가지 않는 기록용이다.
+# 감시 last_result.status(paused_budget 등)와 이름이 달라 OCCURRENCE_SKIP_REASONS로 바꿔 적는다.
 OCCURRENCE_SCHEDULE = "schedule"
 OCCURRENCE_WATCH = "watch"
 OCCURRENCE_STARTED = "started"
@@ -185,12 +245,19 @@ OCCURRENCE_SKIP_REASONS = {"expired": "expired", "paused_budget": "budget"}
 
 @dataclass(frozen=True)
 class ScheduledRun:
+    """claim_schedule 단계 결과(DBOS에 기록): 실행할 task, 프롬프트, 완료 푸시 종류."""
+
     task_id: int
     prompt: str
     done_kind: PushKind
 
 
 async def lock_job(session: AsyncSession, job_id: int) -> ScheduledJob | None:
+    """예약 행을 FOR UPDATE로 잠그고 최신 값으로 읽는다(세션 캐시 덮어씀). 지워졌으면 None.
+
+    화면의 끄기·지우기와 claim이 같은 행을 잠가, 끈 뒤에 새 실행이 잡히지 않게 한다.
+    user_id 조건이 없는 것은 1분 검사가 찾은 id만 넘어오기 때문이다(사용자 요청 경로에서 쓰지 않는다).
+    """
     return await session.scalar(
         select(ScheduledJob)
         .where(ScheduledJob.id == job_id)
@@ -200,10 +267,16 @@ async def lock_job(session: AsyncSession, job_id: int) -> ScheduledJob | None:
 
 
 def done_kind_for(job: ScheduledJob) -> PushKind:
+    """완료 푸시 종류: 아침 브리핑(kind='briefing')은 briefing, 그 밖은 task_done(명세: 자동 작업은 완료 때 항상)."""
     return PushKind.BRIEFING if job.kind == rules.BRIEFING_KIND else PushKind.TASK_DONE
 
 
 async def create_schedule_task(session: AsyncSession, job: ScheduledJob, run_at: datetime) -> Task:
+    """'예약 작업' 대화방에 사용자 메시지 없는 task(origin=schedule, queued)를 만든다. 커밋은 claim이 한다.
+
+    outbox를 거치지 않는다: 같은 run_schedule 워크플로가 바로 runner.run_task로 실행한다.
+    last_task_id는 자동화 화면의 "마지막 실행 결과"가 읽는다.
+    """
     conversation = await store.automation_conversation(session, job.user_id)
     task = Task(conversation_id=conversation.id, user_id=job.user_id, origin=TaskOrigin.SCHEDULE)
     session.add(task)
@@ -215,6 +288,7 @@ async def create_schedule_task(session: AsyncSession, job: ScheduledJob, run_at:
 async def find_occurrence(
     session: AsyncSession, kind: str, source_id: int, scheduled_for: datetime
 ) -> AutomationOccurrence | None:
+    """이 예정 시각의 발생 기록. 행을 잠근 뒤 불러야 "없음"을 믿을 수 있다."""
     return await session.scalar(
         select(AutomationOccurrence).where(
             AutomationOccurrence.kind == kind,
@@ -242,7 +316,12 @@ def add_occurrence(
 
 
 def replay_claim(job: ScheduledJob, occurrence: AutomationOccurrence) -> ScheduledRun | None:
-    """이미 잡힌 발생(복구·중복 시작): 실행했던 것이면 같은 task, 건너뛴 것이면 None."""
+    """이미 잡힌 발생(복구·중복 시작): 실행했던 것이면 같은 task, 건너뛴 것이면 None.
+
+    claim 단계가 커밋한 뒤 DBOS가 결과를 기록하기 전에 죽으면 단계가 다시 돈다. 그때 task를 새로 만들지 않고
+    같은 task를 돌려줘 예약 한 번에 task가 두 개 생기는 사고를 막는다. 그 task가 이미 끝났으면
+    runner.run_task의 claim이 다시 실행하지 않는다.
+    """
     if occurrence.status != OCCURRENCE_STARTED or occurrence.task_id is None:
         return None
     return ScheduledRun(occurrence.task_id, job.prompt_text, done_kind_for(job))
@@ -255,6 +334,11 @@ async def claim_schedule_run(
 
     유예 시간(2시간)보다 오래된 실행은 건너뛰고 이유(missed)를 남긴다. 다음 시각은 지금부터 다시 계산하므로
     서버가 며칠 꺼져 있었어도 밀린 실행이 몰리지 않는다(예약마다 next_run_at이 하나뿐이라 많아야 1건).
+
+    결과: 실행할 ScheduledRun, 또는 None(지워짐·꺼짐·예정 시각이 이미 바뀜·건너뜀).
+    부수 효과: 예약 행 잠금, next_run_at·last_run_at·last_task_id 갱신, task와 발생 기록 생성을 한 트랜잭션으로 커밋.
+    중복 방지는 두 겹이다: 워크플로 ID(예정 시각)와 여기의 행 잠금 + "next_run_at = 예정 시각" + 발생 기록.
+    이미 잡힌 실행은 그 뒤 끄거나 지워도 끝까지 돈다(다음 실행부터 반영, DECISIONS 2026-11-17 6단계 보강).
     """
     async with factory() as session:
         job = await lock_job(session, job_id)
@@ -279,6 +363,12 @@ async def claim_schedule_run(
 
 
 async def run_scheduled_job(services: RunServices, job_id: int, run_at: datetime, now: datetime) -> None:
+    """run_schedule 워크플로 본문. claim 뒤 메인 에이전트 실행(runner.run_task)을 같은 워크플로에서 이어 한다.
+
+    READ 도구만 주는 것(절대 원칙 7, toolsets의 origin별 조합)·이전 기록을 이어받지 않는 것·하루 비용 검사는
+    runner가 task.origin=schedule을 보고 정한다. 여기서는 도구 목록을 고르지 않고, 완료 푸시 종류만 넘긴다.
+    claim이 None이면 아무것도 하지 않는다(task 없음, 푸시 없음).
+    """
     claimed = await durable_step("claim_schedule", claim_schedule_run, services.session_factory, job_id, run_at, now)
     if claimed is None:
         return
@@ -290,6 +380,11 @@ async def run_scheduled_job(services: RunServices, job_id: int, run_at: datetime
 
 @dataclass(frozen=True)
 class WatchJob:
+    """claim_watch 단계 결과(DBOS에 기록). 감시 행에서 확인에 필요한 값만 복사한 것이다.
+
+    필드를 바꾸면 WORKFLOW_VERSION을 올린다. 기본값이 있는 칸은 6단계 보강 전에 기록된 결과를 읽기 위한 것이다.
+    """
+
     id: int
     user_id: int
     description: str
@@ -301,6 +396,7 @@ class WatchJob:
 
 
 async def lock_watch(session: AsyncSession, watch_id: int) -> Watch | None:
+    """감시 행을 FOR UPDATE로 잠그고 최신 값으로 읽는다. 지워졌으면 None(lock_job과 같은 이유)."""
     return await session.scalar(
         select(Watch).where(Watch.id == watch_id).with_for_update().execution_options(populate_existing=True)
     )
@@ -310,6 +406,11 @@ async def claim_watch_run(services: RunServices, watch_id: int, run_at: datetime
     """이 예정 시각의 확인을 한 번만 잡는다.
 
     다음 확인을 먼저 now + 간격으로 미뤄 둔다(도중에 죽어도 다시 몰리지 않게).
+
+    결과: 확인할 WatchJob, 또는 None(지워짐·꺼짐·예정 시각이 바뀜·이미 잡힘·만료·하루 비용 상한).
+    만료면 감시를 끄고, 비용 상한이면 도구·모델을 부르지 않고 last_result.status=paused_budget을 남긴다
+    (화면의 "오늘은 쉬는 중"). 건너뛴 것도 발생 기록(skipped)을 남겨 같은 예정 시각을 다시 잡지 않는다.
+    부수 효과: 감시 행 잠금, next_run_at·is_active·last_result, 발생 기록을 한 트랜잭션으로 커밋.
     """
     async with services.session_factory() as session:
         watch = await lock_watch(session, watch_id)
@@ -343,6 +444,11 @@ async def claim_watch_run(services: RunServices, watch_id: int, run_at: datetime
 
 
 async def execute_watch_tool(services: RunServices, job: WatchJob) -> ToolResult:
+    """저장된 도구를 실행한다(watch_tool 단계). 예외를 내지 않고 실패는 ok=false ToolResult다.
+
+    도구가 READ이고 메일이 아닌지는 run_watch_tool이 실행 때 다시 검사한다(절대 원칙 7. DB 값이 바뀌어 있어도
+    INTERNAL·EXTERNAL 도구가 돌지 않게). 메인 Agent run이 아니라 StepTracking·데이터 정책 검사는 거치지 않는다.
+    """
     deps = AgentDeps(
         user_id=job.user_id,
         task_id=0,  # 감시 확인은 task를 만들지 않는다. READ 도구는 task_id를 쓰지 않는다.
@@ -357,6 +463,11 @@ async def execute_watch_tool(services: RunServices, job: WatchJob) -> ToolResult
 async def judge_watch(
     services: RunServices, agent: WatchAgent, job: WatchJob, result: ToolResult, now: datetime
 ) -> WatchReview:
+    """문장 조건을 판정 에이전트로 판정한다(watch_verdict 단계, 모델 호출·비용 발생).
+
+    예산은 task 없이 "watch:{감시 id}:{시각}" 키로 하루 원장에 예약·정산한다(BudgetCapability). 단계라서 복구 때
+    모델을 다시 부르지 않는다. 실패는 예외 대신 judged=False(watch.judge)라 unknown으로 기록된다.
+    """
     prompt = build_watch_prompt(
         description=job.description, condition_text=job.condition_text, checked_at=now, result=result
     )
@@ -383,6 +494,7 @@ def verdict_for(job: WatchJob, result: ToolResult, review: WatchReview | None) -
 
 
 def last_result(verdict: conditions.Verdict, result: ToolResult, now: datetime) -> dict[str, Any]:
+    """watches.last_result에 넣을 값. 키를 바꾸면 schemas/automations.py의 WatchResultOut과 화면을 같이 고친다."""
     return {
         "status": verdict.status,
         "reason": verdict.reason,
@@ -397,6 +509,8 @@ def should_notify(watch: Watch, verdict: conditions.Verdict, now: datetime) -> b
     """거짓(또는 처음)→참으로 바뀌었고, 마지막 알림에서 12시간 이상 지났을 때만 알린다.
 
     계속 참이면 다시 알리지 않는다. 12시간 안에 다시 참이 되면 그 전환은 알리지 않고 넘어간다.
+    unknown(조회·판정 실패)은 알리지 않는다. 참인 조건이 간격마다 푸시를 다시 보내지 않게 하는 규칙이다
+    (DECISIONS 2026-11-17 6단계 보강 "다시 알림 정책"). 12시간은 rules.WATCH_REPEAT_DELAY.
     """
     if verdict.status != conditions.MET or watch.last_known_met is True:
         return False
@@ -404,6 +518,10 @@ def should_notify(watch: Watch, verdict: conditions.Verdict, now: datetime) -> b
 
 
 def met_message(watch: Watch, summary: str, result: ToolResult, now: datetime) -> str:
+    """'예약 작업' 대화방에 남길 충족 알림 본문. summary는 판정 모델의 글(숫자 조건이면 서버의 비교 문장)이다.
+
+    출처는 본문 줄과 별도로 Message.sources에도 저장한다(notify_met). 화면은 그 목록으로 링크를 그린다.
+    """
     lines = [f"[조건 감시] {watch.description}", f"조건: {watch.condition_text}", summary]
     if result.sources:
         lines.append("출처: " + " ".join(result.sources))
@@ -414,6 +532,10 @@ def met_message(watch: Watch, summary: str, result: ToolResult, now: datetime) -
 
 
 async def record_watch_usage(session: AsyncSession, user_id: int, review: WatchReview | None) -> None:
+    """판정 비용을 usage_logs(purpose=watch, task 없음)에 더한다. 커밋은 finish_watch가 한다.
+
+    판정하지 않았거나(숫자 조건·도구 실패) 사용량을 모르면 남기지 않는다(0원으로 치지 않는다).
+    """
     if review is None or review.usage is None:
         return
     usage = review.usage
@@ -456,7 +578,11 @@ async def finish_watch(
     review: WatchReview | None,
     now: datetime,
 ) -> int | None:
-    """결과를 저장한다. 알려야 하면 대화방 id, 아니면 None. 그 사이 꺼지거나 지워진 감시는 알리지 않는다."""
+    """결과를 저장한다. 알려야 하면 대화방 id, 아니면 None. 그 사이 꺼지거나 지워진 감시는 알리지 않는다.
+
+    판정 도중 사용자가 끄거나 지웠어도 이미 쓴 비용(usage_logs)은 남긴다. unknown이면 last_known_met을 바꾸지 않아
+    실패 한 번이 "거짓→참" 전환으로 잘못 세어지지 않게 한다. 감시 행 잠금 + 한 트랜잭션 커밋(finish_watch 단계).
+    """
     verdict = verdict_for(job, result, review)
     async with factory() as session:
         await record_watch_usage(session, job.user_id, review)
@@ -473,10 +599,16 @@ async def finish_watch(
 
 
 async def send_watch_push(services: RunServices, user_id: int, conversation_id: int, key: str) -> int:
+    """watch_met 푸시(본문은 고정 문구, app/push.py). key가 같으면 한 번만 보내진다(notify_watch 단계)."""
     return await services.notifier.notify(user_id, PushKind.WATCH_MET, f"/chat/{conversation_id}", key)
 
 
 async def run_watch(services: AutomationServices, watch_id: int, run_at: datetime, now: datetime) -> None:
+    """run_watch 워크플로 본문(task를 만들지 않는다). 단계: claim_watch → watch_tool → watch_verdict → finish_watch
+    → notify_watch. 단계 이름·순서를 바꾸면 WORKFLOW_VERSION을 올린다.
+
+    도구가 실패하면 판정 모델을 부르지 않는다(비용 없음, unknown). 숫자 조건도 모델 없이 서버가 비교한다.
+    """
     run = services.run
     job = await durable_step("claim_watch", claim_watch_run, run, watch_id, run_at, now)
     if job is None:

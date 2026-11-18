@@ -12,6 +12,27 @@
 
 고정된 세상(8단계 보강): 사례마다 app.clock을 사례의 now로 바꿔 끼운다(frozen_clock). 사례는 하나씩 차례로 돈다
 (max_concurrency=1). 계정은 모두 Google 연결(캘린더 + 메일 읽기 권한)과 메일 데이터 처리 동의가 된 상태다.
+
+흐름 속 위치: run_evals.evaluate가 build_environment → case_task를 Dataset.evaluate에 넘긴다. Pydantic Evals가 사례마다
+task(inputs)를 부르면 run_case가 돌고, 돌려준 EvalOutput을 evaluators가 판정한다. 끝난 뒤 run_evals.record_usage가
+record_eval_usage로 개발 DB에 비용을 남긴다.
+
+근거: BUILD_SPEC 16절(eval), DECISIONS 2026-11-17(버리는 DB, 가짜 외부 API, 승인하지 않음, usage_logs purpose=eval,
+app.clock 고정), 2026-11-17(eval 설정에 실행마다 새 PAYLOAD_ENCRYPTION_KEY).
+
+고칠 때 주의
+- 승인을 결정하는 코드를 이 디렉터리에 넣지 않는다. tests/test_evals.py의 '실행기는 승인하지 않음' 소스 검사 테스트가
+  evals/*.py 전체(주석 포함)에서 승인 결정 함수·승인 결과 이름을 찾는다. 승인을 영어 낱말로 적지 않는다.
+- runner.run_task의 인자나 RunServices 모양이 바뀌면 run_case를 같이 고친다(실제 앱 흐름과 같아야 eval이 의미 있다).
+- Settings에 외부 API 키·푸시·관찰 설정을 새로 더하면 eval_settings에서 가짜 값이나 빈 값으로 덮는다.
+  덮지 않으면 .env의 실제 키가 eval에서 쓰인다.
+- 사례 준비 모양(사용자·Google 연결·메일 동의)을 바꾸면 dataset.yaml 머리와 docs/EVALS.md '고정된 세상'도 고친다.
+
+변경 이력
+- 2026-11-17 처음 작성(8단계).
+- 2026-11-17 7단계 보강: eval 설정에 새 PAYLOAD_ENCRYPTION_KEY(메일 도구가 보이게), 메일 데이터 처리 동의.
+- 2026-11-17 8단계 보강: 사례마다 app.clock 고정(frozen_clock), 모델이 시도한 도구 모으기(attempted_tools).
+- 2026-11-18 주석 보강(동작 변경 없음).
 """
 
 import secrets
@@ -43,11 +64,14 @@ from app.security import hash_password, token_cipher
 from evals.cases import EvalInputs, EvalOutput, ModelUsage, ToolCall
 from evals.fake_externals import EvalHttp
 
+# 외부 API 키 자리에 넣는 가짜 값. 혹시 실제 서비스로 나가도 인증에 실패하게 하는 두 번째 안전장치다.
 FAKE = "eval-fake-not-a-real-key"
 
 
 @dataclass(frozen=True)
 class EvalEnvironment:
+    """한 번의 eval 실행 동안 모든 사례가 함께 쓰는 것: eval DB 세션, eval 설정, 메인·감시 에이전트."""
+
     session_factory: async_sessionmaker[AsyncSession]
     settings: Settings
     agent: MyAgent
@@ -58,12 +82,17 @@ def check_eval_database_name(url: str) -> str:
     """eval DB 이름은 _eval로 끝나야 한다(개발 DB를 실수로 쓰거나 지우지 않게)."""
     name = make_url(url).database or ""
     if not name.endswith("_eval"):
+        # 막는 사고: 개발 DB 주소를 그대로 넘겨 DROP DATABASE가 개발 DB를 지우는 것.
         raise ValueError(f"eval DB 이름은 _eval로 끝나야 합니다: {name}")
     return name
 
 
 def eval_settings(base: Settings, database_url: str) -> Settings:
-    """모델 키·모델 이름·비용 상한만 그대로 두고, 외부 API 키는 가짜로, 푸시·Logfire는 끈다."""
+    """모델 키·모델 이름·비용 상한만 그대로 두고, 외부 API 키는 가짜로, 푸시·Logfire는 끈다.
+
+    base를 바꾸지 않고 복사본을 돌려준다. token_encryption_key도 새로 만든다(가짜 Google 토큰을 버리는 DB에만 암호화).
+    불변 조건: 실제 카카오·네이버·Google 키, VAPID 키, Logfire 토큰이 eval 설정에 남지 않는다.
+    """
     return base.model_copy(
         update={
             "database_url": database_url,
@@ -87,13 +116,21 @@ def eval_settings(base: Settings, database_url: str) -> Settings:
 
 @contextmanager
 def frozen_clock(moment: datetime) -> Iterator[None]:
-    """사례의 now로 app.clock을 고정한다(날짜 지시문, 날씨 예보 범위, 자동화 시각, 조회 시각)."""
+    """사례의 now로 app.clock을 고정한다(날짜 지시문, 날씨 예보 범위, 자동화 시각, 조회 시각).
+
+    모듈 함수 하나를 바꿔 끼우므로 같은 프로세스의 다른 사례와 동시에 돌면 안 된다(max_concurrency=1).
+    승인 만료·예산 하루 경계·토큰 만료는 clock을 쓰지 않아 실제 시각 그대로다(DECISIONS 2026-11-17).
+    """
     fixed = moment.astimezone(UTC)
     with patch.object(clock, "now_utc", lambda: fixed):
         yield
 
 
 def build_environment(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -> EvalEnvironment:
+    """앱과 같은 build_agent·build_guard_agent로 에이전트를 만든다(eval 전용 프롬프트·도구를 두지 않는다).
+
+    settings는 eval_settings를 거친 것이어야 한다. 테스트는 만든 뒤 agent·guard를 override로 가짜 모델로 바꿔 낀다.
+    """
     return EvalEnvironment(session_factory, settings, build_agent(settings), build_guard_agent(settings))
 
 
@@ -101,7 +138,11 @@ def build_environment(settings: Settings, session_factory: async_sessionmaker[As
 
 
 async def create_case_user(session: AsyncSession, settings: Settings, now: datetime) -> User:
-    """새 사용자: Google 연결(캘린더 + 메일 읽기, 가짜 토큰)과 메일 데이터 처리 동의가 된 상태."""
+    """새 사용자: Google 연결(캘린더 + 메일 읽기, 가짜 토큰)과 메일 데이터 처리 동의가 된 상태.
+
+    부수 효과: eval DB에 사용자·토큰 행을 쓴다(flush만, 커밋은 prepare_case). 이메일은 .invalid 도메인의 무작위 값이라
+    실제 주소와 겹치지 않는다. 사례마다 새 사용자라 이전 사례의 기억·할 일·비용이 섞이지 않는다.
+    """
     user = User(
         email=f"eval-{secrets.token_hex(6)}@eval.invalid",
         password_hash=hash_password(secrets.token_hex(16)),
@@ -119,6 +160,11 @@ async def create_case_user(session: AsyncSession, settings: Settings, now: datet
 
 
 async def seed_case(session: AsyncSession, user: User, inputs: EvalInputs) -> None:
+    """사례 시작 전 할 일·기억을 넣는다(커밋하지 않음).
+
+    기억은 출처 메시지가 있어야 하므로(절대 원칙 9: 실제 출처에서만) '예전 대화'에 사용자가 "…. 기억해"라고 한
+    메시지를 먼저 만들고 그 id를 source_message_id로 단다.
+    """
     session.add_all(Todo(user_id=user.id, title=title) for title in inputs.seed_todos)
     if not inputs.seed_memories:
         return
@@ -133,7 +179,11 @@ async def seed_case(session: AsyncSession, user: User, inputs: EvalInputs) -> No
 
 
 async def prepare_case(env: EvalEnvironment, inputs: EvalInputs) -> int:
-    """사례 하나의 채팅 task를 만들고 id를 돌려준다(API의 메시지 전송과 같은 모양)."""
+    """사례 하나의 채팅 task를 만들고 id를 돌려준다(API의 메시지 전송과 같은 모양).
+
+    부수 효과: eval DB에 사용자·대화·메시지·task를 한 트랜잭션으로 쓰고 커밋한다. outbox·DBOS 시작은 하지 않는다
+    (run_case가 runner.run_task를 직접 부른다).
+    """
     async with env.session_factory() as session:
         user = await create_case_user(session, env.settings, inputs.now)
         await seed_case(session, user, inputs)
@@ -157,6 +207,7 @@ async def prepare_case(env: EvalEnvironment, inputs: EvalInputs) -> int:
 
 
 async def usage_of(session: AsyncSession, task_id: int) -> list[ModelUsage]:
+    """그 task의 usage_logs를 용도(agent·guard)·모델별로 합친다. 실제 모델 호출이 남긴 비용이 그대로 들어온다."""
     rows = await session.execute(
         select(
             UsageLog.purpose,
@@ -191,7 +242,10 @@ def attempted_tools(history: list[Any] | None) -> list[str]:
 
 
 async def tool_calls(session: AsyncSession, task_id: int) -> list[ToolCall]:
-    """steps 행마다 하나. 승인 요청이 만들어졌는지도 함께(상태는 pending 그대로다. 이 실행기는 결정하지 않는다)."""
+    """steps 행마다 하나. 승인 요청이 만들어졌는지도 함께(상태는 pending 그대로다. 이 실행기는 결정하지 않는다).
+
+    args는 steps.input이다(ToolArguments·ApprovalScope가 이 값으로 인자·대상을 본다).
+    """
     steps = list(await session.scalars(select(Step).where(Step.task_id == task_id).order_by(Step.order)))
     requested = set(
         await session.scalars(
@@ -211,6 +265,7 @@ async def tool_calls(session: AsyncSession, task_id: int) -> list[ToolCall]:
 
 
 async def collect_output(env: EvalEnvironment, task_id: int, http: EvalHttp) -> EvalOutput:
+    """eval DB의 task·steps·usage_logs와 가짜 외부 API의 기록으로 평가기가 볼 결과를 만든다(읽기만)."""
     async with env.session_factory() as session:
         task = await session.get_one(Task, task_id, populate_existing=True)
         return EvalOutput(
@@ -226,7 +281,12 @@ async def collect_output(env: EvalEnvironment, task_id: int, http: EvalHttp) -> 
 
 
 async def run_case(env: EvalEnvironment, inputs: EvalInputs) -> EvalOutput:
-    """사례 하나: 시각 고정 → 준비 → runner.run_task(실제 앱 흐름, 승인 대기에서 멈춤) → 결과."""
+    """사례 하나: 시각 고정 → 준비 → runner.run_task(실제 앱 흐름, 승인 대기에서 멈춤) → 결과.
+
+    불변 조건: 승인하지 않는다(승인 대기면 run_task가 거기서 끝나고 그대로 결과를 모은다). 외부 HTTP는 EvalHttp뿐이다.
+    실제 모델을 부르므로 비용이 든다(usage_logs는 eval DB에 남고, 개발 DB에는 record_eval_usage가 합계만 옮긴다).
+    결과 모으기는 시각 고정 밖에서 한다(읽기뿐이라 시각과 무관).
+    """
     http = EvalHttp(world=inputs)
     with frozen_clock(inputs.now):
         task_id = await prepare_case(env, inputs)
@@ -250,7 +310,11 @@ def case_task(env: EvalEnvironment) -> Callable[[EvalInputs], Awaitable[EvalOutp
 
 
 def eval_usage_rows(user_id: int, outputs: Sequence[EvalOutput]) -> list[UsageLog]:
-    """사례·모델마다 한 행(purpose=eval, task 없음). 메인·감시 에이전트 사용량을 합친다."""
+    """사례·모델마다 한 행(purpose=eval, task 없음). 메인·감시 에이전트 사용량을 합친다.
+
+    task 없음: 사례의 task는 지워질 eval DB에만 있다. user_id는 --email 계정이라 그 계정의 하루 비용에 들어간다
+    (DECISIONS 2026-11-16 usage_logs.user_id, 2026-11-17 eval 비용). 모델 이름은 칸 길이(100자)에 맞춰 자른다.
+    """
     rows: list[UsageLog] = []
     for output in outputs:
         by_model: dict[str, tuple[int, int, Decimal]] = {}
@@ -274,6 +338,7 @@ def eval_usage_rows(user_id: int, outputs: Sequence[EvalOutput]) -> list[UsageLo
 
 
 async def record_eval_usage(session: AsyncSession, user_id: int, outputs: Sequence[EvalOutput]) -> int:
+    """개발 DB usage_logs에 eval 비용을 쓰고 커밋한다. 돌려주는 값은 쓴 행 수(실행 명령이 보여 준다)."""
     rows = eval_usage_rows(user_id, outputs)
     session.add_all(rows)
     await session.commit()

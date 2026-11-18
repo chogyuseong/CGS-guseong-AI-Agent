@@ -1,4 +1,17 @@
-"""작업(task) 조회 응답. 웹은 이 모양을 OpenAPI에서 타입으로 생성한다."""
+"""작업(task) 조회 응답. 웹은 이 모양을 OpenAPI에서 타입으로 생성한다.
+
+쓰는 라우터: app/routers/tasks.py(TaskSummary, TaskDetail, StepOut, CancelOut),
+app/routers/approvals.py(ApprovalOut, ApproveRequest, ApprovalDecisionOut, ApprovalErrorOut).
+화면 사용처: apps/web/lib/chat.ts(작업 조회·취소), apps/web/lib/approvals.ts(승인·거절, 오류 code 분기).
+
+고칠 때 주의:
+- 상태 enum(TaskStatus, StepStatus, ApprovalStatus, OperationStatus)은 app/models/enums.py에 있다. 값을 바꾸면
+  docs/STATE_MACHINES.md, tests/test_state_machines.py, 마이그레이션(CHECK 제약), gen:api를 함께 본다.
+- ApprovalErrorCode는 app/agent/approvals.py 예외의 code와 같아야 한다(화면은 문구가 아니라 code로 분기).
+- receipt_confirmed는 영수증이 있을 때만 true여야 한다(절대 원칙 10). 다른 값에서 계산하지 않는다.
+- StepOut.input·output은 DB 값 그대로 나간다. 메일 내용은 저장 단계에서 이미 빠진다(results.output_for_storage).
+- 관련 테스트: tests/test_approvals.py, test_approval_card_api.py, test_openapi.py, test_cancel.py.
+"""
 
 from datetime import datetime
 from typing import Any, Literal
@@ -87,6 +100,7 @@ class ApprovalDecisionOut(BaseModel):
     task_status: TaskStatus
 
 
+# 승인 API 오류 code. 값을 더하면 라우터의 ERROR_STATUS·ERROR_MESSAGES와 화면 분기도 같이 고친다.
 type ApprovalErrorCode = Literal["not_found", "task_not_waiting", "approval_expired", "mismatch_confirmation_required"]
 
 
