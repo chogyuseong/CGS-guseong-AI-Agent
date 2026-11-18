@@ -50,15 +50,22 @@ def build_model_resolver(settings: Settings) -> Callable[[ModelResolutionContext
     메인 에이전트(deps=AgentDeps)와 감시 에이전트(deps 없음)가 함께 쓰므로 deps 타입을 가리지 않는다.
     키가 비어 있으면 RuntimeError(모델 요청 때 난다. 메시지에 키 값은 넣지 않는다).
     키는 .env를 읽은 Settings(SecretStr)에서만 꺼낸다(절대 원칙 15).
+
+    provider(안의 HTTP 클라이언트)는 resolver 하나당 처음 부를 때 한 번만 만들어 재사용한다(2026-11-19).
+    예전에는 호출마다 새로 만들어 연결을 재사용하지 못했고, 닫히지 않는 클라이언트가 쌓였다.
+    이벤트 루프가 바뀌면(테스트마다 새 루프 등) Pydantic AI 2.68이 실행 시작 때 클라이언트를 새로 만든다
+    (providers.Provider._refresh_http_client). 고칠 때 주의: 키를 바꾸면 서버를 다시 켜야 반영된다.
     """
+    providers: list[AnthropicProvider] = []
 
     def resolve(_ctx: ModelResolutionContext[Any], model_id: str) -> Model | None:
         if not model_id.startswith(ANTHROPIC_PREFIX):
             return None
-        api_key = settings.anthropic_api_key.get_secret_value()
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY가 비어 있어 모델을 부를 수 없습니다.")
-        provider = AnthropicProvider(api_key=api_key)
-        return AnthropicModel(model_id.removeprefix(ANTHROPIC_PREFIX), provider=provider)
+        if not providers:
+            api_key = settings.anthropic_api_key.get_secret_value()
+            if not api_key:
+                raise RuntimeError("ANTHROPIC_API_KEY가 비어 있어 모델을 부를 수 없습니다.")
+            providers.append(AnthropicProvider(api_key=api_key))
+        return AnthropicModel(model_id.removeprefix(ANTHROPIC_PREFIX), provider=providers[0])
 
     return resolve
