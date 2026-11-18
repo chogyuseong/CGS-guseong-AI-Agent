@@ -178,8 +178,9 @@
                      ★ 남음(사용자): 실제 배포·HTTPS 주소, 배포 환경 백업·복원 연습, 실기기(다크 모드·아이콘·푸시·마이크·키보드),
                      7일 실사용 기록(docs/OPERATIONS.md 양식)
 
-검사(2026-11-18, eval 개선 프롬프트 반영, 두 번째 PC): API pytest 624개, pyright 0건. 그 전(9단계 보강 끝, 첫 PC): API pytest 616개, ruff·pyright 0건(마이그레이션 변경 없음).
-웹: Biome 0건, tsc, Vitest 359개, Playwright 48개(2026-11-18 두 번째 PC).
+검사(2026-11-18 밤 최신, 첫 PC): API pytest 743개(그 뒤 회귀 테스트 2개 추가, 관련 9개 통과), ruff·pyright 0건.
+웹: Biome 0건, tsc, Vitest 387개, Playwright 53개, Next 프로덕션 빌드 성공.
+(예전: eval 개선 직후 두 번째 PC pytest 624개·Vitest 359개·Playwright 48개)
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
 
 현재 남은 작업은 문서 상단의 최신 점검 기록을 따른다. 아래는 이전 단계 당시의 기록이다.
@@ -349,13 +350,13 @@ PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 �
 
 잘 옮겨졌는지 확인:
 
-  pnpm api:test                    624개 통과(3분쯤 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:test                    745개 안팎 통과(몇 분 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
   pnpm api:check                   ruff, pyright 문제 0건
   pnpm --dir apps/web lint
   pnpm --dir apps/web typecheck
-  pnpm --dir apps/web test         359개 통과
-  pnpm --dir apps/web e2e          48개 통과(API 서버가 8000에 떠 있어야 하고 3000은 비어 있어야 한다.
-                                   먼저 다른 터미널에서 pnpm api)
+  pnpm --dir apps/web test         387개 통과
+  pnpm --dir apps/web e2e          53개 통과(API 서버가 8000에 떠 있어야 하고 3000은 비어 있어야 한다.
+                                   먼저 다른 터미널에서 pnpm api. pytest와 동시에 돌리면 시간 초과로 흔들리니 따로 돌린다)
 
 화면 확인(실제 모델 호출, 요청당 약 $0.002):
   "우유 사기 할 일에 추가해줘" → "내 할 일 보여줘" → "성수동 파스타 맛집 찾아줘"
