@@ -1,4 +1,4 @@
-"""사용자의 개인 데이터: memories, notes, todos.
+"""사용자의 개인 데이터: memories, notes, todos, experiences(2026-11-18 생활 비서 D, 본문 암호화).
 
 진입점: 도구 app/tools/notes.py(메모·할 일), app/tools/memories.py(remember·forget·list_memories),
 화면 API app/routers/memories.py. 기억은 prompts.memory_instruction이 최근 30줄을 매 요청 지시문에 넣는다.
@@ -56,3 +56,19 @@ class Todo(TimestampedTable):
     title: Mapped[str] = mapped_column(String(200))
     is_done: Mapped[bool] = mapped_column(Boolean, server_default="false")
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Experience(TimestampedTable):
+    """취업 준비에 쓰는 내 경험 한 건(생활 비서 D, 2026-11-18 사용자 결정: 원문 암호화 + 등록 전 안내).
+
+    본문(body_encrypted)은 PAYLOAD_ENCRYPTION_KEY(Fernet)로 암호화한 문자열만 저장한다. 평문 본문 컬럼을 두지 않는다.
+    제목은 목록 표시용 평문(화면이 "제목에 민감한 내용을 넣지 말라"고 안내). 등록은 설정 화면 API로만 한다
+    (채팅으로 받으면 원문이 messages에 평문으로 남는다). 저장·검사는 app/tools/experiences.py.
+    키를 잃으면 본문을 읽을 수 없다(docs/DATA_POLICY.md 키 관리). 제목 길이 60은 experiences.MAX_TITLE_CHARS와 같다.
+    """
+
+    __tablename__ = "experiences"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(60))
+    body_encrypted: Mapped[str] = mapped_column(Text)

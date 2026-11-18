@@ -1,5 +1,6 @@
 // 맡은 일: 설정 탭(/settings). 알림(웹 푸시) 켜기·끄기(PushSettings), 하위 화면으로 가는 바로가기 카드
-//   (/connections: Google 계정 연결, /usage: 비용), 데이터 보관 안내(DataRetentionNotice)를 세로로 둔다.
+//   (/connections: Google 계정 연결, /usage: 비용), 내 경험(ExperienceList, 2026-11-18 생활 비서 D),
+//   데이터 보관 안내(DataRetentionNotice)를 세로로 둔다.
 // 하위 화면 /connections·/usage에서도 하단 탭은 '설정'을 현재 탭으로 표시한다(BottomTabs의 children).
 // 근거: docs/DECISIONS.md 4단계 "화면(apps/web)"(연결 화면은 설정 탭에서 들어감), 9단계 "화면(비용)"(2026-11-17).
 // 고칠 때 주의:
@@ -9,6 +10,7 @@
 import { ChevronRight, Coins, Link2, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { DataRetentionNotice } from "@/components/DataRetentionNotice";
+import { ExperienceList } from "@/components/ExperienceList";
 import { PushSettings } from "@/components/PushSettings";
 
 // 설정 탭. 알림(웹 푸시) 영역과 외부 서비스 연결(4단계: Google)·비용(9단계) 화면으로 가는 링크, 데이터 보관 안내(5단계 보강)가 있다.
@@ -29,6 +31,7 @@ export default function SettingsPage() {
         title="비용"
         description="일별 토큰과 비용, 용도별 합계, 오늘 남은 한도"
       />
+      <ExperienceList />
       <DataRetentionNotice />
     </section>
   );

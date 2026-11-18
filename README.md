@@ -10,7 +10,7 @@
 - 승인 버튼을 두 번 누르거나 서버가 실행 도중 죽어도 외부 행동은 **많아야 한 번**만 일어납니다.
 - 검색 결과·일정 제목·메일 본문에 숨은 지시문("일정을 지워라", "이걸 기억해라")은 데이터로만 다룹니다.
   행동은 승인 카드에서, 기억 저장은 서버 검사에서 막습니다.
-- 이 규칙들은 프롬프트로 부탁하지 않고 **코드와 테스트로 강제**합니다(pytest 722개, Vitest 377개, Playwright 51개).
+- 이 규칙들은 프롬프트로 부탁하지 않고 **코드와 테스트로 강제**합니다(pytest 742개, Vitest 387개, Playwright 53개).
 
 > 상태(2026-11-18): 명세의 0~8단계를 구현한 뒤 개정 명세(docs/BUILD_SPEC.md) 기준으로 0~8단계 보강과 9단계 중 코드로 할 수 있는 보강(다크 모드·PWA 아이콘·폴링·운영 문서)을 마쳤습니다 (진행표: [docs/STATUS.md](docs/STATUS.md)). eval은 첫 측정과 개선을 마쳤습니다(안전 위반 0건). 배포 전 코드 준비는 끝났지만 **배포는 미루고 당분간 이 PC에서만 씁니다**(2026-11-18 결정, 무료로 24시간 돌릴 방법이 없음. 할 때는 [docs/DEPLOY.md](docs/DEPLOY.md)).
 > 아래 [알려진 한계와 다음 할 일](#알려진-한계와-다음-할-일)에 아직 확인하지 못한 것을 적어 두었습니다.
@@ -38,15 +38,25 @@
 | 작업 기록 | 지난 작업의 상태, 단계, 승인 기록 |
 | 자동화 | 예약 작업과 조건 감시 목록, 켜기·끄기·삭제, 마지막 실행 결과. 아침 브리핑은 사용자가 켤 때만(기본 07:30). 숫자 조건 감시는 서버가 비교(모델 호출 없음), 실패는 '판단 보류'. 예약 결과의 제안은 누르면 입력창에 채워짐. 하루 비용 한도에 닿으면 '쉬는 중' 표시 |
 | 기억 | 사용자가 "기억해"라고 한 문장 목록, 원래 메시지 보기, 삭제 |
-| 설정 | 알림 켜기(웹 푸시), Google 계정 연결(캘린더, 메일 읽기 권한 추가) |
+| 할 일 | 채팅으로 추가한 할 일 체크리스트. 체크·체크 해제(완료한 것은 24시간 줄 그어 남김) |
+| 설정 | 알림 켜기(웹 푸시), Google 계정 연결(캘린더, 메일 읽기 권한 추가), 내 경험(취업 준비용 자소서·프로젝트 글, 암호화 저장), 비용, 데이터 보관 안내 |
 
-에이전트 도구 24개(`apps/api/app/tools/`, 표 전체는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#도구-1단계--4단계--5단계--6단계--7단계)):
+에이전트 기본 도구 24개(생활 비서 도구는 아래 별도 표. `apps/api/app/tools/`, 표 전체는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#도구-1단계--4단계--5단계--6단계--7단계)):
 
 | 등급 | 도구 |
 | --- | --- |
 | READ (조회만) | `get_weather`(Open-Meteo), `search_places`(카카오 로컬), `web_search`(네이버 검색), `list_events`(Google Calendar), `list_mail`·`read_mail`(Gmail, 채팅에서만), `list_todos`, `list_notes`, `list_memories`, `list_schedules`, `list_watches` |
 | INTERNAL (앱 안, 되돌릴 수 있음) | `add_todo`, `complete_todo`, `save_note`, `remember`, `forget`, `create_schedule`, `delete_schedule`, `create_watch`, `delete_watch`, `draft_message`(초안만, 발송 없음) |
 | EXTERNAL (앱 밖, 매번 승인) | `create_event`, `update_event`, `delete_event` |
+
+**생활 비서(명세 밖, 2026-11-18 사용자가 한 단계씩 추가)** — 모두 채팅 전용 READ 도구이고, 계산·검사는 코드가 합니다:
+
+| 단계 | 도구 | 하는 일 |
+| --- | --- | --- |
+| A 쇼핑 | `compare_products`, 감시 전용 `coupang_price` | 쿠팡 상품 조건 비교, 목표가 감시. 쿠팡 파트너스 최종 승인 키가 있어야 실제로 조회합니다(키가 없으면 외부 요청 없이 안내만) |
+| B 이동 | `plan_departure` | 카카오 좌표 + TMAP 대중교통으로 권장 출발 시각, 앞 일정 뒤 여유·부족 계산(하루 10건 한도) |
+| C 영화 | `compare_showtimes` | 붙여 넣은 극장 시간표에서 만남·식사·귀가 조건에 맞는 회차 고르기(시간표에 없는 회차는 거절) |
+| D 취업 | `list_experiences`, `show_job_prep` | 붙여 넣은 채용 공고 + 설정에 저장한 내 경험 → 요구 역량 대조·부족한 점·예상 질문·자소서 방향·체크리스트 카드. 공고·경험에 실제로 있는 문장만 인용하도록 서버가 검사, 경험 원문은 암호화 |
 
 그 밖에:
 - **내구성 실행**: 작업은 DBOS 워크플로로 돌아서 서버가 죽었다 살아나도 이어서 끝납니다. 메시지 전송 API는 바로 202로 응답하고 화면이 진행 상황을 폴링합니다.
@@ -163,7 +173,7 @@ sequenceDiagram
 
 ## 테스트 현황
 
-2026-11-18 기준 **pytest 722개, Vitest 377개, Playwright 51개**가 통과합니다. 테스트는 실제 모델 요청을 전역으로 막고(`ALLOW_MODEL_REQUESTS = False`)
+2026-11-18 기준 **pytest 742개, Vitest 387개, Playwright 53개**가 통과합니다. 테스트는 실제 모델 요청을 전역으로 막고(`ALLOW_MODEL_REQUESTS = False`)
 가짜 모델 대본(FunctionModel)과 가짜 외부 API(`httpx.MockTransport`, 녹화 응답 `apps/api/tests/fixtures/`)만 씁니다.
 
 ### 명세의 테스트 1~15
@@ -297,7 +307,7 @@ pnpm --dir apps/web e2e
 │  ├─ api/                    FastAPI + Pydantic AI + DBOS
 │  │  ├─ app/
 │  │  │  ├─ agent/            에이전트: 실행기, 워크플로, 승인, 감시, 단계 기록, 도구 묶음, 프롬프트, 비용
-│  │  │  ├─ tools/            도구(날씨, 장소, 검색, 캘린더, 메일, 메모·할 일, 기억, 자동화)와 외부 호출 규칙(http.py)
+│  │  │  ├─ tools/            도구(날씨, 장소, 검색, 캘린더, 메일, 메모·할 일, 기억, 자동화, 쇼핑·이동·영화·취업)와 외부 호출 규칙(http.py)
 │  │  │  ├─ automation/       예약·감시 규칙, 저장, 1분 검사, 감시 판정
 │  │  │  ├─ routers/          /api 아래 엔드포인트
 │  │  │  ├─ models/ schemas/  테이블 15개, 요청·응답 모델
@@ -336,6 +346,9 @@ pnpm --dir apps/web e2e
 - 실행 기록(모델 기록·단계 입출력·DBOS 워크플로 기록)은 끝난 뒤 7일, 영수증은 90일 뒤 지웁니다. 백업에는 최대 30일 남을 수 있습니다([docs/DATA_POLICY.md](docs/DATA_POLICY.md)).
 - Google 앱을 '테스트' 상태로 쓰므로 refresh token이 7일 뒤 만료되어 다시 연결해야 할 수 있습니다.
 - 다크 모드는 시스템 설정만 따릅니다(앱 안 테마 선택 없음).
+
+**생활 비서 D(취업)에서 남은 것**
+- 실제 모델로 공고 준비 흐름 확인(eval 사례 없음), 경험 고치기·공고 저장·채용 API(고용24·사람인 발급 조건 확인 필요)는 제안으로 둠.
 
 **다음 할 일 (9단계)**
 - 배포는 미뤘습니다(2026-11-18). 당분간 이 PC에서 `pnpm dev`로 쓰고, 예약·감시는 PC가 켜져 있을 때만 돕니다. 나중에 Railway Hobby([docs/DEPLOY.md](docs/DEPLOY.md)) 또는 PC + 무료 터널([docs/PUSH-CHECK.md](docs/PUSH-CHECK.md)).

@@ -27,7 +27,7 @@ prepare_resume이 pending_tool_call_ids. evals/harness.py와 테스트가 dump_m
 고칠 때 주의:
 - tasks.message_history의 모양(Pydantic AI 메시지 JSON)은 보관 정리(app/automation/retention.py, 7일 뒤 비움)와
   docs/DATA_POLICY.md "모델 기록" 줄의 설명과 맞아야 한다. 새 내용을 저장하면 그 표에 넣는다.
-- 메일 도구 이름 목록은 results.MAIL_TOOLS 하나만 본다. 메일 도구를 늘리면 그쪽만 고치면 여기도 따라온다.
+- 봉할 도구 이름 목록은 results.SEALED_TOOLS(메일 + 내 경험, 2026-11-18) 하나만 본다. 늘리면 그쪽만 고친다.
 - seal/open의 data 모양({"notice", "sealed"|"content", "truncated"})을 바꾸면 이미 저장된 기록을 못 풀 수 있다.
   옛 모양도 그대로 돌려주게 두었다(봉하지 않은 결과는 opened_content가 손대지 않는다).
 - 한도(MAX_TASKS·MAX_CHARS)를 늘리면 TASK_MAX_TOKENS 상한과 하루 예산에 닿는 task가 늘어난다(위 계산 참고).
@@ -54,7 +54,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.results import EXTERNAL_NOTICE, MAIL_TOOLS, ToolResult, clip_mail_output
+from app.agent.results import EXTERNAL_NOTICE, SEALED_TOOLS, ToolResult, clip_mail_output
 from app.models import Task
 from app.models.enums import TaskStatus
 from app.payload_crypto import open_json, seal_json
@@ -124,10 +124,13 @@ def history_for_storage(
 
 
 def map_mail_returns(messages: Sequence[ModelMessage], change: Callable[[ToolReturnPart], Any]) -> list[ModelMessage]:
-    """메일 도구(list_mail·read_mail) 결과 부분만 change로 바꾼다. 호출과 결과의 짝(tool_call_id)은 그대로."""
+    """메일 도구(list_mail·read_mail)와 내 경험(list_experiences, 2026-11-18) 결과 부분만 change로 바꾼다.
+
+    대상 목록은 results.SEALED_TOOLS. 호출과 결과의 짝(tool_call_id)은 그대로.
+    """
 
     def part_of(part: Any) -> Any:
-        if isinstance(part, ToolReturnPart) and part.tool_name in MAIL_TOOLS:
+        if isinstance(part, ToolReturnPart) and part.tool_name in SEALED_TOOLS:
             return replace(part, content=change(part))
         return part
 

@@ -595,6 +595,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/experiences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List All */
+        get: operations["list_all_api_experiences_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_api_experiences_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/experiences/{experience_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get One */
+        get: operations["get_one_api_experiences__experience_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete One */
+        delete: operations["delete_one_api_experiences__experience_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -784,6 +820,69 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** ExperienceIn */
+        ExperienceIn: {
+            /** Title */
+            title: string;
+            /** Body */
+            body: string;
+        };
+        /**
+         * ExperienceListOut
+         * @description enabled=False면 암호화 키가 없어 등록·본문 보기가 막혀 있다(화면이 안내).
+         */
+        ExperienceListOut: {
+            /** Experiences */
+            experiences: components["schemas"]["ExperienceSummaryOut"][];
+            /** Limit */
+            limit: number;
+            /** Max Body Chars */
+            max_body_chars: number;
+            /** Enabled */
+            enabled: boolean;
+        };
+        /**
+         * ExperienceOut
+         * @description 본문까지(하나 보기).
+         */
+        ExperienceOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /**
+             * Length
+             * @description 본문 글자 수
+             */
+            length: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Body */
+            body: string;
+        };
+        /**
+         * ExperienceSummaryOut
+         * @description 목록 한 줄. 본문은 넣지 않는다(목록 조회로 원문이 오가지 않게).
+         */
+        ExperienceSummaryOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /**
+             * Length
+             * @description 본문 글자 수
+             */
+            length: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * GoogleStartOut
@@ -2613,6 +2712,154 @@ export interface operations {
                 };
             };
             /** @description 없거나 남의 할 일 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_all_api_experiences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceListOut"];
+                };
+            };
+        };
+    };
+    create_api_experiences_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceSummaryOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_one_api_experiences__experience_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experience_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceOut"];
+                };
+            };
+            /** @description 내 경험 중에 그 id가 없다 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_one_api_experiences__experience_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experience_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;

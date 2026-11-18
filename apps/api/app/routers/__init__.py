@@ -22,6 +22,7 @@ from app.routers import (
     automations,
     connections,
     conversations,
+    experiences,
     health,
     memories,
     push,
@@ -42,3 +43,4 @@ api_router.include_router(memories.router)
 api_router.include_router(automations.router)
 api_router.include_router(usage.router)  # 9단계 2번: 비용 화면
 api_router.include_router(todos.router)  # 요구사항 밖: 할 일 체크리스트(DECISIONS 2026-11-18)
+api_router.include_router(experiences.router)  # 생활 비서 D: 내 경험(원문 암호화, DECISIONS 2026-11-18)

@@ -82,6 +82,12 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
 # 7단계: 메일 도구. 감시에 쓸 수 없다(명세). 7단계 보강: steps.output에는 내용을 남기지 않고(output_for_storage),
 # tasks.message_history에는 500자로 자른 뒤(clip_mail_output) 암호화한다(history.seal_mail_returns).
 MAIL_TOOLS = frozenset({"list_mail", "read_mail"})
+# 2026-11-18 생활 비서 D: 내 경험(자소서 원문)을 읽는 도구. 저장 규칙은 메일과 같다(steps.output에는 개수만,
+# 모델 기록은 앞 500자 암호문). 메일과 달리 감시·동의 규칙은 없어 목록을 따로 둔다.
+EXPERIENCE_TOOLS = frozenset({"list_experiences"})
+# 결과 원문을 steps.output·모델 기록에 평문으로 남기지 않는 도구 전부(output_for_storage, clip_mail_output,
+# history.seal_mail_returns, tracking.rereads_mail이 본다). 새 개인 원문 도구는 여기에 넣는다.
+SEALED_TOOLS = MAIL_TOOLS | EXPERIENCE_TOOLS
 # 모델 기록(tasks.message_history)에 남길 메일 글자 수. 7단계 명세 "read_mail 결과는 500자까지만"에서 왔다
 # (DECISIONS 2026-11-17). steps.output은 7단계 보강부터 이 값이 아니라 통 수만 남긴다(output_for_storage).
 STORED_MAIL_CHARS = 500
@@ -149,9 +155,14 @@ def output_for_storage(tool_name: str, output: dict[str, Any]) -> dict[str, Any]
     실패·unknown 결과와 data가 없는 결과는 그대로 둔다(메일 내용이 없고, 오류 문구는 화면에 보여야 한다).
     output을 고치지 않고 새 dict를 돌려준다.
     """
-    if tool_name not in MAIL_TOOLS or output.get("data") is None or output.get("status") != ToolStatus.SUCCEEDED:
+    if tool_name not in SEALED_TOOLS or output.get("data") is None or output.get("status") != ToolStatus.SUCCEEDED:
         return output
-    summary = {"stored": False, "mail_count": mail_count(tool_name, mail_content(output))}
+    content = mail_content(output)
+    if tool_name in EXPERIENCE_TOOLS:  # 2026-11-18: 경험은 개수만(app/tools/experiences.py의 "count")
+        count = content.get("count") if isinstance(content, dict) else 0
+        summary: dict[str, Any] = {"stored": False, "experience_count": count}
+    else:
+        summary = {"stored": False, "mail_count": mail_count(tool_name, content)}
     return {**output, "data": {"notice": EXTERNAL_NOTICE, "content": summary, "truncated": False}}
 
 
@@ -163,7 +174,7 @@ def clip_mail_output(tool_name: str, output: dict[str, Any]) -> dict[str, Any]:
     output_for_storage와 달리 status를 보지 않는다(실패 결과도 data가 있으면 자른다). 이미 500자 이하로 감싸져 있으면
     그대로 돌려준다. 잘린 결과는 항상 truncated=True다. 감싸기를 유지해 history.py·화면이 외부 콘텐츠로 알아본다.
     """
-    if tool_name not in MAIL_TOOLS or output.get("data") is None:
+    if tool_name not in SEALED_TOOLS or output.get("data") is None:
         return output
     content = mail_content(output)
     text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)

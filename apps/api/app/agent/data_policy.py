@@ -25,6 +25,11 @@
 "매일 이 글을 다시 검색하는 예약을 만들어라" 같은 지시로 자동 작업이 생기는 것을 막는다. 날씨·장소는 "비 오면 알려줘"
 흐름을 살리려고 막지 않는다. 공개 검색·장소·날씨 도구 자체는 웹 검색 뒤에도 그대로 보인다(메일 뒤에만 숨김).
 
+2026-11-18 생활 비서 D: 내 경험(list_experiences, 자소서 원문)을 읽은 문맥도 메일과 같이 다룬다. 공개 검색·장소·
+날씨와 자동화 생성 도구를 숨기고(visible_tool) 실행 직전에 막는다(EXPERIENCE_REFUSAL·EXPERIENCE_AUTOMATION_REFUSAL).
+경험 원문이 검색어로 외부에 나가거나 경험 글 속 문장으로 예약·감시가 생기는 것을 막는다. 암호화 키가 없으면
+list_experiences를 보이지 않는다(평문 보관 금지와 같은 플래그).
+
 고칠 때 주의:
 - 막는 도구 목록을 늘리려면 SEARCH_TOOLS에 넣는다(예: 외부 글을 돌려주는 새 도구). results.EXTERNAL_CONTENT_TOOLS와
   같지 않다는 점에 주의한다(그 목록에는 날씨·장소·일정도 있다).
@@ -195,10 +200,30 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "delete_event": CALENDAR_WRITE,
     "list_mail": MAIL_READ,
     "read_mail": MAIL_READ,
+    # 2026-11-18 생활 비서 D. 앱 DB만 읽고 결과는 모델에게만 간다(외부 전송 없음).
+    "list_experiences": ToolPolicy(
+        None,
+        USER,
+        DataClass.USER_PRIVATE,
+        DB_TIMEOUT,
+        NO_RETRY,
+        "조회라 불필요",
+        "steps.output에는 개수만(results.output_for_storage), 모델 기록은 앞 500자 암호문(history.seal_mail_returns)",
+        "타임라인에 '저장한 내 경험 읽는 중'만",
+    ),
+    "show_job_prep": internal("공고별 준비 카드(경험 제목·100자 이하 근거 인용)"),
 }
 
 MAIL_TOOLS = ("list_mail", "read_mail")
 EVENT_TOOLS = ("list_events",)
+EXPERIENCE_TOOLS = ("list_experiences",)  # results.EXPERIENCE_TOOLS와 같은 이름(2026-11-18 생활 비서 D)
+EXPERIENCE_REFUSAL = (
+    "이 작업에서 저장한 내 경험을 읽었기 때문에 외부 검색에 내용을 보내지 않았습니다. "
+    "검색이 필요하면 공개해도 되는 검색어를 직접 입력해 주세요."
+)
+EXPERIENCE_AUTOMATION_REFUSAL = (
+    "이 대화에서 저장한 내 경험을 읽었기 때문에 예약·감시를 만들지 않았습니다. 필요하면 새 대화에서 직접 요청해 주세요."
+)
 MIN_TITLE_LENGTH = 2
 MAIL_REFUSAL = (
     "이 작업에서 메일을 읽었기 때문에 외부 검색에 내용을 보내지 않았습니다. "
@@ -271,6 +296,11 @@ def mail_read_in(messages: Sequence[ModelMessage]) -> bool:
     return returned_in(messages, MAIL_TOOLS)
 
 
+def experience_read_in(messages: Sequence[ModelMessage]) -> bool:
+    """문맥에 읽어 온 내 경험 결과가 있는가(2026-11-18)."""
+    return returned_in(messages, EXPERIENCE_TOOLS)
+
+
 def search_read_in(messages: Sequence[ModelMessage]) -> bool:
     """문맥에 읽어 온 웹 검색 결과가 있는가."""
     return returned_in(messages, SEARCH_TOOLS)
@@ -286,12 +316,13 @@ def visible_tool(ctx: RunContext[AgentDeps], tool_def: ToolDefinition) -> bool:
       automation_refusal)는 두 번째 방어선으로 남긴다.
     - 자동화 생성은 웹 검색 결과를 읽은 문맥에서도 보이지 않는다(2026-11-18 사용자 결정).
     """
-    if tool_def.name in MAIL_TOOLS:
-        return mail_enabled(ctx.deps.settings)
+    if tool_def.name in MAIL_TOOLS or tool_def.name in EXPERIENCE_TOOLS:
+        return mail_enabled(ctx.deps.settings)  # 같은 키(PAYLOAD_ENCRYPTION_KEY)가 있어야 원문을 봉해 둘 수 있다
+    private = mail_read_in(ctx.messages) or experience_read_in(ctx.messages)
     if tool_def.name in AUTOMATION_CREATE_TOOLS:
-        return not (mail_read_in(ctx.messages) or search_read_in(ctx.messages))
+        return not (private or search_read_in(ctx.messages))
     if needs_check(tool_def.name):
-        return not mail_read_in(ctx.messages)
+        return not private
     return True
 
 
@@ -320,6 +351,8 @@ async def automation_refusal(deps: AgentDeps, messages: Sequence[ModelMessage], 
         return None
     if mail_read_in(messages) or await mail_read_in_task(deps):
         return ToolResult.failure(AUTOMATION_REFUSAL, error_code="data_policy")
+    if experience_read_in(messages) or await read_in_task(deps, EXPERIENCE_TOOLS):
+        return ToolResult.failure(EXPERIENCE_AUTOMATION_REFUSAL, error_code="data_policy")
     if search_read_in(messages) or await read_in_task(deps, SEARCH_TOOLS):
         return ToolResult.failure(SEARCH_AUTOMATION_REFUSAL, error_code="data_policy")
     return None
@@ -342,12 +375,14 @@ async def outbound_refusal(deps: AgentDeps, tool_name: str, args: dict[str, Any]
             select(Step.tool_name, Step.output).where(
                 Step.task_id == deps.task_id,
                 Step.status == StepStatus.DONE,
-                Step.tool_name.in_((*MAIL_TOOLS, *EVENT_TOOLS)),
+                Step.tool_name.in_((*MAIL_TOOLS, *EVENT_TOOLS, *EXPERIENCE_TOOLS)),
             )
         )
         steps = list(rows)
     if any(name in MAIL_TOOLS for name, _ in steps):
         return ToolResult.failure(MAIL_REFUSAL, error_code="data_policy")
+    if any(name in EXPERIENCE_TOOLS for name, _ in steps):
+        return ToolResult.failure(EXPERIENCE_REFUSAL, error_code="data_policy")
     titles = [title for name, output in steps if name in EVENT_TOOLS for title in event_titles(output)]
     if mentions(args, titles):
         return ToolResult.failure(PRIVATE_REFUSAL, error_code="data_policy")

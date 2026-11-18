@@ -55,7 +55,8 @@ EXTERNAL 도구의 성공은 영수증(receipt_id)이 있어야 한다. 없으�
 - 복구 표(위)의 분기를 바꾸면 tests/test_workflows.py의 test_recorded_*·test_interrupted_*, EXTERNAL 재조회는
   tests/test_executor.py, 장애 결과 표 docs/FAULTS.md를 확인한다.
 - steps.output 저장 모양을 바꾸면 recorded_result(복구 재생)가 ToolResult.model_validate로 다시 읽을 수 있어야 하고,
-  화면(apps/web의 단계 표시)도 같은 모양을 읽는다. 메일 저장 규칙은 results.output_for_storage와 MAIL_TOOLS가 정한다.
+  화면(apps/web의 단계 표시)도 같은 모양을 읽는다. 메일·내 경험 저장 규칙은 results.output_for_storage와
+  SEALED_TOOLS가 정한다.
 - 실행 직전 데이터 정책 검사(refusal_before_run)의 규칙은 data_policy.py에 있다. 여기서는 부르는 자리만 정한다.
 - 도구 실행은 DBOS 단계가 아니므로, 이 파일의 DB 쓰기(start_step·finish_step)는 각각 짧은 트랜잭션으로 바로 커밋한다.
 """
@@ -79,7 +80,7 @@ from app.agent.cancel import TaskCancelledError, raise_if_cancel_requested
 from app.agent.data_policy import refusal_before_run
 from app.agent.deps import AgentDeps
 from app.agent.executor import reconcile_step
-from app.agent.results import MAIL_TOOLS, ToolResult, ToolStatus, output_for_storage
+from app.agent.results import SEALED_TOOLS, ToolResult, ToolStatus, output_for_storage
 from app.agent.toolsets import label_for, risk_level_of
 from app.models import Step
 from app.models.enums import RiskLevel, StepStatus
@@ -169,7 +170,7 @@ def rereads_mail(tool_name: str, step: RecordedStep) -> bool:
 
     메일 도구는 READ라 다시 불러도 흔적이 없다. 동의를 철회했거나 권한이 사라졌으면 다시 읽기가 실패로 끝난다.
     """
-    return tool_name in MAIL_TOOLS and step.status == StepStatus.DONE
+    return tool_name in SEALED_TOOLS and step.status == StepStatus.DONE  # 2026-11-18: 내 경험도 같은 규칙
 
 
 async def close_uncertain_step(deps: AgentDeps, step_id: int, risk: RiskLevel) -> ToolResult:

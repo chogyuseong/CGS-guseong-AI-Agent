@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { ExternalContent } from "@/components/ExternalContent";
+import { JobPrepCard, readJobPrep, storedExperienceCount } from "@/components/JobPrepCard";
 import type { Step } from "@/lib/chat";
 import { isMailTool, readExternalOutput } from "@/lib/stepOutput";
 import { cn } from "@/lib/utils";
@@ -76,6 +77,7 @@ const CARD_TOOLS: ReadonlySet<string> = new Set([
   "compare_products",
   "plan_departure",
   "compare_showtimes",
+  "show_job_prep", // 2026-11-18 생활 비서 D: 공고별 준비 카드(JobPrepCard)
 ]);
 
 // 한 줄. 아이콘에 role=img·aria-label로 상태 이름을 붙여 화면 낭독기와 e2e가 상태를 읽는다.
@@ -111,6 +113,9 @@ function StepRow({ step }: { step: Step }) {
 // JSON도 <pre> 안의 글자로만 그린다(HTML로 해석하지 않음). 메일 도구 출력은 7단계 보강부터 서버가 내용 없이(통 수만) 저장한다.
 function StepDetail({ step }: { step: Step }) {
   const external = readExternalOutput(step.output);
+  const jobPrep = step.tool_name === "show_job_prep" ? readJobPrep(step.output) : null;
+  const experienceCount =
+    step.tool_name === "list_experiences" ? storedExperienceCount(step.output) : null;
   if (isPruned(step)) {
     return (
       <p className="border-t px-3 py-2 text-xs text-muted-foreground">
@@ -121,7 +126,13 @@ function StepDetail({ step }: { step: Step }) {
   return (
     <div className="flex min-w-0 flex-col gap-2 border-t px-3 py-2 text-xs">
       {!CARD_TOOLS.has(step.tool_name) && <JsonBlock title="입력" value={step.input} />}
-      {external ? (
+      {jobPrep ? (
+        <JobPrepCard card={jobPrep} />
+      ) : experienceCount !== null ? (
+        <p className="text-muted-foreground">
+          저장한 경험 {experienceCount}개를 읽었습니다. 작업 기록에는 내용을 남기지 않습니다.
+        </p>
+      ) : external ? (
         <div className="flex min-w-0 flex-col gap-1">
           <p className="font-medium">출력</p>
           <ExternalContent

@@ -200,7 +200,8 @@ async def test_chat_task_gets_all_tool_levels(
         await send(client, conversation, "안녕")
 
     assert model.seen_tool_names == [
-        # 채팅 전용 묶음: 쿠팡 비교(shopping_tools), 출발 시각 계산(travel_tools, 2026-11-18)
+        # 채팅 전용 묶음: 쿠팡 비교(shopping_tools), 출발 시각 계산(travel_tools, 2026-11-18),
+        # 취업 준비(job_tools, 2026-11-18 생활 비서 D. list_experiences는 메일과 같은 키 플래그)
         sorted(
             [
                 *READ_TOOL_NAMES,
@@ -210,6 +211,8 @@ async def test_chat_task_gets_all_tool_levels(
                 "compare_products",
                 "plan_departure",
                 "compare_showtimes",
+                "list_experiences",
+                "show_job_prep",
             ]
         )
     ]

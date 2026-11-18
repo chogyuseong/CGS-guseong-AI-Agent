@@ -46,8 +46,10 @@ from app.tools import (
     automation,
     coupang,
     drafts,
+    experiences,
     gcal,
     gmail,
+    jobprep,
     memories,
     notes,
     places,
@@ -147,9 +149,18 @@ travel_tools = FunctionToolset[AgentDeps](
     sequential=True,
 )
 
+# 2026-11-18 생활 비서 D. 내 경험(자소서 원문)을 읽고 공고별 준비 카드를 만든다(READ). 채팅에만 준다:
+# 예약·감시가 경험 원문을 읽을 이유가 없고, 읽은 문맥에서는 공개 검색·자동화 생성을 숨기는 규칙(data_policy)이 있다.
+job_tools = FunctionToolset[AgentDeps](
+    [experiences.list_experiences, jobprep.show_job_prep],
+    id="job_tools",
+    metadata=risk_metadata(RiskLevel.READ),
+    sequential=True,
+)
+
 # 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4). 메일(mail_tools)은 READ지만 chat에만 넘긴다.
 TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
-    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools, shopping_tools, travel_tools],
+    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools, shopping_tools, travel_tools, job_tools],
     TaskOrigin.SCHEDULE: [read_tools],
     TaskOrigin.WATCH: [read_tools],
 }
@@ -163,6 +174,8 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "compare_products": lambda _: "쿠팡 상품 조건 비교하는 중",
     "plan_departure": tmap.plan_departure_label,
     "compare_showtimes": showtimes.compare_showtimes_label,
+    **experiences.LABELS,
+    "show_job_prep": jobprep.show_job_prep_label,
     **gcal.LABELS,
     **automation.LABELS,
     **gmail.LABELS,
