@@ -21,6 +21,7 @@
 진입점(누가 부르는지):
     save_requests      runner.finish(승인 대기 결과를 task 결과와 같은 트랜잭션에 저장), tests/plan_helpers.py
     decide             routers/approvals.py(POST 승인·거절·고쳐서 다시). ApprovalError를 detail {code, message}로 바꾼다
+    request_revision   routers/approvals.py(고쳐서 다시), evals/harness.py(고쳐서 다시 사례). 거절만 한다
     pending_count      runner(재개 claim), workflows.py(재개 판단)
     build_results      runner.load_resume_input(재개 run의 입력)
     expire_task        automation/check.expire_overdue_approvals(1분 검사), decide(만료 뒤 결정 요청)
@@ -365,6 +366,18 @@ async def decide(
         await outbox.add_resume_event(session, task, now)
     await session.commit()
     return Decision(approval_id, task_id, changed=True, all_decided=all_decided)
+
+
+async def request_revision(
+    session: AsyncSession, approval_id: int, user_id: int, note: str, *, now: datetime | None = None
+) -> Decision:
+    """'고쳐서 다시': 메모를 붙여 거절만 한다(승인으로 바꾸는 길이 없다). 결과·예외·커밋은 decide와 같다.
+
+    API(routers/approvals.py revise_action)와 eval 실행기(evals/harness.py)가 함께 쓴다. eval 디렉터리에는 승인을
+    결정하는 코드를 둘 수 없으므로(tests/test_evals.py 소스 검사), 거절만 가능한 이 함수를 따로 둔다.
+    note는 호출하는 쪽이 앞뒤 공백을 지우고 1~300자로 검사한 값이어야 한다(API는 ReviseRequest가 검사).
+    """
+    return await decide(session, approval_id, user_id, approve=False, revision_note=note, now=now)
 
 
 async def verdict_of(session: AsyncSession, step_id: int) -> VerdictKind | None:

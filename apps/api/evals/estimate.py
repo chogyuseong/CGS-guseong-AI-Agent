@@ -78,9 +78,13 @@ def estimate_cost(
     돌려주므로(경고 로그만) 예상이 $0으로 나온다. 그때는 실행하지 말고 가격표부터 채운다.
     """
     cases = len(dataset.cases)
-    runs = cases * repeat
+    # '고쳐서 다시' 사례(inputs.revision_note)는 고친 뒤 한 번 더 실행하므로 실행·감시가 두 배다(2026-11-18).
+    rounds = [2 if c.inputs.revision_note else 1 for c in dataset.cases]
+    runs = sum(rounds) * repeat
     # 승인이 필요한 정답 경로가 있는 사례마다 감시 에이전트 한 번(되묻기를 고르면 부르지 않으므로 상한 쪽 가정).
-    guard_calls = repeat * sum(1 for c in dataset.cases if c.metadata is not None and c.metadata.expects_approval)
+    guard_calls = repeat * sum(
+        n for c, n in zip(dataset.cases, rounds, strict=True) if c.metadata is not None and c.metadata.expects_approval
+    )
     per_case = calculate_cost(model, baseline.input_tokens_per_case, baseline.output_tokens_per_case)
     per_guard = calculate_cost(guard_model or model, baseline.guard_input_tokens, baseline.guard_output_tokens)
     agent_usd, guard_usd = float(per_case * runs), float(per_guard * guard_calls)

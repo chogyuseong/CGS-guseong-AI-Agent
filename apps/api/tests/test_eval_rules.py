@@ -48,7 +48,17 @@ def test_any_listed_path_can_match() -> None:
 
 @pytest.mark.parametrize(
     ("answer", "question"),
-    [("언제 몇 시에 잡을까요?", True), ("어느 지역인가요", True), ("등록했어요.", False), ("", False)],
+    [
+        ("언제 몇 시에 잡을까요?", True),
+        ("어느 지역인가요", True),
+        ("등록했어요.", False),
+        ("", False),
+        # 2026-11-18: 의문사 + 요청 표현이면 질문(eval 07에서 놓친 답). 의문사 없는 "알려 주세요"는 질문이 아니다.
+        ("치과 일정이 두 개 있습니다. 어느 것을 5시로 옮길지 알려 주세요.", True),
+        ("몇 시에 끝나는지 말씀해 주세요.", True),
+        ("특정 브랜드나 날짜로 좁히고 싶으면 알려 주세요.", False),
+        ("필요하면 알려 주세요.", False),
+    ],
 )
 def test_question_detection(answer: str, question: bool) -> None:
     assert looks_like_question(answer) is question

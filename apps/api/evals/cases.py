@@ -6,6 +6,8 @@
 - calendar_events(절대 날짜), web_results, places, weather(날짜별), mail_messages: 가짜 외부 API가 돌려줄 것.
   비워 두면 tests/fixtures/의 녹화본을 쓴다(evals/fake_externals.py).
 - seed_todos, seed_memories: 사례 시작 전 할 일·기억(기억은 사용자가 예전에 한 말로 저장).
+- revision_note: 있으면 첫 승인 카드에 이 내용으로 '고쳐서 다시'를 보내고 이어서 실행한 결과까지 본다
+  (2026-11-18, 요구사항 밖 기능용 extra_dataset.yaml에서만 쓴다. 승인은 여전히 하지 않는다).
 - 계정 상태는 모든 사례가 같다: Google 연결(캘린더 + 메일 읽기 권한), 메일 데이터 처리 동의, 자동화 없음.
 
 기대(metadata)
@@ -37,6 +39,8 @@ Pydantic Evals의 task 함수가 inputs만 받기 때문), 2026-11-17(사례를 
 - 2026-11-17 처음 작성(8단계). 같은 날 BUILD_SPEC 16절 번호대로 다시 쓰고 세상(일정·검색·장소·날씨·메일)을
   사례마다 정함.
 - 2026-11-18 주석 보강(동작 변경 없음).
+- 2026-11-18 요구사항 밖 기능 eval: EXTRA_DATASET_PATH(extra_dataset.yaml), EvalInputs.revision_note,
+  ToolCall.revised(사용자가 고쳐 보낸 카드는 범위·인자 판정에서 뺀다), spec_no 0 = 명세 밖 사례.
 """
 
 import re
@@ -52,6 +56,9 @@ from app.agent.toolsets import external_tools
 
 EVALS_DIR = Path(__file__).resolve().parent
 DATASET_PATH = EVALS_DIR / "dataset.yaml"
+# 요구사항 밖 기능(2026-11-18 사용자 결정) 사례. BUILD_SPEC 16절 30개(dataset.yaml)와 섞지 않는다:
+# 30개는 명세 비율·이전 결과와의 비교 기준이라 따로 돌린다(run_evals --dataset extra).
+EXTRA_DATASET_PATH = EVALS_DIR / "extra_dataset.yaml"
 SEOUL = ZoneInfo("Asia/Seoul")
 EVAL_NOW = datetime(2026, 11, 18, 9, 0, tzinfo=SEOUL)  # 수요일. 내일=11-19, 이번 주 토요일=11-21, 다음 주=11-23~29
 # 승인이 필요한 도구 이름(앱의 external_tools 등록부에서 그대로 가져온다. 따로 적으면 도구를 더할 때 어긋난다).
@@ -126,6 +133,8 @@ class EvalInputs(BaseModel):
     mail_messages: list[MailMessage] = Field(default_factory=list)
     seed_todos: list[str] = Field(default_factory=list)
     seed_memories: list[str] = Field(default_factory=list)
+    # '고쳐서 다시'에 적을 내용(앞뒤 공백 없이 1~300자, 서버 ReviseRequest와 같은 범위).
+    revision_note: str | None = Field(default=None, min_length=1, max_length=300)
 
 
 # ---- 기대(metadata) ----
@@ -200,7 +209,7 @@ class AnswerPath(BaseModel):
 class EvalMetadata(BaseModel):
     """기대(평가기가 보는 것)."""
 
-    spec_no: int = Field(ge=1, le=30)  # BUILD_SPEC 16절 표의 번호
+    spec_no: int = Field(ge=0, le=30)  # BUILD_SPEC 16절 표의 번호. 0은 명세 밖 사례(extra_dataset.yaml)
     category: Category
     paths: list[AnswerPath] = Field(min_length=1)
     forbidden_tools: list[str] = Field(default_factory=list)
@@ -249,6 +258,8 @@ class ToolCall(BaseModel):
     status: str  # steps.status: done, failed, waiting_approval, …
     ok: bool | None
     approval_requested: bool
+    # 사용자가 '고쳐서 다시'로 돌려보낸 승인 카드. 이미 사람이 고치라고 한 계획이라 범위·인자 판정에서 뺀다.
+    revised: bool = False
 
 
 class EvalOutput(BaseModel):

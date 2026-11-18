@@ -46,7 +46,7 @@ from app.config import Settings, get_settings
 from app.db import create_engine_for, create_session_factory
 from app.event_loop import run_async
 from app.models import User
-from evals.cases import DATASET_PATH, EvalDataset, load_dataset
+from evals.cases import DATASET_PATH, EXTRA_DATASET_PATH, EvalDataset, load_dataset
 from evals.database import create_eval_database, drop_eval_database, eval_database_url
 from evals.estimate import MEASURED_HIGH, MEASURED_LOW, CostEstimate, baseline_from_usage_logs, estimate_cost
 from evals.harness import build_environment, case_task, eval_settings, record_eval_usage
@@ -59,6 +59,9 @@ DRAFT_MARK = "초안 — 사용자 확인 전"
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # --repeat 상한. 비용이 회수에 비례한다(docs/EVALS.md 상한 가정 1회 약 $0.0665 → 5회 약 $0.33).
 MAX_REPEAT = 5
+# --dataset 이름 → 파일. spec16은 BUILD_SPEC 16절 30개(결과 표의 비교 기준), extra는 요구사항 밖 기능 사례
+# (2026-11-18 사용자 결정, '고쳐서 다시' 등). 이름을 바꾸면 docs/EVALS.md 실행 방법도 고친다.
+DATASETS = {"spec16": DATASET_PATH, "extra": EXTRA_DATASET_PATH}
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -70,6 +73,9 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--cases", help="일부만: 사례 번호를 쉼표로(예: 01,17,29)")
     parser.add_argument("--repeat", type=int, default=1, help=f"사례마다 실행 횟수(1~{MAX_REPEAT}, 기본 1)")
     parser.add_argument("--allow-draft", action="store_true", help="초안 표시가 있어도 실행한다")
+    parser.add_argument(
+        "--dataset", choices=sorted(DATASETS), default="spec16", help="spec16(명세 30개, 기본) 또는 extra"
+    )
     args = parser.parse_args(argv)
     if not 1 <= args.repeat <= MAX_REPEAT:
         parser.error(f"--repeat는 1~{MAX_REPEAT}입니다.")
@@ -214,7 +220,7 @@ def save_results(report: Any, record: RunRecord, summary: EvalSummary) -> Path:
 
 async def run(args: argparse.Namespace, settings: Settings, dataset: EvalDataset) -> int:
     """예상 비용을 먼저 보여 주고, --run과 확인 플래그가 모두 있을 때만 실제로 돌린다."""
-    record = build_run_record(settings, dataset, repeat=args.repeat)
+    record = build_run_record(settings, dataset, repeat=args.repeat, dataset_path=DATASETS[args.dataset])
     found = await estimates(settings, dataset, args.repeat)
     print_preview(record, found)
     if not args.run:
@@ -239,10 +245,11 @@ async def run(args: argparse.Namespace, settings: Settings, dataset: EvalDataset
 def main(argv: list[str] | None = None) -> int:
     """진입점. 초안 검사는 --run일 때만 한다(예상 비용 보기는 초안이어도 된다)."""
     args = parse_args(argv)
-    dataset = selected(load_dataset(), args.cases)
+    path = DATASETS[args.dataset]
+    dataset = selected(load_dataset(path), args.cases)
     # 막는 사고: 사용자가 확인하지 않은 사례(기대가 틀릴 수 있는 초안)로 돈을 쓰고 결과를 남기는 것.
-    if args.run and DRAFT_MARK in DATASET_PATH.read_text(encoding="utf-8") and not args.allow_draft:
-        raise SystemExit("dataset.yaml이 아직 초안입니다. 사례를 확인하고 맨 위 초안 표시를 지운 뒤 실행하세요.")
+    if args.run and DRAFT_MARK in path.read_text(encoding="utf-8") and not args.allow_draft:
+        raise SystemExit(f"{path.name}이 아직 초안입니다. 사례를 확인하고 맨 위 초안 표시를 지운 뒤 실행하세요.")
     return run_async(run(args, get_settings(), dataset))
 
 

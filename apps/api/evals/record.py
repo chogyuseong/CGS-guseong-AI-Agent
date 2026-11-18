@@ -19,6 +19,7 @@ metadata, summary의 보고·표 한 줄(markdown_row), 결과 JSON의 "run"에 
 변경 이력
 - 2026-11-17 처음 작성(8단계 보강).
 - 2026-11-18 주석 보강(동작 변경 없음).
+- 2026-11-18 world_files(dataset_path): 요구사항 밖 데이터셋(extra_dataset.yaml)은 그 파일로 버전을 낸다.
 """
 
 import hashlib
@@ -68,6 +69,11 @@ def prompt_sha256() -> str:
     return hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
 
 
+def world_files(dataset_path: Path = DATASET_PATH) -> tuple[Path, ...]:
+    """버전 해시에 넣을 파일들. 데이터셋 파일만 바꿔 끼우고 세상 모양(cases.py·가짜 응답)은 같다."""
+    return (dataset_path, *WORLD_FILES[1:])
+
+
 def dataset_version(paths: Sequence[Path] = WORLD_FILES) -> str:
     """파일 이름과 내용 바이트로 만든 해시 앞 12자리. 파일 하나라도 없으면 예외가 난다(조용히 다른 버전을 내지 않게)."""
     digest = hashlib.sha256()
@@ -102,7 +108,12 @@ def model_id(model: str) -> str:
 
 
 def build_run_record(
-    settings: Settings, dataset: EvalDataset, *, repeat: int, started_at: datetime | None = None
+    settings: Settings,
+    dataset: EvalDataset,
+    *,
+    repeat: int,
+    started_at: datetime | None = None,
+    dataset_path: Path = DATASET_PATH,
 ) -> RunRecord:
     """지금 상태로 실행 기록을 만든다. 모델을 부르지 않는다(예상 비용만 볼 때도 같은 값을 보여 준다).
 
@@ -124,7 +135,7 @@ def build_run_record(
         code_commit=commit,
         code_dirty=dirty,
         dataset_name=dataset.name or "",
-        dataset_version=dataset_version(),
+        dataset_version=dataset_version(world_files(dataset_path)),
         cases=len(dataset.cases),
         repeat=repeat,
     )

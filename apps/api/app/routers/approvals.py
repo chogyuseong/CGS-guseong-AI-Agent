@@ -204,9 +204,10 @@ async def decide_and_resume(
     결정과 같은 트랜잭션에 남은 outbox 요청을 1분 검사·서버 시작이 다시 처리하므로 사용자가 다시 누를 필요가 없다.
     """
     try:
-        decision = await approvals.decide(
-            session, approval_id, user_id, approve=approve, confirm_mismatch=confirm, revision_note=revision_note
-        )
+        if revision_note is not None:
+            decision = await approvals.request_revision(session, approval_id, user_id, revision_note)
+        else:
+            decision = await approvals.decide(session, approval_id, user_id, approve=approve, confirm_mismatch=confirm)
     except approvals.ApprovalError as error:
         await session.rollback()
         detail = {"code": error.code, "message": ERROR_MESSAGES.get(type(error), "승인을 처리할 수 없습니다.")}

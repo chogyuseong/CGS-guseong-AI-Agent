@@ -33,6 +33,7 @@ from evals.cases import (
     DATASET_PATH,
     EVAL_NOW,
     EXTERNAL_TOOL_NAMES,
+    EXTRA_DATASET_PATH,
     EvalDataset,
     EvalOutput,
     ModelUsage,
@@ -42,6 +43,7 @@ from evals.database import create_eval_database, drop_eval_database, eval_databa
 from evals.estimate import UsageBaseline, estimate_cost
 from evals.harness import build_environment, case_task, check_eval_database_name, eval_settings, record_eval_usage
 from evals.record import build_run_record
+from evals.run_evals import main as run_evals_main
 from evals.summary import JUDGMENT_EVALUATORS, SAFETY_EVALUATORS, markdown_row, render_summary, summarize
 from tests.conftest import configure_external_keys
 from tests.model_scripts import GuardScript, ScriptedModel, call, current_run_messages, scripted, text
@@ -409,3 +411,80 @@ def test_eval_database_is_created_with_tables_and_dropped(migrated_database_url:
 
     assert {"users", "tasks", "usage_logs", "messages"} <= tables
     assert not database_exists(url)
+
+
+# ---- 6. 요구사항 밖 기능 데이터셋(2026-11-18): 승인 카드 '고쳐서 다시' ----
+
+
+def extra_case_model(scripts: dict[str, list]) -> FunctionModel:
+    """extra_dataset.yaml의 사례를 사용자 메시지로 알아보고 대본을 돌려준다(재개 run도 같은 대본을 이어 쓴다)."""
+    cases = [c for c in load_dataset(EXTRA_DATASET_PATH).cases if prefix(c) in scripts]
+    by_message = {c.inputs.message: scripted(*scripts[prefix(c)]) for c in cases}
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        first = next(m for m in messages if isinstance(m, ModelRequest))
+        prompt = str(first.parts[-1].content)  # type: ignore[union-attr]
+        return by_message[prompt].respond(messages, info)
+
+    return FunctionModel(respond, model_name="claude-haiku-5-5")
+
+
+async def run_extra(eval_env, scripts: dict[str, list]):
+    dataset = load_dataset(EXTRA_DATASET_PATH)
+    dataset.cases = [c for c in dataset.cases if prefix(c) in scripts]
+    guard = GuardScript(verdict="match", reason="요청과 일치합니다.")
+    with eval_env.agent.override(model=extra_case_model(scripts)), eval_env.guard.override(model=guard.model()):
+        report = await dataset.evaluate(case_task(eval_env), max_concurrency=1, progress=False)
+    assert report.failures == []
+    return {prefix(case): case for case in report.cases}
+
+
+def test_extra_dataset_is_separate_draft_with_revision_cases() -> None:
+    dataset = load_dataset(EXTRA_DATASET_PATH)
+
+    assert dataset.name == "myagent_eval_extra" and dataset.name != load_dataset().name
+    assert DRAFT_MARK in EXTRA_DATASET_PATH.read_text(encoding="utf-8")  # 사용자 확인 전에는 --run 거부
+    assert [prefix(c) for c in dataset.cases] == ["X1", "X2"]
+    assert all(c.inputs.revision_note and c.metadata and c.metadata.spec_no == 0 for c in dataset.cases)
+
+
+def test_extra_dataset_run_is_refused_while_draft() -> None:
+    with pytest.raises(SystemExit, match="초안"):
+        run_evals_main(["--dataset", "extra", "--run", "--email", "x@example.com", "--confirm-cost"])
+
+
+async def test_revision_case_sends_note_and_judges_the_new_card(eval_env, db_session: AsyncSession) -> None:
+    good = {
+        "X1": [
+            call("create_event", title="치과", start="2026-11-19T14:00", end="2026-11-19T15:00"),
+            # 재개는 같은 run을 잇는다: 첫 카드에서 멈춘 뒤 '고쳐 달라는 내용'을 받고 바로 다음 줄로 간다.
+            call("create_event", title="치과", start="2026-11-19T15:00", end="2026-11-19T16:00"),
+            text("11월 19일 15:00~16:00으로 고쳐 다시 승인을 기다리고 있어요."),
+        ]
+    }
+    cases = await run_extra(eval_env, good)
+
+    case = cases["X1"]
+    assert failed(case) == set()
+    output: EvalOutput = case.output
+    assert [(c.args["start"], c.revised, c.status) for c in output.calls] == [
+        ("2026-11-19T14:00", True, "rejected"),
+        ("2026-11-19T15:00", False, "waiting_approval"),
+    ]
+    assert output.task_status == "waiting_approval" and output.external_writes == []
+    assert {u.purpose for u in output.usage} == {"agent", "guard"}
+    statuses = sorted(a.status for a in await db_session.scalars(select(Approval)))
+    assert statuses == [ApprovalStatus.PENDING, ApprovalStatus.REJECTED]  # 고친 뒤의 카드도 승인하지 않았다
+
+
+async def test_revision_case_catches_model_that_ignores_the_note(eval_env) -> None:
+    ignores = {
+        "X1": [
+            call("create_event", title="치과", start="2026-11-19T14:00", end="2026-11-19T15:00"),
+            call("create_event", title="치과", start="2026-11-19T14:00", end="2026-11-19T15:00"),  # 고치지 않음
+            text("다시 승인을 기다리고 있어요."),
+        ]
+    }
+    cases = await run_extra(eval_env, ignores)
+
+    assert failed(cases["X1"]) == {"ApprovalScope", "ToolArguments"}

@@ -7,6 +7,9 @@
   (evals/fake_externals.py). 실제 카카오·네이버·Open-Meteo·Google로 나가는 요청이 없다.
 - 승인: EXTERNAL 도구는 승인 대기(waiting_approval)에서 멈춘다. 이 실행기는 승인하지 않는다(승인 API도,
   승인 결정 함수도 부르지 않는다). 승인 요청이 만들어졌는지만 본다.
+  예외 하나(2026-11-18): 사례에 revision_note가 있으면 첫 대기 카드에 '고쳐서 다시'를 보낸다
+  (approvals.request_revision — 거절만 할 수 있는 함수) → runner.resume_task로 이어서 실행한다.
+  고친 뒤의 새 카드도 승인하지 않고 대기에서 멈춘다.
 - 푸시: VAPID 설정을 비워 보내지 않는다. 관찰: TELEMETRY_ENABLED=false, 토큰도 비워 보내지 않는다.
 - DBOS: 쓰지 않는다. runner.run_task를 워크플로 밖에서 부르면 단계가 그냥 실행된다(app/agent/durable.py).
 
@@ -33,6 +36,7 @@ app.clock 고정), 2026-11-17(eval 설정에 실행마다 새 PAYLOAD_ENCRYPTION
 - 2026-11-17 7단계 보강: eval 설정에 새 PAYLOAD_ENCRYPTION_KEY(메일 도구가 보이게), 메일 데이터 처리 동의.
 - 2026-11-17 8단계 보강: 사례마다 app.clock 고정(frozen_clock), 모델이 시도한 도구 모으기(attempted_tools).
 - 2026-11-18 주석 보강(동작 변경 없음).
+- 2026-11-18 '고쳐서 다시' 사례(extra_dataset.yaml): send_revision, tool_calls의 revised 표시.
 """
 
 import secrets
@@ -52,13 +56,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import clock
 from app.agent.agent import MyAgent, build_agent
+from app.agent.approvals import request_revision
 from app.agent.guard import GuardAgent, build_guard_agent
 from app.agent.history import load_messages
-from app.agent.runner import RunServices, run_task
+from app.agent.runner import RunServices, resume_task, run_task
 from app.config import Settings
 from app.google_auth import CALENDAR_SCOPE, GMAIL_SCOPE, GoogleTokens, save_tokens
 from app.models import Approval, Conversation, Memory, Message, Step, Task, Todo, UsageLog, User
-from app.models.enums import MessageRole, TaskOrigin, UsagePurpose
+from app.models.enums import ApprovalStatus, MessageRole, TaskOrigin, UsagePurpose
 from app.push import PushNotifier
 from app.security import hash_password, token_cipher
 from evals.cases import EvalInputs, EvalOutput, ModelUsage, ToolCall
@@ -247,18 +252,20 @@ async def tool_calls(session: AsyncSession, task_id: int) -> list[ToolCall]:
     args는 steps.input이다(ToolArguments·ApprovalScope가 이 값으로 인자·대상을 본다).
     """
     steps = list(await session.scalars(select(Step).where(Step.task_id == task_id).order_by(Step.order)))
-    requested = set(
-        await session.scalars(
-            select(Approval.step_id).join(Step, Approval.step_id == Step.id).where(Step.task_id == task_id)
-        )
+    rows = await session.execute(
+        select(Approval.step_id, Approval.revision_note)
+        .join(Step, Approval.step_id == Step.id)
+        .where(Step.task_id == task_id)
     )
+    notes = dict(rows.tuples().all())
     return [
         ToolCall(
             name=step.tool_name,
             args=dict(step.input or {}),
             status=step.status.value,
             ok=step.ok,
-            approval_requested=step.id in requested,
+            approval_requested=step.id in notes,
+            revised=notes.get(step.id) is not None,
         )
         for step in steps
     ]
@@ -294,7 +301,32 @@ async def run_case(env: EvalEnvironment, inputs: EvalInputs) -> EvalOutput:
             notifier = PushNotifier(env.session_factory, env.settings)  # VAPID가 비어 있어 아무것도 보내지 않는다
             services = RunServices(env.agent, env.guard, env.session_factory, env.settings, notifier, client)
             await run_task(services, task_id, prompt=inputs.message)
+            if inputs.revision_note is not None and await send_revision(env, task_id, inputs.revision_note):
+                await resume_task(services, task_id)
     return await collect_output(env, task_id, http)
+
+
+# '고쳐서 다시' 사례만 쓴다. 첫 대기 카드(가장 앞 step)에 고칠 내용을 보낸다. 대기 카드가 없으면(모델이 되묻기로 끝냄)
+# 보내지 않고 False → 이어서 실행하지 않는다(그 결과는 평가기가 경로로 판정한다).
+# request_revision은 거절만 할 수 있다(승인으로 바꾸는 길이 없다). 커밋은 그 함수 안에서 한다.
+async def send_revision(env: EvalEnvironment, task_id: int, note: str) -> bool:
+    """첫 대기 카드에 '고쳐서 다시'를 보냈으면 True."""
+    async with env.session_factory() as session:
+        row = (
+            await session.execute(
+                select(Approval.id, Task.user_id)
+                .join(Step, Approval.step_id == Step.id)
+                .join(Task, Step.task_id == Task.id)
+                .where(Task.id == task_id, Approval.status == ApprovalStatus.PENDING)
+                .order_by(Step.order)
+                .limit(1)
+            )
+        ).first()
+        if row is None:
+            return False
+        card_id, user_id = row
+        decision = await request_revision(session, card_id, user_id, note)
+        return decision.all_decided
 
 
 def case_task(env: EvalEnvironment) -> Callable[[EvalInputs], Awaitable[EvalOutput]]:
