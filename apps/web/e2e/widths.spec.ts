@@ -43,7 +43,7 @@ for (const { width, height } of WIDTHS) {
       await checkRoom(page, width);
     });
 
-    test("탭 화면: 작업 기록·자동화·기억·설정·연결·비용", async ({ page }) => {
+    test("탭 화면: 작업 기록·할 일·자동화·기억·설정·연결·비용", async ({ page }) => {
       await fakeChat(page);
       await fakeTabs(page);
       await loginToChat(page);
@@ -60,6 +60,7 @@ for (const { width, height } of WIDTHS) {
 }
 
 const TAB_SCREENS = [
+  ["/todos", "할 일"],
   ["/automation", "자동화"],
   ["/memory", "기억"],
   ["/settings", "설정"],

@@ -14,14 +14,16 @@ describe("BottomTabs", () => {
     pathname = "/chat";
   });
 
-  it("탭 5개를 명세 순서대로 그린다", () => {
+  // '할 일' 탭은 요구사항 밖 기능으로 2026-11-18 추가(DECISIONS "요구사항 밖 기능"). 나머지는 명세 순서.
+  it("탭 6개를 정해진 순서대로 그린다", () => {
     render(<BottomTabs />);
     const nav = screen.getByRole("navigation", { name: "하단 탭" });
     const links = within(nav).getAllByRole("link");
 
-    expect(links).toHaveLength(5);
+    expect(links).toHaveLength(6);
     expect(links.map((link) => link.textContent)).toEqual([
       "채팅",
+      "할 일",
       "작업 기록",
       "자동화",
       "기억",

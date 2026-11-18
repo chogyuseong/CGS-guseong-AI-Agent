@@ -297,6 +297,32 @@ export async function fakeTabs(page: Page) {
   await page.route("**/api/watches", (route) =>
     route.fulfill({ status: 200, json: { watches, max_active: 10 } }),
   );
+  // 할 일 탭(2026-11-18 추가): 안 한 것·긴 제목·긴 단어·완료한 것(줄 그음)을 함께 본다.
+  const todos = [
+    {
+      id: 1,
+      title: "우유 사기",
+      is_done: false,
+      done_at: null,
+      created_at: "2026-11-18T01:00:00Z",
+    },
+    {
+      id: 2,
+      title: LONG_SENTENCE,
+      is_done: false,
+      done_at: null,
+      created_at: "2026-11-18T01:01:00Z",
+    },
+    { id: 3, title: LONG_WORD, is_done: false, done_at: null, created_at: "2026-11-18T01:02:00Z" },
+    {
+      id: 4,
+      title: "달걀 사기",
+      is_done: true,
+      done_at: "2026-11-18T02:00:00Z",
+      created_at: "2026-11-18T01:03:00Z",
+    },
+  ];
+  await page.route("**/api/todos", (route) => route.fulfill({ status: 200, json: { todos } }));
   const memories = [1, 2, 3, 4, 5].map(memory);
   await page.route("**/api/memories", (route) =>
     route.fulfill({ status: 200, json: { memories, limit: 200 } }),

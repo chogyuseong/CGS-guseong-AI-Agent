@@ -19,6 +19,11 @@ AgentDeps.db는 세션 공장이라 도구마다 짧은 트랜잭션).
   키를 바꾸면 이미 저장된 감시가 값을 못 읽는다.
 - tests/test_agent_run.py가 "app.tools.notes.insert_todo"를 이름으로 바꿔 끼운다(예상 못 한 예외 처리 확인).
   이름을 바꾸면 그 테스트도 고친다.
+- mark_todo_done·mark_todo_open은 할 일 화면 API(app/routers/todos.py)도 쓴다. 바꾸면 tests/test_todos_api.py도 돌린다.
+
+변경 이력:
+- 2026-11-18 할 일 체크리스트 화면용 mark_todo_open(체크 해제) 추가(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18).
+  체크 해제는 화면에서만 한다(모델 도구는 그대로 다섯 개).
 """
 
 from collections.abc import Callable
@@ -102,6 +107,21 @@ async def mark_todo_done(session: AsyncSession, user_id: int, todo_id: int) -> t
         todo.done_at = datetime.now(UTC)
         await session.commit()
     return todo, was_done
+
+
+async def mark_todo_open(session: AsyncSession, user_id: int, todo_id: int) -> Todo | None:
+    """완료한 할 일을 다시 안 한 것으로 돌린다(화면에서 잘못 누른 체크 되돌리기). 내 할 일이 아니면 None.
+
+    done_at도 지운다(Todo 모델 규칙: 완료면 is_done과 done_at을 함께 채운다). 바꿨을 때만 커밋한다(한 트랜잭션).
+    """
+    todo = await session.scalar(select(Todo).where(Todo.id == todo_id, Todo.user_id == user_id))
+    if todo is None:
+        return None
+    if todo.is_done:
+        todo.is_done = False
+        todo.done_at = None
+        await session.commit()
+    return todo
 
 
 # ---- 도구 (모델이 부르는 함수) ----

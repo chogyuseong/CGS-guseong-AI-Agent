@@ -534,6 +534,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Todos
+         * @description 할 일 체크리스트: 안 한 것 전부 + 최근 24시간 안에 완료한 것.
+         */
+        get: operations["list_todos_api_todos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/todos/{todo_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Check Todo
+         * @description 할 일 체크(is_done=true) 또는 체크 해제(false). 이미 그 상태면 바꾸지 않는다.
+         */
+        put: operations["check_todo_api_todos__todo_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1087,6 +1127,41 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * TodoCheckIn
+         * @description 체크(true) 또는 체크 해제(false).
+         */
+        TodoCheckIn: {
+            /** Is Done */
+            is_done: boolean;
+        };
+        /**
+         * TodoListOut
+         * @description 체크리스트: 안 한 것(오래된 것부터) 뒤에 최근 완료한 것(최근에 완료한 것부터).
+         */
+        TodoListOut: {
+            /** Todos */
+            todos: components["schemas"]["TodoOut"][];
+        };
+        /**
+         * TodoOut
+         * @description 할 일 한 건. done_at은 처음 완료한 시각(UTC), 안 했으면 None.
+         */
+        TodoOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Is Done */
+            is_done: boolean;
+            /** Done At */
+            done_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** UsageDayOut */
         UsageDayOut: {
@@ -2385,6 +2460,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UsageOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_todos_api_todos_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoListOut"];
+                };
+            };
+        };
+    };
+    check_todo_api_todos__todo_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todo_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TodoCheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoOut"];
+                };
+            };
+            /** @description 없거나 남의 할 일 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
