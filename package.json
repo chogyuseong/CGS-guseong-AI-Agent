@@ -1,10 +1,11 @@
 {
   "name": "myagent",
   "private": true,
-  "description": "마이에이전트 모노레포 실행 스크립트. 이 PC에는 make가 없어서 Makefile 대신 여기에 둔다.",
+  "description": "마이에이전트 모노레포 실행 스크립트. 이 PC에는 make가 없어서 Makefile 대신 여기에 둔다. dev는 api와 web을 각자 새 콘솔 창(start)에서 띄운다: Windows용 uvicorn --reload가 재시작할 때 보내는 Ctrl+C가 같은 콘솔의 web까지 끄기 때문(DECISIONS 2026-11-18). dev:one-window는 예전처럼 한 창이지만 API 코드를 고치면 둘 다 꺼진다.",
   "packageManager": "pnpm@10.34.9",
   "scripts": {
-    "dev": "pnpm run db:up && pnpm run db:migrate && concurrently --kill-others -n api,web -c blue,green \"pnpm run api\" \"pnpm run web\"",
+    "dev": "pnpm run db:up && pnpm run db:migrate && start \"myagent api\" cmd /k pnpm run api && start \"myagent web\" cmd /k pnpm run web",
+    "dev:one-window": "pnpm run db:up && pnpm run db:migrate && concurrently --kill-others -n api,web -c blue,green \"pnpm run api\" \"pnpm run web\"",
     "db:up": "docker compose up -d --wait postgres",
     "db:stop": "docker compose stop postgres",
     "db:migrate": "cd apps/api && uv run python -m alembic upgrade head",

@@ -39,7 +39,9 @@
 (package.json 스크립트 안의 `&&`는 cmd가 실행하므로 괜찮다.)
 
 - 처음 한 번: 루트에서 `pnpm install`, `apps/api`에서 `uv sync`, `Copy-Item .env.example .env` 후 값 채우기
-- 전체: 루트에서 `pnpm dev` (postgres 시작 → 마이그레이션 → api:8000 + web:3000)
+- 전체: 루트에서 `pnpm dev` (postgres 시작 → 마이그레이션 → api:8000·web:3000을 **각자 새 콘솔 창**으로 띄움. 끌 때는 두 창을 닫는다)
+  - 한 창에서 띄우는 `pnpm dev:one-window`는 API 코드를 고치면 web까지 꺼진다: Windows용 uvicorn `--reload`가 재시작할 때
+    `CTRL_C_EVENT`를 보내 같은 콘솔의 Next까지 멈추고 `concurrently --kill-others`가 나머지를 내린다(uvicorn 0.54.0 basereload.py).
 - 따로: `pnpm db:up` / `pnpm db:migrate` / `pnpm api` / `pnpm web`
 - 계정 만들기: `pnpm api:create-user --email 이메일 --password 비밀번호`
   (apps/api에서는 `uv run python -m app.cli create-user --email 이메일`. --password를 빼면 프롬프트로 묻는다)
