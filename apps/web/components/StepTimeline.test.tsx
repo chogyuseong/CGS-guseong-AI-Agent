@@ -155,6 +155,58 @@ describe("StepTimeline", () => {
     expect(screen.queryByRole("link", { name: "지도에서 경로 열기" })).toBeNull();
   });
 
+  // 2026-11-18 영화 비서 C: 결론·이유·조회 시각·예매 열기, 계산 표와 제외 이유는 펼쳐서.
+  const MOVIE = {
+    결론: "메가박스 코엑스 19:55 회차가 가장 편합니다.",
+    이유: "식사 60분, 21:35 종료, 집 도착 22:15 예상으로 조건을 모두 만족합니다.",
+    제외: [
+      { 회차: "CGV 강남 19:30 회차", 이유: "식사가 35분뿐입니다(원하신 60분보다 25분 부족)." },
+    ],
+    계산: [
+      { 회차: "CGV 강남 19:30 회차", 식사: "35분", 종료: "21:10 예상", "집 도착": "21:50" },
+      { 회차: "메가박스 코엑스 19:55 회차", 식사: "60분", 종료: "21:35", "집 도착": "22:15" },
+    ],
+    조건: "만남 18:30 · 식사 60분 · 입장 여유 10분 · 집 도착 23:00까지",
+    이동: "이동 시간은 말씀하신 값입니다.",
+    좌석: "좌석은 극장에서 확인해 주세요.",
+    예매: "https://www.megabox.co.kr",
+  };
+
+  function movieStep(content: Record<string, unknown>) {
+    return makeStep({
+      tool_name: "compare_showtimes",
+      output: {
+        data: { notice: NOTICE, content, truncated: false },
+        sources: [],
+        fetched_at: "2026-11-18T00:00:00Z",
+      },
+    });
+  }
+
+  it("영화 회차는 결론·이유·좌석 안내·예매 열기를 바로 보이고 제외 이유는 펼쳐서 본다", () => {
+    render(<StepTimeline steps={[movieStep(MOVIE)]} />);
+
+    expect(screen.getByText(MOVIE.결론)).toBeVisible();
+    expect(screen.getByText(MOVIE.이유)).toBeVisible();
+    expect(screen.getByText(MOVIE.좌석)).toBeVisible();
+    expect(screen.getByText(/조회 시각/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "극장 예매 페이지 열기" })).toHaveAttribute(
+      "href",
+      "https://www.megabox.co.kr/",
+    );
+    const details = screen.getByText("계산 자세히 보기").closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("CGV 강남 19:30 회차: 식사가 35분뿐입니다");
+    expect(details).toHaveTextContent("21:10 예상");
+    expect(details).toHaveTextContent("입장 여유 10분");
+  });
+
+  it("예매 링크가 없으면(모르는 극장) 링크 버튼을 만들지 않는다", () => {
+    render(<StepTimeline steps={[movieStep({ ...MOVIE, 예매: null })]} />);
+
+    expect(screen.queryByRole("link", { name: "극장 예매 페이지 열기" })).toBeNull();
+  });
+
   it("단계 상태마다 맞는 아이콘 이름을 보여 준다", () => {
     const steps = [
       makeStep({ id: 1, order: 1, status: "running", label: "진행 단계" }),

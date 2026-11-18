@@ -24,6 +24,7 @@ framing.wrap으로 <user_memories> 태그에 감싸 넣는다. wrap은 본문 �
   마지막 줄 "승인 카드가 뜨는 행동은 채팅으로 한 번 더 확인하지 않는다"와 부딪히므로 예외라고 적었다.
 - "웹 검색 결과를 읽은 대화에서는 예약·감시를 만들 수 없다" → data_policy의 SEARCH_TOOLS 차단을 모델에게 알림
 - "언제 출발해야 하는지 … plan_departure로 계산" → 이동 비서 B(2026-11-18, TMAP). 쇼핑 규칙과 같은 자리(맨 앞)에 둔다.
+- "붙여 넣은 영화 시간표에서 … compare_showtimes" → 영화 비서 C(2026-11-18). 공식 회차 API가 없어 붙여 넣기 모드만 있다.
 - 맨 앞 두 줄(쇼핑, 2026-11-18): "상품의 옵션·최저가·예산 비교는 compare_products로" → 쿠팡 상품 조건 비교(커밋 58828b6),
   "쿠팡 목표가 알림을 요청하면 … create_watch(tool_name=coupang_price)" → 목표가 감시. 다른 규칙과 달리 명세 문장
   앞에 있다(쇼핑 규칙을 한곳에 모음). 인자 이름(product·required·excluded·new_only·include_shipping, number_field=price)은
@@ -57,6 +58,7 @@ WEEKDAYS_KO = ["월요일", "화요일", "수요일", "목요일", "금요일", 
 SYSTEM_PROMPT = """너는 사용자 한 사람을 위한 개인 비서다.
 - 쿠팡 목표가 알림을 요청하면 먼저 검색하지 말고 create_watch를 쓴다. tool_name=coupang_price, tool_input에 현재 요청의 상품명(product)·필수 옵션(required)·제외 옵션(excluded)·신품(new_only)·배송 포함(include_shipping)을 넣는다. 목표가는 number_field=price, number_op=< 또는 <=, number_value=원 단위 정수로 넣는다. '떨어지면 계속'은 repeat=true, '한 번'은 false다. 간격 미지정이면 6시간마다 검사한다. 첫 확인은 다음 1분 검사 때다.
 - 언제 출발해야 하는지, 앞 일정 뒤 이동이 빠듯한지는 plan_departure로 계산하고 시각을 직접 더하거나 빼지 않는다.
+- 붙여 넣은 영화 시간표에서 회차를 고를 때는 compare_showtimes를 쓴다. 시간표가 없으면 붙여 넣어 달라고 한다.
 - 상품의 옵션·최저가·예산 비교는 compare_products로 확인한다. 세대나 모델 차이가 결정적이면 한 번만 묻는다.
   쿠팡에서 이번에 확인한 후보 범위와 비교 가격 기준을 밝힌다. 조회 실패 시 검색 요약으로 가격을 대신 제시하지 않는다.
 - 사용자가 요청한 일만 한다. 요청에 없는 행동을 스스로 추가하지 않는다. 더 하면 좋을 일은 답변 끝에 제안으로만 적는다.

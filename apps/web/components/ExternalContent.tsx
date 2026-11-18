@@ -11,6 +11,8 @@
 // 변경 이력:
 // - 2026-11-18 이동 비서 B 출발 계산 카드(TravelCard). 결론 한 줄 / 이유 한 줄 / 조회 시각 / 다음 행동(지도) 하나,
 //   경로 비교·기준은 펼쳐서 본다(생활 비서 명세 7절 카드 기본 표시).
+// - 2026-11-18 영화 비서 C 회차 카드(MovieCard). 결론·이유·차이·좌석 안내·예매 열기, 계산 표·제외 이유·조건은 펼쳐서.
+//   칸 이름은 서버 apps/api/app/tools/showtimes.py content_of와 맞물린다. 링크 이름 "극장 예매 페이지 열기"는 e2e가 찾는다.
 "use client";
 
 import { Globe } from "lucide-react";
@@ -35,13 +37,15 @@ export function ExternalContent({
   mail = false,
   shopping = false,
   travel = false,
+  movie = false,
 }: {
   external: ExternalOutput;
   mail?: boolean;
   shopping?: boolean;
   travel?: boolean;
+  movie?: boolean;
 }) {
-  const card = (shopping || travel) && isRecord(external.content);
+  const card = (shopping || travel || movie) && isRecord(external.content);
   const titleId = useId();
   return (
     <section
@@ -61,6 +65,8 @@ export function ExternalContent({
         <ShoppingCards content={external.content} />
       ) : travel && isRecord(external.content) ? (
         <TravelCard content={external.content} />
+      ) : movie && isRecord(external.content) ? (
+        <MovieCard content={external.content} />
       ) : (
         <>
           <StorageNote truncated={external.truncated} />
@@ -143,6 +149,59 @@ function TravelCard({ content }: { content: Record<string, unknown> }) {
       )}
       <TravelDetails content={content} />
     </>
+  );
+}
+
+// 영화 회차 카드. 서버가 계산한 문장을 그대로 보인다(화면은 시각을 다시 계산하지 않는다).
+// 예매는 극장 공식 홈페이지만 http(s)일 때 새 탭으로 연다(좌석 선택·결제는 사용자가 직접).
+function MovieCard({ content }: { content: Record<string, unknown> }) {
+  const text = (key: string) =>
+    typeof content[key] === "string" ? (content[key] as string) : null;
+  const href = safeHttpUrl(content.예매);
+  return (
+    <>
+      {text("결론") && <p className="text-sm font-medium">{text("결론")}</p>}
+      {text("이유") && <p>{text("이유")}</p>}
+      {text("차이") && <p>{`차선 ${text("차선") ?? ""}: ${text("차이")}`}</p>}
+      {text("좌석") && <p>{text("좌석")}</p>}
+      {href && (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+          극장 예매 페이지 열기
+        </a>
+      )}
+      <MovieDetails content={content} />
+    </>
+  );
+}
+
+// 펼쳐 보는 부분: 제외 이유, 회차별 계산(식사·종료·집 도착), 조건, 이동 시간 출처.
+function MovieDetails({ content }: { content: Record<string, unknown> }) {
+  const excluded = Array.isArray(content.제외) ? content.제외.filter(isRecord) : [];
+  const rows = Array.isArray(content.계산) ? content.계산.filter(isRecord) : [];
+  const notes = ["조건", "이동"].filter((k) => typeof content[k] === "string");
+  if (!excluded.length && !rows.length && !notes.length) return null;
+  return (
+    <details className="rounded border bg-background">
+      <summary className="flex min-h-11 cursor-pointer items-center px-2">계산 자세히 보기</summary>
+      <div className="grid gap-1 border-t p-2 wrap-anywhere">
+        {withUniqueKeys(excluded, (e) => String(e.회차)).map(({ key, item }) => (
+          <p key={key}>{`${String(item.회차 ?? "")}: ${String(item.이유 ?? "")}`}</p>
+        ))}
+        <ul className="grid gap-1">
+          {withUniqueKeys(rows, (r) => String(r.회차)).map(({ key, item }) => (
+            <li key={key}>
+              {["회차", "식사", "종료", "집 도착"]
+                .filter((k) => typeof item[k] === "string")
+                .map((k) => `${k} ${item[k]}`)
+                .join(" · ")}
+            </li>
+          ))}
+        </ul>
+        {notes.map((key) => (
+          <p key={key}>{String(content[key])}</p>
+        ))}
+      </div>
+    </details>
   );
 }
 

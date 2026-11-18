@@ -209,6 +209,7 @@ async def test_chat_task_gets_all_tool_levels(
                 *EXTERNAL_TOOL_NAMES,
                 "compare_products",
                 "plan_departure",
+                "compare_showtimes",
             ]
         )
     ]

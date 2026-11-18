@@ -72,7 +72,11 @@ export function StepTimeline({ steps }: { steps: Step[] }) {
 }
 
 // 결과를 카드로 보여 주는 도구: 단계를 처음부터 펼치고 입력 JSON은 숨긴다(서버 도구 이름과 글자로 맞물린다).
-const CARD_TOOLS: ReadonlySet<string> = new Set(["compare_products", "plan_departure"]);
+const CARD_TOOLS: ReadonlySet<string> = new Set([
+  "compare_products",
+  "plan_departure",
+  "compare_showtimes",
+]);
 
 // 한 줄. 아이콘에 role=img·aria-label로 상태 이름을 붙여 화면 낭독기와 e2e가 상태를 읽는다.
 // showName 글자는 aria-hidden이다(아이콘 이름과 두 번 읽히지 않게).
@@ -125,6 +129,7 @@ function StepDetail({ step }: { step: Step }) {
             mail={isMailTool(step.tool_name)}
             shopping={step.tool_name === "compare_products"}
             travel={step.tool_name === "plan_departure"}
+            movie={step.tool_name === "compare_showtimes"}
           />
         </div>
       ) : (

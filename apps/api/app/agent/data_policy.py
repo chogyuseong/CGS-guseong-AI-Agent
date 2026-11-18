@@ -153,6 +153,18 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         STEPS,
         "결론·이유·경로 비교·지도 링크와 조회 시각",
     ),
+    # 2026-11-18 영화 비서 C. 시간표는 사용자가 붙여 넣은 글(외부 전송 없음), 이동 시간이 비면 장소 이름은 카카오로,
+    # 좌표·시각만 TMAP으로 간다(plan_departure와 같은 범위).
+    "compare_showtimes": ToolPolicy(
+        "카카오 로컬·TMAP 대중교통(이동 시간이 빌 때만)",
+        PUBLIC_ONLY,
+        DataClass.PUBLIC,
+        HTTP_TIMEOUT,
+        "카카오 조회는 1회 재시도, TMAP은 재시도 없음(하루 10건)",
+        "조회라 불필요",
+        STEPS,
+        "결론·이유·차선·제외 이유·계산 표·예매 링크와 조회 시각",
+    ),
     "compare_products": ToolPolicy(
         "쿠팡 파트너스",
         PUBLIC_ONLY,

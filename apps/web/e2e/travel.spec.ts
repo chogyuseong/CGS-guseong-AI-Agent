@@ -5,16 +5,27 @@ import { expect, test } from "@playwright/test";
 import { loginToChat } from "./helpers";
 import { fakeChat } from "./width-fixtures";
 
-const MAP = "https://map.kakao.com/link/by/traffic/역삼역 2호선,37.5006,127.0364/잠실역 2호선,37.5130,127.1000";
+const MAP =
+  "https://map.kakao.com/link/by/traffic/역삼역 2호선,37.5006,127.0364/잠실역 2호선,37.5130,127.1000";
 
-test("채팅 답변 아래에서 권장 출발 시각과 앞 일정 뒤 여유, 지도 링크를 확인한다", async ({ page }) => {
+test("채팅 답변 아래에서 권장 출발 시각과 앞 일정 뒤 여유, 지도 링크를 확인한다", async ({
+  page,
+}) => {
   await fakeChat(page);
   await page.route("**/api/tasks/*", async (route) => {
     const content = {
       결론: "17:50에 출발하면 18:45에 도착합니다(19:00보다 15분 일찍).",
       이유: "앞 일정이 끝나고 10분 여유가 있습니다.",
       "다른 경로": "6분 늦지만 환승이 1번 적습니다.",
-      경로: [{ 경로: "도보 → 수도권2호선 → 도보", 소요: "55분", 환승: "2회", 도보: "10분", 요금: "1,550원" }],
+      경로: [
+        {
+          경로: "도보 → 수도권2호선 → 도보",
+          소요: "55분",
+          환승: "2회",
+          도보: "10분",
+          요금: "1,550원",
+        },
+      ],
       지도: MAP,
     };
     const output = {
@@ -38,7 +49,10 @@ test("채팅 답변 아래에서 권장 출발 시각과 앞 일정 뒤 여유, 
   await expect(card).toContainText("17:50에 출발하면 18:45에 도착합니다");
   await expect(card).toContainText("앞 일정이 끝나고 10분 여유가 있습니다.");
   await expect(card).toContainText("조회 시각");
-  await expect(card.getByRole("link", { name: "지도에서 경로 열기" })).toHaveAttribute("href", encodeURI(MAP));
+  await expect(card.getByRole("link", { name: "지도에서 경로 열기" })).toHaveAttribute(
+    "href",
+    encodeURI(MAP),
+  );
   await card.getByText("경로 자세히 보기").click();
   await expect(card).toContainText("6분 늦지만 환승이 1번 적습니다.");
 });
