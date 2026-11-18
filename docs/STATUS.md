@@ -70,7 +70,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
 사용자 확인이 필요한 항목:
 - 이 PC의 .env는 Django판 형식이었다. DATABASE_URL(로컬 docker), SESSION_SECRET(새로 만듦), APP_ORIGIN을 넣고
   모델 이름에 `anthropic:`을 붙이고 TASK_MAX_STEPS→TASK_MAX_REQUESTS, GOOGLE_REDIRECT_URI를 새 주소로 바꿨다.
-  VAPID_SUBJECT는 여전히 비어 있다
+  당시 VAPID_SUBJECT가 비어 있었다. 2026-11-18 첫 PC에서는 설정을 확인했다
 - 배포-이어하기.txt 2번의 남은 일(Google 콘솔, 푸시, eval, 배포처)
 
 다음 시작 지점은 배포-이어하기.txt 상단을 따른다. 관찰을 켜려면 .env에 TELEMETRY_ENABLED=true도 넣어야 한다(토큰만으로는 보내지 않음).
@@ -168,8 +168,7 @@ BUILD_SPEC 19절 형식. 단계가 끝날 때마다 고친다.
   조회·지우기는 그대로 — tests/test_mail_automation.py(test_mail_instruction_cannot_create_schedule: FunctionModel이 메일을 읽고
   create_schedule·create_watch를 불러도 0건, test_server_refuses_schedule_called_together_with_read_mail,
   test_server_refuses_schedule_when_history_has_mail, test_automation_tools_stay_hidden_in_the_same_conversation_only)
-- 사용자 판단 5개는 2026-11-17 사용자 답으로 정함(docs/DECISIONS.md "7단계 보강"의 "사용자 결정" 줄). 남은 제안: 검색 결과 문맥의
-  예약 생성(BUILD_SPEC 15절 30번)은 미충족(docs/DECISIONS.md "7단계 보강: 남은 것")
+- 사용자 판단 5개는 2026-11-17 사용자 답으로 정함(docs/DECISIONS.md "7단계 보강"의 "사용자 결정" 줄). 후속 보강에서 웹 검색 결과가 있는 대화의 예약·감시 생성도 차단했다(BUILD_SPEC 15절 30번, tests/test_search_automation.py)
 
 ### 8단계 — 평가와 관찰
 - [x] TELEMETRY_ENABLED(명시적 설정 없으면 전송 안 함), LOGFIRE_TOKEN 없을 때 OTLP 우회 전송 확인 — tests/test_observability.py

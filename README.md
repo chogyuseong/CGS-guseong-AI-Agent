@@ -67,19 +67,21 @@
 
 ## 스크린샷
 
-아직 넣지 않았습니다. 아래 이름으로 `docs/screenshots/`에 넣을 예정입니다(360px 폰 화면 기준).
+로컬 Chrome에서 가상 대화와 일정으로 촬영했습니다. 모바일 예시는 360px, 데스크톱 예시는 1280px 폭입니다.
 
-| 파일 이름 | 넣을 화면 |
+![채팅 답변과 작업 단계](docs/screenshots/chat-timeline.png)
+
+| 화면 보기 | 확인할 내용 |
 | --- | --- |
-| `docs/screenshots/chat-timeline.png` | 채팅 답변과 단계 타임라인 |
-| `docs/screenshots/approval-card.png` | 승인 카드("요청과 일치" 배지, 승인·거절 버튼) |
-| `docs/screenshots/approval-mismatch.png` | mismatch 승인 카드의 "그래도 진행할까요?" 확인 |
-| `docs/screenshots/external-content.png` | 타임라인의 "외부에서 가져온 내용" 상자 |
-| `docs/screenshots/automation.png` | 자동화 탭(아침 브리핑, 조건 감시) |
-| `docs/screenshots/memory.png` | 기억 탭(원래 메시지 보기) |
-| `docs/screenshots/connections.png` | Google 연결과 메일 읽기 권한 화면 |
-| `docs/screenshots/usage.png` | 비용 화면 |
-| `docs/screenshots/desktop-1280.png` | 1280px 화면(가운데 정렬) |
+| [chat-timeline](docs/screenshots/chat-timeline.png) | 채팅 답변과 단계 타임라인 |
+| [approval-card](docs/screenshots/approval-card.png) | 승인 카드("요청과 일치" 배지, 승인·거절 버튼) |
+| [approval-mismatch](docs/screenshots/approval-mismatch.png) | mismatch 승인 카드의 "그래도 진행할까요?" 확인 |
+| [external-content](docs/screenshots/external-content.png) | 타임라인의 "외부에서 가져온 내용" 상자 |
+| [automation](docs/screenshots/automation.png) | 자동화 탭(아침 브리핑, 조건 감시) |
+| [memory](docs/screenshots/memory.png) | 기억 탭(원래 메시지 보기) |
+| [connections](docs/screenshots/connections.png) | Google 연결과 메일 읽기 권한 화면 |
+| [usage](docs/screenshots/usage.png) | 비용 화면 |
+| [desktop-1280](docs/screenshots/desktop-1280.png) | 1280px 화면(가운데 정렬) |
 
 ## 구조
 
@@ -353,7 +355,7 @@ pnpm --dir apps/web e2e
 **다음 할 일 (9단계)**
 - 배포는 미뤘습니다(2026-11-18). 당분간 이 PC에서 `pnpm dev`로 쓰고, 예약·감시는 PC가 켜져 있을 때만 돕니다. 나중에 Railway Hobby([docs/DEPLOY.md](docs/DEPLOY.md)) 또는 PC + 무료 터널([docs/PUSH-CHECK.md](docs/PUSH-CHECK.md)).
 - 9단계 남은 것: 실기기(폰) 확인, 7일 실사용 기록([docs/OPERATIONS.md](docs/OPERATIONS.md) 양식). 배포 뒤 배포 환경 복원 연습.
-- 스크린샷 넣기, eval 답변 핵심어 개선, 서버 쪽 삭제 승인 1건 제한(제안).
+- 웹 검색 답변의 조회 시각 안내를 보강했습니다. 한 작업의 삭제 승인 요청을 1건으로 제한하는 방안은 후속 제안입니다.
 - 코드 주석 규칙: 나중에 고치기 쉽게 파일 머리·함수에 이유·부수 효과·"고칠 때 주의"를 적습니다([AGENTS.md](AGENTS.md) "주석 규칙", 2026-11-18 전체 보강).
 - 미뤄 둔 제안: 네이버 검색 결과 보관 기간 정리, Google 미연결 시 일정 쓰기 도구 숨기기.
 
