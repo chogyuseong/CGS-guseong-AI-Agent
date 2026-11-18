@@ -67,7 +67,16 @@ MAX_EXTERNAL_CHARS = 6000
 # list_mail·read_mail은 7단계 도구지만 미리 넣어 둔다(도구를 만들 때 빠뜨려도 remember 검사는 이미 걸려 있게).
 # 이 목록에 없어도 결과가 ToolResult.external로 감싸져 있으면 remember 검사는 외부 콘텐츠로 본다(이중 확인).
 EXTERNAL_CONTENT_TOOLS = frozenset(
-    {"get_weather", "search_places", "web_search", "compare_products", "list_events", "list_mail", "read_mail"}
+    {
+        "get_weather",
+        "search_places",
+        "web_search",
+        "compare_products",
+        "plan_departure",
+        "list_events",
+        "list_mail",
+        "read_mail",
+    }
 )
 # 7단계: 메일 도구. 감시에 쓸 수 없다(명세). 7단계 보강: steps.output에는 내용을 남기지 않고(output_for_storage),
 # tasks.message_history에는 500자로 자른 뒤(clip_mail_output) 암호화한다(history.seal_mail_returns).

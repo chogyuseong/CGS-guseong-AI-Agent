@@ -71,11 +71,15 @@ export function StepTimeline({ steps }: { steps: Step[] }) {
   );
 }
 
+// 결과를 카드로 보여 주는 도구: 단계를 처음부터 펼치고 입력 JSON은 숨긴다(서버 도구 이름과 글자로 맞물린다).
+const CARD_TOOLS: ReadonlySet<string> = new Set(["compare_products", "plan_departure"]);
+
 // 한 줄. 아이콘에 role=img·aria-label로 상태 이름을 붙여 화면 낭독기와 e2e가 상태를 읽는다.
 // showName 글자는 aria-hidden이다(아이콘 이름과 두 번 읽히지 않게).
 function StepRow({ step }: { step: Step }) {
   // 2026-11-18 쇼핑 비교는 가격과 판매처 링크를 채팅 답변 아래에 바로 표시한다.
-  const [open, setOpen] = useState(step.tool_name === "compare_products");
+  // 2026-11-18 출발 계산(plan_departure)도 결론·지도 링크를 바로 보이게 펼쳐 둔다.
+  const [open, setOpen] = useState(CARD_TOOLS.has(step.tool_name));
   const { icon: Icon, name, className, showName } = STATUS_ICONS[step.status];
   return (
     <li className="rounded-md border bg-background text-sm">
@@ -112,7 +116,7 @@ function StepDetail({ step }: { step: Step }) {
   }
   return (
     <div className="flex min-w-0 flex-col gap-2 border-t px-3 py-2 text-xs">
-      {step.tool_name !== "compare_products" && <JsonBlock title="입력" value={step.input} />}
+      {!CARD_TOOLS.has(step.tool_name) && <JsonBlock title="입력" value={step.input} />}
       {external ? (
         <div className="flex min-w-0 flex-col gap-1">
           <p className="font-medium">출력</p>
@@ -120,6 +124,7 @@ function StepDetail({ step }: { step: Step }) {
             external={external}
             mail={isMailTool(step.tool_name)}
             shopping={step.tool_name === "compare_products"}
+            travel={step.tool_name === "plan_departure"}
           />
         </div>
       ) : (

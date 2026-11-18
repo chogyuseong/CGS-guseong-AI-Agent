@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     # 2026-11-18 파트너스 최종 승인 계정의 쇼핑 조회 키. 판매자 API·네이버 키와 분리한다.
     coupang_access_key: SecretStr = SecretStr("")
     coupang_secret_key: SecretStr = SecretStr("")
+    # 2026-11-18 이동 비서 B: SK Open API에서 TMAP 대중교통 상품을 받은 앱 키(app/tools/tmap.py).
+    # 없으면 조회하지 않는다.
+    tmap_app_key: SecretStr = SecretStr("")
     naver_client_secret: SecretStr = SecretStr("")
     google_client_id: str = ""
     google_client_secret: SecretStr = SecretStr("")

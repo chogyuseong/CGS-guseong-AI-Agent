@@ -1,0 +1,47 @@
+{
+  "metaData": {
+    "requestParameters": {
+      "busCount": 1,
+      "subwayCount": 1,
+      "locale": "ko",
+      "startX": "127.0364",
+      "startY": "37.5006",
+      "endX": "127.1000",
+      "endY": "37.5130",
+      "reqDttm": "20261118090000"
+    },
+    "plan": {
+      "itineraries": [
+        {
+          "totalTime": 3660,
+          "transferCount": 1,
+          "totalWalkTime": 480,
+          "totalDistance": 14200,
+          "totalWalkDistance": 560,
+          "pathType": 2,
+          "fare": {"regular": {"totalFare": 1500, "currency": {"symbol": "￦", "currency": "원", "currencyCode": "KRW"}}},
+          "legs": [
+            {"mode": "WALK", "sectionTime": 240, "distance": 280, "start": {"name": "출발지", "lon": 127.0364, "lat": 37.5006}, "end": {"name": "역삼역", "lon": 127.0367, "lat": 37.5007}},
+            {"mode": "BUS", "sectionTime": 3180, "distance": 13640, "route": "간선:146", "start": {"name": "역삼역", "lon": 127.0367, "lat": 37.5007}, "end": {"name": "잠실역", "lon": 127.0998, "lat": 37.5129}},
+            {"mode": "WALK", "sectionTime": 240, "distance": 280, "start": {"name": "잠실역", "lon": 127.0998, "lat": 37.5129}, "end": {"name": "도착지", "lon": 127.1, "lat": 37.513}}
+          ]
+        },
+        {
+          "totalTime": 3270,
+          "transferCount": 2,
+          "totalWalkTime": 600,
+          "totalDistance": 12800,
+          "totalWalkDistance": 700,
+          "pathType": 3,
+          "fare": {"regular": {"totalFare": 1550, "currency": {"symbol": "￦", "currency": "원", "currencyCode": "KRW"}}},
+          "legs": [
+            {"mode": "WALK", "sectionTime": 300, "distance": 350, "start": {"name": "출발지", "lon": 127.0364, "lat": 37.5006}, "end": {"name": "역삼", "lon": 127.0367, "lat": 37.5007}},
+            {"mode": "SUBWAY", "sectionTime": 1500, "distance": 6000, "route": "수도권2호선", "start": {"name": "역삼", "lon": 127.0367, "lat": 37.5007}, "end": {"name": "종합운동장", "lon": 127.0739, "lat": 37.5109}},
+            {"mode": "SUBWAY", "sectionTime": 1170, "distance": 6100, "route": "수도권9호선", "start": {"name": "종합운동장", "lon": 127.0739, "lat": 37.5109}, "end": {"name": "석촌", "lon": 127.1059, "lat": 37.5055}},
+            {"mode": "WALK", "sectionTime": 300, "distance": 350, "start": {"name": "석촌", "lon": 127.1059, "lat": 37.5055}, "end": {"name": "도착지", "lon": 127.1, "lat": 37.513}}
+          ]
+        }
+      ]
+    }
+  }
+}

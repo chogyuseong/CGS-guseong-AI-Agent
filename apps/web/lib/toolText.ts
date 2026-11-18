@@ -80,6 +80,7 @@ const TOOL_NAMES: Record<string, string> = {
   search_places: "장소 찾기",
   web_search: "웹 검색",
   compare_products: "쿠팡 상품 비교",
+  plan_departure: "출발 시각 계산",
   coupang_price: "쿠팡 목표가 확인",
   get_weather: "날씨 보기",
   list_mail: "메일 찾기",

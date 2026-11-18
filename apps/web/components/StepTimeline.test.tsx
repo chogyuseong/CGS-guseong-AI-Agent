@@ -83,6 +83,78 @@ describe("StepTimeline", () => {
       "https://example.org/products/4",
     );
   });
+  // 2026-11-18 이동 비서 B: 결론 한 줄 / 이유 한 줄 / 조회 시각 / 다음 행동(지도) 하나, 자세한 경로는 펼쳐서.
+  const TRAVEL = {
+    결론: "17:50에 출발하면 18:45에 도착합니다(19:00보다 15분 일찍).",
+    이유: "앞 일정이 끝나고 10분 여유가 있습니다.",
+    "다른 경로": "6분 늦지만 환승이 1번 적습니다.",
+    출발지: "역삼역 2호선",
+    도착지: "잠실역 2호선",
+    기준: "TMAP 대중교통, 2026-11-19 17:45 운행 기준 예상 소요(실제 교통 상황에 따라 달라질 수 있음)",
+    경로: [
+      {
+        경로: "도보 → 수도권2호선 → 수도권9호선 → 도보",
+        소요: "55분",
+        환승: "2회",
+        도보: "10분",
+        요금: "1,550원",
+      },
+      { 경로: "도보 → 간선:146 → 도보", 소요: "61분", 환승: "1회", 도보: "8분", 요금: "1,500원" },
+    ],
+    지도: "https://map.kakao.com/link/by/traffic/역삼역 2호선,37.5006,127.0364/잠실역 2호선,37.5130,127.1000",
+  };
+
+  function travelStep(content: Record<string, unknown>) {
+    return makeStep({
+      tool_name: "plan_departure",
+      output: {
+        data: { notice: NOTICE, content, truncated: false },
+        sources: [],
+        fetched_at: "2026-11-18T00:00:00Z",
+      },
+    });
+  }
+
+  it("출발 계산은 결론·이유·조회 시각과 지도 열기를 바로 보여 주고 경로는 펼쳐서 본다", () => {
+    render(<StepTimeline steps={[travelStep(TRAVEL)]} />);
+
+    expect(screen.getByText(TRAVEL.결론)).toBeVisible();
+    expect(screen.getByText(TRAVEL.이유)).toBeVisible();
+    expect(screen.getByText(/조회 시각/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "지도에서 경로 열기" })).toHaveAttribute(
+      "href",
+      encodeURI(TRAVEL.지도),
+    );
+    const details = screen.getByText("경로 자세히 보기").closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("6분 늦지만 환승이 1번 적습니다.");
+    expect(details).toHaveTextContent("55분");
+    expect(details).toHaveTextContent("운행 기준 예상 소요");
+    expect(screen.queryByText("입력")).toBeNull(); // 입력 JSON 대신 카드만
+  });
+
+  it("같은 이름 지점이 여러 곳이면 후보를 보여 주고 지도 링크는 만들지 않는다", () => {
+    const content = {
+      "확인 필요": "출발지 '스타벅스'가 여러 곳입니다. 어느 곳인지 알려 주세요.",
+      후보: [
+        { name: "스타벅스 강남역점", address: "서울 강남구" },
+        { name: "스타벅스 홍대점", address: "서울 마포구" },
+      ],
+    };
+    render(<StepTimeline steps={[travelStep(content)]} />);
+
+    expect(screen.getByText(content["확인 필요"])).toBeVisible();
+    expect(screen.getByText(/스타벅스 홍대점/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "지도에서 경로 열기" })).toBeNull();
+  });
+
+  it("지도 주소가 http(s)가 아니면 링크를 만들지 않는다", () => {
+    render(<StepTimeline steps={[travelStep({ ...TRAVEL, 지도: "javascript:alert(1)" })]} />);
+
+    expect(screen.queryByRole("link", { name: "지도에서 경로 열기" })).toBeNull();
+  });
+
   it("단계 상태마다 맞는 아이콘 이름을 보여 준다", () => {
     const steps = [
       makeStep({ id: 1, order: 1, status: "running", label: "진행 단계" }),

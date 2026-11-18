@@ -6,6 +6,11 @@
 // 고칠 때 주의:
 // - 6,000자(서버 자르기 길이), 500자(보강 전 메일 기록), 4,000자(메일 본문 읽기 길이)는 서버 값과 맞물린 고정 문구다.
 // - e2e widths.spec.ts가 region "외부에서 가져온 내용"과 "앞 500자만 보관" 문구를 찾는다. 테스트는 StepTimeline.test.tsx.
+// - 출발 계산 카드(travel)의 칸 이름(결론·이유·다른 경로·출발지·도착지·기준·경로·지도·확인 필요·후보)은 서버
+//   apps/api/app/tools/tmap.py plan_content·place_question과 맞물린다. 링크 이름 "지도에서 경로 열기"는 e2e travel.spec.ts가 찾는다.
+// 변경 이력:
+// - 2026-11-18 이동 비서 B 출발 계산 카드(TravelCard). 결론 한 줄 / 이유 한 줄 / 조회 시각 / 다음 행동(지도) 하나,
+//   경로 비교·기준은 펼쳐서 본다(생활 비서 명세 7절 카드 기본 표시).
 "use client";
 
 import { Globe } from "lucide-react";
@@ -29,11 +34,14 @@ export function ExternalContent({
   external,
   mail = false,
   shopping = false,
+  travel = false,
 }: {
   external: ExternalOutput;
   mail?: boolean;
   shopping?: boolean;
+  travel?: boolean;
 }) {
+  const card = (shopping || travel) && isRecord(external.content);
   const titleId = useId();
   return (
     <section
@@ -51,13 +59,15 @@ export function ExternalContent({
         <MailContent content={external.content} />
       ) : shopping && isRecord(external.content) ? (
         <ShoppingCards content={external.content} />
+      ) : travel && isRecord(external.content) ? (
+        <TravelCard content={external.content} />
       ) : (
         <>
           <StorageNote truncated={external.truncated} />
           <ContentValue value={external.content} depth={0} />
         </>
       )}
-      {(!shopping || !isRecord(external.content)) && <Sources sources={external.sources} />}
+      {!card && <Sources sources={external.sources} />}
       {external.fetchedAt && (
         <p className="text-muted-foreground">조회 시각: {formatFetchedAt(external.fetchedAt)}</p>
       )}
@@ -96,6 +106,74 @@ function ShoppingCards({ content }: { content: Record<string, unknown> }) {
         );
       })}
     </>
+  );
+}
+
+// 출발 계산 카드. 서버가 계산한 문장을 그대로 보인다(화면은 시각을 다시 계산하지 않는다).
+// '확인 필요'면 후보만 보이고 지도 링크는 만들지 않는다(어느 지점인지 모르는 채로 길을 안내하지 않게).
+// 지도 링크는 http(s)만 만들고 새 탭으로 연다(safeHttpUrl). 장소 이름은 카카오가 준 외부 글이라 텍스트로만 그린다.
+function TravelCard({ content }: { content: Record<string, unknown> }) {
+  const text = (key: string) =>
+    typeof content[key] === "string" ? (content[key] as string) : null;
+  const question = text("확인 필요");
+  if (question) {
+    const candidates = Array.isArray(content.후보) ? content.후보.filter(isRecord) : [];
+    return (
+      <>
+        <p className="font-medium">{question}</p>
+        <ul className="grid gap-1">
+          {withUniqueKeys(candidates, (c) => String(c.name)).map(({ key, item }) => (
+            <li key={key} className="wrap-anywhere">
+              {String(item.name ?? "")} · {String(item.address ?? "")}
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }
+  const href = safeHttpUrl(content.지도);
+  return (
+    <>
+      {text("결론") && <p className="text-sm font-medium">{text("결론")}</p>}
+      {text("이유") && <p>{text("이유")}</p>}
+      {href && (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+          지도에서 경로 열기
+        </a>
+      )}
+      <TravelDetails content={content} />
+    </>
+  );
+}
+
+// 펼쳐 보는 부분: 다른 경로와의 차이, 출발·도착 장소, 조회 기준, 경로별 소요·환승·도보·요금.
+function TravelDetails({ content }: { content: Record<string, unknown> }) {
+  const routes = Array.isArray(content.경로) ? content.경로.filter(isRecord) : [];
+  const lines = ["다른 경로", "출발지", "도착지", "기준"].filter(
+    (k) => typeof content[k] === "string",
+  );
+  if (!routes.length && !lines.length) return null;
+  return (
+    <details className="rounded border bg-background">
+      <summary className="flex min-h-11 cursor-pointer items-center px-2">경로 자세히 보기</summary>
+      <div className="grid gap-1 border-t p-2 wrap-anywhere">
+        {lines.map((key) => (
+          <p key={key}>
+            {key}: {String(content[key])}
+          </p>
+        ))}
+        <ul className="grid gap-1">
+          {withUniqueKeys(routes, (r) => String(r.경로)).map(({ key, item }) => (
+            <li key={key}>
+              {["경로", "소요", "환승", "도보", "요금"]
+                .filter((k) => typeof item[k] === "string")
+                .map((k) => `${k} ${item[k]}`)
+                .join(" · ")}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
   );
 }
 

@@ -103,16 +103,20 @@ async def request_json(
     json: Any = None,
     data: dict[str, str] | None = None,
     retry_read: bool = True,
+    read_only: bool = False,
 ) -> Any:
     """요청을 보내고 JSON을 돌려준다. 본문이 없는 성공 응답(예: 삭제 204)은 {}.
 
     실패: 응답을 받은 4xx·해석 실패는 read_response가 던진다(재시도 없음, outcome_unknown 아님 → failed).
     응답을 못 받았거나 5xx가 끝까지 이어지면 ExternalApiError(code timeout·network·server_error)이고,
     GET이 아니면 outcome_unknown=True(→ unknown, 도구 규격의 reconcile이 재조회).
+    read_only=True는 본문을 POST로 보내지만 상대에 아무것도 바꾸지 않는 조회다(2026-11-18 TMAP 경로 조회).
+    그런 요청은 응답이 없어도 '결과 불명'이 아니라 실패(failed)다. 한도를 아끼려고 재시도하지 않는다(1회).
     로그에는 서비스 이름·메서드·code만 남긴다(주소·쿼리·본문·헤더 없음).
     """
     # 쿠팡 상품 검색은 시간당 10회이므로 예약한 한 건만 호출한다.
     attempts = READ_ATTEMPTS if method == "GET" and retry_read else 1
+    kind = "GET" if read_only else method  # 문구는 조회용(다시 보내지 말라는 쓰기용 안내를 붙이지 않는다)
     message, code = "", "network"
     for _ in range(attempts):
         try:
@@ -120,10 +124,10 @@ async def request_json(
                 method, url, params=params, headers=headers, json=json, data=data, timeout=TIMEOUT_SECONDS
             )
         except httpx.TimeoutException:
-            message, code = transport_message(service, method, timed_out=True), "timeout"
+            message, code = transport_message(service, kind, timed_out=True), "timeout"
             continue
         except httpx.HTTPError:
-            message, code = transport_message(service, method, timed_out=False), "network"
+            message, code = transport_message(service, kind, timed_out=False), "network"
             continue
         if response.status_code >= 500:
             message = f"{service} 서버에 일시적인 문제가 있습니다(상태 {response.status_code})."
@@ -131,7 +135,7 @@ async def request_json(
             continue
         return read_response(service, response)
     logger.warning("외부 API 실패: service=%s method=%s reason=%s", service, method, code)
-    raise ExternalApiError(message, code=code, outcome_unknown=method != "GET")
+    raise ExternalApiError(message, code=code, outcome_unknown=method != "GET" and not read_only)
 
 
 def transport_message(service: str, method: str, *, timed_out: bool) -> str:

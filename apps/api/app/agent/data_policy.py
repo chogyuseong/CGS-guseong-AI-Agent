@@ -142,6 +142,17 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "get_weather": public_lookup("Open-Meteo·카카오 좌표", "날씨와 출처"),
     "search_places": public_lookup("카카오 로컬", "장소 목록과 출처(결과에 없는 영업시간·가격은 말하지 않음)"),
     "web_search": public_lookup("네이버 검색", "검색 결과와 출처 링크"),
+    # 2026-11-18 이동 비서 B. 장소 이름은 카카오로, 좌표·시각만 TMAP으로 간다(일정 제목·메모는 인자에 없다).
+    "plan_departure": ToolPolicy(
+        "카카오 로컬·TMAP 대중교통",
+        PUBLIC_ONLY,
+        DataClass.PUBLIC,
+        HTTP_TIMEOUT,
+        "카카오 조회는 1회 재시도, TMAP은 재시도 없음(한도 미확인)",
+        "조회라 불필요",
+        STEPS,
+        "결론·이유·경로 비교·지도 링크와 조회 시각",
+    ),
     "compare_products": ToolPolicy(
         "쿠팡 파트너스",
         PUBLIC_ONLY,

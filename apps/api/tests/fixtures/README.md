@@ -43,3 +43,8 @@
 7단계 Gmail fixture는 모두 **실제 응답이 아니다**(실제 Gmail 계정을 연결하지 않았다). 본문 `data`는 base64url로 인코딩한 한국어
 글이고, 주소는 모두 `example.com`이다. 긴 본문(7,000자)은 테스트 안에서 `gmail_message_injection.json`의 본문만 바꿔 만든다.
 만든 스크립트는 저장소에 넣지 않았다(일회성).
+
+| `tmap_routes_two.json` | (2026-11-18 이동 비서 B) TMAP 대중교통 경로 문서(transit.tmapmobility.com/docs/routes)의 응답 구조로 만든 것. **실제 응답이 아니다**(키 없음). 경로 2개: 61분·환승 1회(버스), 55분(3270초)·환승 2회(2호선·9호선) |
+
+TMAP fixture는 문서의 칸 이름(metaData.plan.itineraries, totalTime·transferCount·totalWalkTime·fare.regular.totalFare·legs)만 따랐다.
+문서에 오류 응답 본문 모양이 없어서 `test_no_route_is_not_an_api_failure`의 `{"result": {"status": 11}}`은 추정이다. 실제 키로 확인하면 고친다.

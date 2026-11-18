@@ -106,6 +106,7 @@ def eval_settings(base: Settings, database_url: str) -> Settings:
             "naver_client_secret": SecretStr(FAKE),
             "coupang_access_key": SecretStr(FAKE),
             "coupang_secret_key": SecretStr(FAKE),
+            "tmap_app_key": SecretStr(FAKE),
             "google_client_id": FAKE,
             "google_client_secret": SecretStr(FAKE),
             "google_redirect_uri": "http://127.0.0.1/eval/callback",

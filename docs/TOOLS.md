@@ -1,5 +1,28 @@
 # 외부 도구 (4단계 + 7단계 Gmail)
 
+## TMAP 대중교통 · 출발 시각 계산 (2026-11-18, 이동 비서 B 첫 단계)
+
+채팅에서 “내일 교육이 5시 40분에 끝나고 7시 면접이야. 15분 전에 도착하려면 괜찮아?”처럼 요청하면 `plan_departure`(READ, 채팅 전용)가
+권장 출발 시각과 앞 일정 뒤 여유(부족하면 몇 분 부족한지와 바꿀 것)를 **코드로** 계산한다(`app/tools/departure.py`).
+- 흐름: 장소 이름 → 카카오 키워드 검색(size 5, 좌표) → 이름이 든 결과가 1km 넘게 떨어져 있으면 후보를 보여 주고 먼저 묻는다
+  → TMAP `POST https://apis.openapi.sk.com/transit/routes`(헤더 `appKey`, 본문 startX·startY·endX·endY·count 5·lang 0·format json·
+  `searchDttm`) → 가장 빠른 경로로 출발 시각, 환승이 더 적은 경로가 있으면 "6분 늦지만 환승이 1번 적습니다".
+- `searchDttm`(yyyymmddhhmi)은 문서상 "사용자가 설정한 시각에 이동수단의 운행여부를 안내"하는 값이다. 앱은 "도착 목표 - 60분" 무렵
+  운행 기준으로 **한 번** 조회하고, 결과에 "…운행 기준 예상 소요(실제 교통 상황에 따라 달라질 수 있음)"라고 밝힌다.
+  지금 조회한 값을 내일의 확정 소요로 표시하지 않는다.
+- 응답 칸(문서): `metaData.plan.itineraries[]`의 `totalTime`(초)·`transferCount`·`totalWalkTime`(초)·`fare.regular.totalFare`(원)·
+  `legs[]`(mode·route). 분은 올림한다(내림하면 늦게 출발하라고 안내하게 된다).
+- 오류 코드(문서): 11 가까움·12/13 정류장 매핑 실패·14 기타(HTTP 200), 21~24(400), 31·32(500). 경로 없음은 조회 실패와 다른 결과로 보인다
+  ("대중교통 경로를 찾지 못했습니다"). 오류 본문의 실제 모양은 문서에 없어 키로 확인해야 한다.
+- 조회용 POST라 시간 초과·연결 실패는 '결과 불명'이 아니라 실패다(`http.request_json(read_only=True)`). 재시도하지 않는다(1회).
+- 지도: 카카오맵 "URL로 바로 사용하기" `https://map.kakao.com/link/by/traffic/이름,위도,경도/이름,위도,경도`(traffic = 대중교통,
+  경유지 불가). 좌표는 카카오가 준 문자열 그대로 쓴다.
+- 보내는 것: 카카오에는 장소 이름, TMAP에는 좌표와 시각만. 일정 제목·메모·참석자는 인자에 없고, 공개 데이터만 받는 외부 도구라
+  메일을 읽었거나 일정 제목이 든 인자면 실행 전에 막는다.
+- 키: `.env`의 `TMAP_APP_KEY`(SK Open API 가입 → TMAP 대중교통 상품 구매 → 앱 키). **무료 제공량·요금은 공식 페이지에서 확인하지 못했다.**
+  실제 키로 조회한 적은 아직 없다. [경로 문서](https://transit.tmapmobility.com/docs/routes), [이용 절차](https://transit.tmapmobility.com/guide/procedure)
+- 범위 밖(다음 단계): 영화 회차·귀가 계산(C), 휴대폰으로 경로 넘기기, 자동차·도보 경로.
+
 ## 쿠팡 상품 조건 비교 (2026-11-18)
 
 채팅에서 “KB100 한글 갈축 신품을 배송비 포함 12만 원 이하로 찾아줘”처럼 요청한다. `compare_products`는 READ이며 자동 예약·감시 목록에는 없다.
