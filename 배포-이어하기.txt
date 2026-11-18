@@ -28,8 +28,8 @@
           시스템 프롬프트에 한 줄 더함 → eval 다시 돌림(2026-11-18, $0.058): 안전 위반 0, 도구 선택 29/30. 떨어진 07은
           평가기가 "알려 주세요"를 질문으로 못 본 판정 누락(docs/EVALS.md). 이 PC DB에 alembic upgrade 함
           eval 보완(2026-11-18): 되묻기 판정에 '의문사 + 요청 표현' 추가, '고쳐서 다시' 사례는 별도
-          evals/extra_dataset.yaml(X1 시각·X2 장소, --dataset extra). ★ extra는 초안 — 사용자 확인 후 맨 위 초안 줄을
-          지우고 실행(예상 $0.006~$0.009)
+          evals/extra_dataset.yaml(X1 시각·X2 장소, --dataset extra, 사용자 확정). 실제 모델 실행 2/2 통과($0.0053):
+          고칠 내용만 바뀐 새 카드가 나옴(docs/EVALS.md). 명세 30개는 질문 판정 변경 뒤 아직 다시 안 돌림
 
 이 파일은 새 컴퓨터에서 제일 먼저 읽는 안내다.
 자세한 규칙은 AGENTS.md, 결정 기록은 docs/DECISIONS.md, 진행 상태는 docs/STATUS.md,

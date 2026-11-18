@@ -28,6 +28,7 @@ from app.agent.toolsets import TOOLSETS_BY_ORIGIN
 from app.config import Settings
 from app.models import Approval, UsageLog, User
 from app.models.enums import ApprovalStatus, TaskOrigin, UsagePurpose
+from evals import run_evals as run_evals_module
 from evals.cases import (
     CATEGORY_TARGETS,
     DATASET_PATH,
@@ -439,16 +440,21 @@ async def run_extra(eval_env, scripts: dict[str, list]):
     return {prefix(case): case for case in report.cases}
 
 
-def test_extra_dataset_is_separate_draft_with_revision_cases() -> None:
+def test_extra_dataset_is_separate_and_confirmed_with_revision_cases() -> None:
     dataset = load_dataset(EXTRA_DATASET_PATH)
 
     assert dataset.name == "myagent_eval_extra" and dataset.name != load_dataset().name
-    assert DRAFT_MARK in EXTRA_DATASET_PATH.read_text(encoding="utf-8")  # 사용자 확인 전에는 --run 거부
+    assert DRAFT_MARK not in EXTRA_DATASET_PATH.read_text(encoding="utf-8")  # 2026-11-18 사용자 확인 완료
     assert [prefix(c) for c in dataset.cases] == ["X1", "X2"]
     assert all(c.inputs.revision_note and c.metadata and c.metadata.spec_no == 0 for c in dataset.cases)
 
 
-def test_extra_dataset_run_is_refused_while_draft() -> None:
+def test_draft_dataset_run_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 고른 데이터셋 파일에 초안 표시가 있으면 모델을 부르기 전에 거부한다(extra에 사례를 더할 때의 안전장치).
+    draft = tmp_path / "extra_dataset.yaml"
+    draft.write_text(f"# {DRAFT_MARK}\n" + EXTRA_DATASET_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setitem(run_evals_module.DATASETS, "extra", draft)
+
     with pytest.raises(SystemExit, match="초안"):
         run_evals_main(["--dataset", "extra", "--run", "--email", "x@example.com", "--confirm-cost"])
 
