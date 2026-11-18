@@ -260,7 +260,8 @@ async def tool_calls(session: AsyncSession, task_id: int) -> list[ToolCall]:
         .join(Step, Approval.step_id == Step.id)
         .where(Step.task_id == task_id)
     )
-    notes = dict(rows.tuples().all())
+    # SQLAlchemy 2.1에서 Result.tuples()가 폐기 예정이라 Row를 바로 푼다(2026-11-19, 경고 21건 정리).
+    notes = {step_id: note for step_id, note in rows.all()}
     return [
         ToolCall(
             name=step.tool_name,

@@ -15,7 +15,9 @@
   - 프롬프트 306f7b3b로 기본 30건과 추가 2건을 각 1회 실행했다. 기록 비용 $0.085341, 안전 위반·실행 오류 0건.
     기본 도구 선택 30/30, 추가 2/2. 13번은 서울 조회 시각이 도구 기록과 일치했고 24번은 예약·감시를 모두 조회했다.
     핵심어 5/6 중 12번은 주차 여부를 확인하지 못했다고 답했으나 평가기에 해당 표현이 없었다. 상세 결과는 docs/EVALS.md.
-  - API 전체 745건 통과(2026-11-19 첫 PC, 회귀 테스트 2건 포함 전체 재실행, 6분 31초, 경고 21건).
+  - API 전체 746건 통과·경고 0건(2026-11-19 첫 PC, 6분 31초). 이날 Anthropic 클라이언트 재사용 테스트 1건 추가,
+    eval 실행기의 Result.tuples() 폐기 예정 경고 21건 정리. 웹 Biome 0건·tsc·Vitest 387건 재확인.
+    주의: pytest 두 개를 동시에 돌리면 같은 테스트 DB를 초기화해 서로 깨진다(AdminShutdown, dbos 열 없음). 하나씩 돌린다.
     웹 단위 387건, Chrome 기존 E2E 53건과 문서 촬영 1건 통과. Ruff·pyright·Biome·tsc와 Next 프로덕션 빌드 통과.
   - 첫 PC의 개발 DB는 c71ca8480d3e(head), alembic check 차이 없음. 개발 API는 Google 콜백 보호를 위해 접속 로그를 껐다.
     첫 PC에는 VAPID_SUBJECT가 설정돼 있다. Logfire 토큰과 쿠팡 키는 없고, Open-Meteo는 12초 안에 응답하지 않았다.
@@ -178,7 +180,7 @@
                      ★ 남음(사용자): 실제 배포·HTTPS 주소, 배포 환경 백업·복원 연습, 실기기(다크 모드·아이콘·푸시·마이크·키보드),
                      7일 실사용 기록(docs/OPERATIONS.md 양식)
 
-검사(2026-11-18 밤 최신, 첫 PC): API pytest 745개 전체 통과(2026-11-19 재실행), ruff·pyright 0건.
+검사(2026-11-18 밤 최신, 첫 PC): API pytest 746개 전체 통과·경고 0건(2026-11-19), ruff·pyright 0건.
 웹: Biome 0건, tsc, Vitest 387개, Playwright 53개, Next 프로덕션 빌드 성공.
 (예전: eval 개선 직후 두 번째 PC pytest 624개·Vitest 359개·Playwright 48개)
 웹 푸시: PC Chrome 수신 확인(2026-11-17). 폰은 교육장 네트워크가 터널을 막아 나중에(다른 네트워크·배포 때).
@@ -350,7 +352,7 @@ PowerShell 5.1은 && 가 안 된다. 한 줄씩 실행한다. 모두 저장소 �
 
 잘 옮겨졌는지 확인:
 
-  pnpm api:test                    745개 통과(6~7분 걸린다. 테스트 DB myagent_test는 자동으로 만들어진다)
+  pnpm api:test                    746개 통과(6~7분 걸린다. 다른 pytest와 동시에 돌리지 않는다. 테스트 DB myagent_test는 자동으로 만들어진다)
   pnpm api:check                   ruff, pyright 문제 0건
   pnpm --dir apps/web lint
   pnpm --dir apps/web typecheck
