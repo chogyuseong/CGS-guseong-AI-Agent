@@ -4,12 +4,18 @@
 //   (DECISIONS 2026-11-17 화면 절).
 // 고칠 때 주의: STATUS_LABELS는 서버 TaskStatus 12가지(BUILD_SPEC 9.2)와 글자로 맞물린다. Record라 상태가 늘면
 //   tsc가 알려 준다. docs/STATE_MACHINES.md task 표도 같이 본다. e2e widths.spec.ts가 이 탭에서 단계 버튼을 찾는다.
+// - '확인 필요 N건' 버튼 문구는 components/TaskList.test.tsx가 이름으로 찾는다. 범위 설명(ATTENTION_HINT)은
+//   서버 routers/tasks.py attention_filter(승인 대기 + 7일 이내 결과 확인 필요)와 맞춘다.
+// 변경 이력:
+// - 2026-11-18 '확인 필요' 모아보기 추가(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18). 전체 목록은 최신 50개라
+//   다른 작업이 쌓이면 승인 대기를 놓치기 쉬워서, 서버가 따로 골라 준 목록으로 바꿔 볼 수 있게 했다.
 "use client";
 
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { type TaskStatus, type TaskSummary, useTasks } from "@/lib/chat";
+import { Button } from "@/components/ui/button";
+import { type TaskStatus, type TaskSummary, useAttentionTasks, useTasks } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 import { TaskSteps } from "./TaskSteps";
 
@@ -39,16 +45,78 @@ function formatTime(iso: string): string {
   });
 }
 
-// 작업 기록 탭: 최신순 task 목록. 항목을 누르면 그 task의 단계를 펼친다.
+const ATTENTION_HINT = "승인을 기다리는 작업과 결과를 직접 확인해야 하는 작업(최근 7일)입니다.";
+
+// 작업 기록 탭: 위에 보기 버튼(전체 / 확인 필요 N건), 아래 최신순 task 목록. 항목을 누르면 그 task의 단계를 펼친다.
+// 확인 필요 건수는 전체 보기에서도 보여야 하므로 두 목록을 함께 가져온다(같은 "tasks" 키라 승인 뒤 함께 갱신).
 export function TaskList() {
-  const { data: tasks, isPending, isError } = useTasks();
-  if (isPending) return <p className="text-sm text-muted-foreground">불러오는 중…</p>;
-  if (isError) return <p className="text-sm text-destructive">작업 기록을 불러오지 못했습니다.</p>;
-  if (tasks.length === 0)
-    return <p className="text-sm text-muted-foreground">아직 작업이 없습니다.</p>;
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const all = useTasks();
+  const attention = useAttentionTasks();
+  const shown = attentionOnly ? attention : all;
+  return (
+    <div className="flex flex-col gap-3">
+      <ViewPicker
+        attentionOnly={attentionOnly}
+        attentionCount={attention.data?.length}
+        onChange={setAttentionOnly}
+      />
+      {attentionOnly && <p className="text-sm text-muted-foreground">{ATTENTION_HINT}</p>}
+      <TaskRows
+        tasks={shown.data}
+        pending={shown.isPending}
+        error={shown.isError}
+        emptyText={attentionOnly ? "지금 확인할 작업이 없습니다." : "아직 작업이 없습니다."}
+      />
+    </div>
+  );
+}
+
+// 보기 버튼 두 개. 선택 상태는 aria-pressed로 알린다(UsageReport 기간 버튼과 같은 모양).
+// 건수를 아직 모르면 "확인 필요"만 쓴다(0건으로 잘못 보이지 않게).
+function ViewPicker(props: {
+  attentionOnly: boolean;
+  attentionCount: number | undefined;
+  onChange: (attentionOnly: boolean) => void;
+}) {
+  const label =
+    props.attentionCount === undefined ? "확인 필요" : `확인 필요 ${props.attentionCount}건`;
+  const options = [
+    { value: false, text: "전체" },
+    { value: true, text: label },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {options.map((option) => (
+        <Button
+          key={String(option.value)}
+          type="button"
+          variant={props.attentionOnly === option.value ? "default" : "outline"}
+          aria-pressed={props.attentionOnly === option.value}
+          onClick={() => props.onChange(option.value)}
+          className="h-11 min-w-0 text-sm"
+        >
+          {option.text}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function TaskRows(props: {
+  tasks: readonly TaskSummary[] | undefined;
+  pending: boolean;
+  error: boolean;
+  emptyText: string;
+}) {
+  if (props.pending) return <p className="text-sm text-muted-foreground">불러오는 중…</p>;
+  if (props.error || props.tasks === undefined)
+    return <p className="text-sm text-destructive">작업 기록을 불러오지 못했습니다.</p>;
+  if (props.tasks.length === 0)
+    return <p className="text-sm text-muted-foreground">{props.emptyText}</p>;
   return (
     <ul className="flex flex-col gap-2">
-      {tasks.map((task) => (
+      {props.tasks.map((task) => (
         <TaskItem key={task.id} task={task} />
       ))}
     </ul>

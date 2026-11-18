@@ -150,7 +150,7 @@ export interface paths {
         };
         /**
          * List Tasks
-         * @description 최근 작업 목록(최신순).
+         * @description 최근 작업 목록(최신순). attention=true면 승인 대기와 7일 이내 결과 확인 필요만.
          */
         get: operations["list_tasks_api_tasks_get"];
         put?: never;
@@ -1574,6 +1574,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                attention?: boolean;
             };
             header?: never;
             path?: never;

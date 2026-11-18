@@ -4,6 +4,7 @@
 작업 취소(POST /tasks/{id}/cancel)는 1단계 보강에서 만들었다(규칙은 app/agent/cancel.py).
 
     GET  /api/tasks?limit=30          → 200 [TaskSummary] (최신순, limit 1~100)
+    GET  /api/tasks?attention=true    → 200 [TaskSummary] 내 확인이 필요한 작업만(아래 attention_filter)
     GET  /api/tasks/{id}              → 200 TaskDetail(steps + 모든 상태의 approvals) / 404
     POST /api/tasks/{id}/cancel       → 200 CancelOut / 404 / 409(이미 끝남)
 
@@ -14,39 +15,70 @@
 고칠 때 주의:
 - 경로·응답 모양을 바꾸면 gen:api 후 apps/web/lib/chat.ts(작업 조회·목록·취소)를 고친다.
 - task 상태 값·취소 전이를 바꾸면 docs/STATE_MACHINES.md와 tests/test_state_machines.py를 같이 고친다.
-- 관련 테스트: tests/test_cancel.py, test_cancel_race.py, test_chat_api.py, test_approvals.py.
+- attention 범위(attention_filter·NEEDS_REVIEW_DAYS)를 바꾸면 tests/test_task_attention.py와
+  apps/web/components/TaskList.tsx의 안내 문구를 같이 고친다.
+- 관련 테스트: tests/test_cancel.py, test_cancel_race.py, test_chat_api.py, test_approvals.py, test_task_attention.py.
+
+변경 이력:
+- 2026-11-18 attention=true 추가(요구사항 밖, 사용자 결정. DECISIONS 2026-11-18 "확인 필요 모아보기").
+  최신 50개 목록에서 승인 대기가 다른 작업에 밀려 안 보이는 문제를 막으려고 서버에서 거른다.
 """
 
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 
+from app import clock
 from app.agent.cancel import CancelNotAllowedError, request_cancel
 from app.db import DbSession
 from app.models import Message, Step, Task
+from app.models.enums import TaskStatus
 from app.routers.approvals import approvals_of_task
 from app.schemas.tasks import CancelOut, StepOut, TaskDetail, TaskSummary
 from app.security import CurrentUser
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+# needs_review는 끝난 상태라 사용자가 확인해도 상태가 바뀌지 않는다. 그래서 기간으로 목록에서 내린다.
+# 7일은 끝난 작업의 단계 입력·출력을 지우는 기본 보관 기간(EXECUTION_RETENTION_DAYS, docs/DATA_POLICY.md)과 같다.
+# 그 뒤에는 무엇을 했는지 볼 기록이 줄어 확인할 거리가 없다.
+NEEDS_REVIEW_DAYS = 7
+
+
+def attention_filter() -> ColumnElement[bool]:
+    """사용자 확인이 필요한 task 조건.
+
+    승인 대기는 기간 없이 모두(승인은 만료 검사가 따로 정리한다), 결과 확인 필요는 마지막 변경이 NEEDS_REVIEW_DAYS 이내.
+    waiting_input은 지금 코드가 쓰지 않는 상태라 넣지 않았다(docs/STATE_MACHINES.md).
+    """
+    review_since = clock.now_utc() - timedelta(days=NEEDS_REVIEW_DAYS)
+    return or_(
+        Task.status == TaskStatus.WAITING_APPROVAL,
+        and_(Task.status == TaskStatus.NEEDS_REVIEW, Task.updated_at >= review_since),
+    )
+
 
 # 작업 기록 탭. step 개수는 상관 서브쿼리로 한 번에 센다(작업마다 따로 조회하지 않게). 읽기만 한다.
 # 아래 docstring은 OpenAPI 설명이다.
 @router.get("")
 async def list_tasks(
-    user: CurrentUser, session: DbSession, limit: Annotated[int, Query(ge=1, le=100)] = 30
+    user: CurrentUser,
+    session: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    attention: bool = False,
 ) -> list[TaskSummary]:
-    """최근 작업 목록(최신순)."""
+    """최근 작업 목록(최신순). attention=true면 승인 대기와 7일 이내 결과 확인 필요만."""
     step_count = select(func.count(Step.id)).where(Step.task_id == Task.id).correlate(Task).scalar_subquery()
-    rows = await session.execute(
+    query = (
         select(Task, Message.content, step_count)
         .outerjoin(Message, Message.id == Task.trigger_message_id)
         .where(Task.user_id == user.id)
-        .order_by(Task.created_at.desc(), Task.id.desc())
-        .limit(limit)
     )
+    if attention:
+        query = query.where(attention_filter())
+    rows = await session.execute(query.order_by(Task.created_at.desc(), Task.id.desc()).limit(limit))
     return [summary_of(task, request_text, count) for task, request_text, count in rows]
 
 

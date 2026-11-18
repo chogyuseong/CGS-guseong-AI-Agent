@@ -671,3 +671,9 @@ API 쪽만(화면은 다른 작업자). 사용자가 자는 동안 진행해 아
 
   백오프 기준은 서버 시각(created_at)이 아니라 화면이 지금 단계를 처음 본 시각이다(기기 시계가 어긋나도, 승인 뒤 재개처럼 단계가 바뀌면 다시 1초부터). 예전 값은 실행 중 1초 고정, 승인 대기 3초였다. 숨은 탭 멈춤·복귀 즉시 갱신은 TanStack Query 5.107의 기본 동작(`refetchIntervalInBackground: false`, focusManager가 visibilitychange를 들음)이고, 폴링 쿼리에는 `POLLING_QUERY_OPTIONS`로 명시했다(`refetchOnWindowFocus·refetchOnReconnect: "always"`). 재접속 복구는 새로 고침·다른 기기에서 같은 조회가 서버의 지금 상태를 가져오는 것으로 한다.
 - 2026-11-18 `scripts/biome-check.mjs`가 git이 무시하는 생성 파일 `next-env.d.ts`를 검사해 `pnpm lint`가 실패했다. 스크립트는 .gitignore를 읽지 않으므로 `ALWAYS_SKIPPED`에 넣었다(Biome CLI는 vcs.useIgnoreFile로 이미 건너뜀).
+
+### 요구사항 밖 기능 (사용자 결정)
+
+- 2026-11-18 BUILD_SPEC에 없는 기능 3개를 넣기로 사용자가 정했다: 확인 필요 작업 모아보기 → 내 할 일 체크리스트 → 승인 카드에서 수정 요청. 작은 것부터 한 단계씩 하고 단계마다 멈춰 보고한다(추천 목록 9개 중 나머지 6개는 제안으로만 둔다).
+- 2026-11-18 확인 필요 모아보기: 범위는 승인 대기(waiting_approval) 전부 + 결과 확인 필요(needs_review) 중 마지막 변경 7일 이내. needs_review는 끝난 상태라 "확인함"으로 바꿀 방법이 없어 기간으로 내린다(7일 = 단계 기록 보관 기본값. "확인함" 표시는 DB 열이 필요해 넣지 않음). waiting_input은 지금 쓰지 않는 상태라 뺐다. 전체 목록(최신 50개)에서 화면이 거르지 않고 서버에서 거른다(`GET /api/tasks?attention=true`) — 다른 작업이 쌓이면 승인 대기가 50개 밖으로 밀리기 때문.
+- 2026-11-18 승인 카드 수정 요청(3번째)의 방식은 그 단계에서 정한다. 지금 보는 안: 서버가 고칠 수 있는 칸만 바꿔 기존 계획을 무효로 하고 새 계획·감시 검사·새 승인 카드를 만든다(절대 원칙 3·4 유지).

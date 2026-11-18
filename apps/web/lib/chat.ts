@@ -6,7 +6,7 @@
 // 맞물린 API(apps/api/app/routers/conversations.py·tasks.py):
 //   GET/POST /api/conversations, DELETE /api/conversations/{id}(409 진행 중 작업),
 //   GET/POST /api/conversations/{id}/messages(POST는 202 {task_id}, 409·429·422),
-//   GET /api/tasks?limit=50, GET /api/tasks/{id}, POST /api/tasks/{id}/cancel.
+//   GET /api/tasks?limit=50, GET /api/tasks?attention=true&limit=100, GET /api/tasks/{id}, POST /api/tasks/{id}/cancel.
 // 근거: DECISIONS 2026-11-17 화면 절(진행 상황은 서버 task에서만 읽는다, 폴링 간격, "이어서 처리하는 중"),
 // 1단계 보강(client_request_id 중복 방지), 5단계 보강(대화 삭제).
 //
@@ -43,6 +43,8 @@ export const chatKeys = {
   conversations: ["conversations"] as const,
   messages: (conversationId: number) => ["conversations", conversationId, "messages"] as const,
   tasks: ["tasks"] as const,
+  // "tasks"로 시작해 chatKeys.tasks 무효화 때 같이 새로 가져온다(승인·취소 뒤 건수가 바로 바뀌도록).
+  attentionTasks: ["tasks", "attention"] as const,
   task: (taskId: number) => ["tasks", taskId] as const,
 };
 
@@ -301,6 +303,24 @@ export function useTasks({ enabled = true }: { enabled?: boolean } = {}) {
     queryFn: async () => {
       const { data, response } = await api.GET("/api/tasks", { params: { query: { limit: 50 } } });
       return requireData(data, response, "작업 기록");
+    },
+    ...POLLING_QUERY_OPTIONS,
+    refetchInterval: (query) => taskListPollInterval(query.state.data?.map((task) => task.status)),
+  });
+}
+
+// 작업 기록 탭의 '확인 필요' 모아보기(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18).
+// 서버가 승인 대기 + 7일 이내 결과 확인 필요만 골라 준다(GET /api/tasks?attention=true, 범위는 routers/tasks.py
+// attention_filter). 전체 목록(50개)에서 거르지 않는 이유: 다른 작업이 쌓이면 오래된 승인 대기가 50개 밖으로 밀린다.
+// 폴링 간격은 전체 목록과 같은 규칙(lib/polling.ts)이다.
+export function useAttentionTasks() {
+  return useQuery({
+    queryKey: chatKeys.attentionTasks,
+    queryFn: async () => {
+      const { data, response } = await api.GET("/api/tasks", {
+        params: { query: { attention: true, limit: 100 } },
+      });
+      return requireData(data, response, "확인 필요 작업");
     },
     ...POLLING_QUERY_OPTIONS,
     refetchInterval: (query) => taskListPollInterval(query.state.data?.map((task) => task.status)),
