@@ -6,8 +6,9 @@
      남은 후보: 답변 핵심어 4/6, --repeat 3 확인(약 $0.12~0.20), 서버 쪽 삭제 승인 1건 제한(제안)
   2) (완료 2026-11-18) 웹 검색 결과를 읽은 대화에서는 예약·감시 생성을 막음. 날씨·장소 조회 뒤 감시는 허용(사용자 결정)
   3) (완료 2026-11-18) 9단계 보강 코드 부분. 남은 9단계: 실제 배포, 배포 환경 복원 연습, 실기기 확인, 7일 실사용 기록
-  4) 실제 배포(Railway, docs/DEPLOY.md). 배포 환경변수에 PAYLOAD_ENCRYPTION_KEY(두 번째 PC .env와 같은 값)와
-     TELEMETRY_ENABLED(관찰을 켤 때만 true)를 넣는다
+  4) (미룸, 2026-11-18 사용자 결정) 실제 배포. 무료로 24시간 돌릴 방법이 없어 당분간 이 PC에서만 pnpm dev로 쓴다.
+     폰 확인도 나중에. 할 때는 Railway Hobby(docs/DEPLOY.md, 환경변수에 PAYLOAD_ENCRYPTION_KEY는 두 번째 PC .env와 같은 값,
+     TELEMETRY_ENABLED는 관찰을 켤 때만 true) 또는 PC + 무료 터널(docs/PUSH-CHECK.md)
   5) (완료 2026-11-18, 사용자 지시) 나중에 고치기 쉽게 주석 보강. 규칙은 AGENTS.md "주석 규칙".
      (가) 핵심 9개 + (나) API 전체(app·evals 90개 파일) 완료: 주석·docstring만, 코드 AST·도구 설명·OpenAPI는 그대로(직접 비교).
      (다) 웹 화면 73개 파일 완료(주석 없이 컴파일한 결과가 이전과 같음, Biome·tsc·Vitest 353개 통과). 이 PC에서 pnpm install 함.
