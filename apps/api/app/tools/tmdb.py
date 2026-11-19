@@ -121,7 +121,11 @@ async def match_movies(deps: AgentDeps, movies: list[KobisMovie]) -> tuple[dict[
         by_title.setdefault(normalize_title(str(item.get("title") or "")), []).append(item)
     found: dict[str, TmdbInfo] = {}
     complete = True
+    # KOBIS 목록에 정규화 제목이 같은 영화가 둘 이상이면(재개봉작과 신작) 어느 쪽 줄거리인지 확실하지 않아 건너뛴다.
+    counts: dict[str, int] = {}
     for movie in movies:
+        counts[normalize_title(movie.title)] = counts.get(normalize_title(movie.title), 0) + 1
+    for movie in (m for m in movies if counts[normalize_title(m.title)] == 1):
         same = by_title.get(normalize_title(movie.title), [])
         try:
             info = to_info(same[0]) if len(same) == 1 else await search_one(deps, movie)

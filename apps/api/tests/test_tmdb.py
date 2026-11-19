@@ -91,3 +91,12 @@ async def test_search_error_keeps_other_matches(tool_deps, fake_http):
     found, complete = await tmdb.match_movies(tool_deps, [HUNGER, SNOW])
     assert set(found) == {"20267121"}
     assert complete is False
+
+
+async def test_duplicate_kobis_titles_skip_matching(tool_deps, fake_http):
+    """KOBIS 목록에 정규화 제목이 같은 영화가 둘이면(재개봉작과 신작) 어느 쪽 줄거리인지 몰라 둘 다 붙이지 않는다."""
+    route_tmdb(fake_http)
+    rerun = movie("19990001", "헝거게임: 50번째 추첨의 날", "1999-01-01")
+    found, complete = await tmdb.match_movies(tool_deps, [HUNGER, rerun])
+    assert found == {}
+    assert complete is True

@@ -26,6 +26,7 @@ KOBIS + TMDB). 첫 단계(회차 고르기, showtimes.compare_showtimes)는 그�
 - 2026-11-19 처음 작성.
 """
 
+import json
 from datetime import date
 from typing import Annotated, Any
 
@@ -34,7 +35,7 @@ from pydantic_ai import RunContext
 from sqlalchemy import select
 
 from app.agent.deps import AgentDeps
-from app.agent.results import ToolResult
+from app.agent.results import MAX_EXTERNAL_CHARS, ToolResult
 from app.models import Step, Task
 from app.models.enums import StepStatus
 from app.tools import kobis, tmdb
@@ -103,6 +104,17 @@ async def tmdb_matches(deps: AgentDeps, movies: list[KobisMovie]) -> tuple[dict[
         return {}, False
 
 
+def fit_external(content: dict[str, Any]) -> dict[str, Any]:
+    """6,000자(results.MAX_EXTERNAL_CHARS)를 넘으면 줄거리를 뺀다. 넘은 채로 두면 ToolResult.external이 잘린 문자열로
+    바꿔 recommend_movies가 목록을 다시 읽지 못하고 "먼저 조회하라"는 엉뚱한 안내가 나간다(2026-11-19 최종 검토 Minor).
+    사실 칸·평점은 짧아서 남긴다. 줄거리는 덤이다.
+    """
+    if len(json.dumps(content, ensure_ascii=False)) <= MAX_EXTERNAL_CHARS:
+        return content
+    movies = [{k: v for k, v in m.items() if k != "줄거리"} for m in content["영화"]]
+    return {**content, "영화": movies}
+
+
 def remember(requested: date, entry: tuple[dict[str, Any], list[str]]) -> None:
     """완전한 결과만 하루 캐시에 둔다. 최근 CACHE_DAYS개만 남긴다."""
     for old in sorted(CACHE)[: max(0, len(CACHE) - CACHE_DAYS + 1)]:
@@ -128,7 +140,7 @@ async def lookup_now_showing(deps: AgentDeps) -> ToolResult:
         "영화": [movie_row(m, found.get(m.code)) for m in movies],
         "출처": {"KOBIS": True, "TMDB": used_tmdb},
     }
-    entry = (content, [KOBIS_SOURCE, *([TMDB_SOURCE] if used_tmdb else [])])
+    entry = (fit_external(content), [KOBIS_SOURCE, *([TMDB_SOURCE] if used_tmdb else [])])
     # 캐시하지 않는 경우(2026-11-19 최종 검토): 새벽에 전날 목록으로 대신한 결과(곧 어제 집계가 나온다),
     # 상세 조회 실패·TMDB 일시 오류로 생긴 반쪽 결과. 하루 내내 옛 목록·빈 칸이 보이지 않게 다음 조회 때 다시 묻는다.
     if day == requested and tmdb_complete and all(m.detail_ok for m in movies):

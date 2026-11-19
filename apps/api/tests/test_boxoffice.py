@@ -205,3 +205,30 @@ async def test_no_tmdb_token_result_is_cached(tool_deps, fake_http):
     count = len(fake_http.requests)
     await lookup(tool_deps)
     assert len(fake_http.requests) == count  # 토큰이 없는 것은 일시 오류가 아니다
+
+
+async def test_overflow_drops_overviews_to_stay_structured(tool_deps, fake_http):
+    """줄거리를 넣으면 6,000자를 넘는 목록은 줄거리를 빼서 구조로 남긴다(recommend_movies가 다시 읽을 수 있게)."""
+    box = fixture_json("kobis_daily_boxoffice.json")
+    row = box["boxOfficeResult"]["dailyBoxOfficeList"][0]
+    titles = [f"{'아주 아주 긴 영화 제목입니다 ' * 12}{i}" for i in range(10)]
+    for item in box["boxOfficeResult"]["dailyBoxOfficeList"]:
+        item["audiAcc"] = "1"
+    info = fixture_json("kobis_movie_info.json")
+    info["movieInfoResult"]["movieInfo"]["genres"] = [{"genreNm": f"장르{n}"} for n in range(12)]
+    box["boxOfficeResult"]["dailyBoxOfficeList"] = [
+        {**row, "movieCd": f"2026{i:04d}", "movieNm": title} for i, title in enumerate(titles)
+    ]
+    playing = fixture_json("tmdb_now_playing_kr.json")
+    playing["results"] = [
+        {**playing["results"][0], "id": i, "title": title, "overview": "줄거리" * 200} for i, title in enumerate(titles)
+    ]
+    route_all(fake_http, tmdb_reply=json_response(200, playing))
+    fake_http.route("GET", kobis.BOXOFFICE_URL, json_response(200, box))
+    fake_http.route("GET", kobis.MOVIE_INFO_URL, json_response(200, info))
+    result = await lookup(tool_deps)
+    assert wrapped(result)["truncated"] is False
+    movies = content_of(result)["영화"]
+    assert len(movies) == 10
+    assert all("줄거리" not in m for m in movies)
+    assert all("평점" in m for m in movies)  # 평점은 남긴다
