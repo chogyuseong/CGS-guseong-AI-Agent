@@ -14,6 +14,7 @@ from pydantic import SecretStr
 from app import clock
 from app.agent import data_policy
 from app.tools import tmap
+from app.tools.http import ExternalApiError
 from app.tools.places import KEYWORD_URL
 from tests.fake_http import fixture_response, json_response
 from tests.model_scripts import call, scripted, text
@@ -207,3 +208,42 @@ async def test_ambiguous_place_does_not_use_the_daily_limit(keys, fake_http, too
         await tmap.plan_departure_result(tool_deps, **{**ARGS, "origin": "스타벅스"})
 
     assert not tmap.LIMITER.blocked(tmap.LIMIT_KEY)  # TMAP을 부르지 않은 질문은 한도를 쓰지 않는다
+
+
+# ---- 2026-11-19: '모른다'를 '경로가 없다'로 바꾸지 않는다(합성 응답, 실제 공급자 장애 사례가 아님) ----
+
+UNKNOWN_BODIES = [
+    {},
+    {"error": {"id": "500", "code": "9999", "message": "x"}},
+    {"result": {"status": 99, "message": "알 수 없음"}},
+    {"metaData": {"plan": {"itineraries": [{"totalTime": -60}, {"totalTime": 0}]}}},
+]
+
+
+@pytest.mark.parametrize("body", UNKNOWN_BODIES)
+def test_unreadable_response_is_not_no_route(body):
+    with pytest.raises(ExternalApiError) as caught:
+        tmap.parse_routes(body)
+    assert caught.value.code == "bad_response"
+    assert "경로가 없다는 뜻은 아닙니다" in caught.value.message
+
+
+@pytest.mark.parametrize("seconds", [-60, 0])
+def test_non_positive_total_time_is_not_a_route(seconds):
+    assert tmap.route_from({"totalTime": seconds}) is None
+
+
+def test_documented_no_route_status_stays_no_route():
+    routes, reason = tmap.parse_routes({"result": {"status": 12}})
+    assert routes == [] and reason == "출발지 근처 정류장을 찾지 못했습니다."
+
+
+async def test_unreadable_response_fails_without_departure_card(keys, fake_http, tool_deps):
+    route_places(fake_http)
+    fake_http.route("POST", tmap.ROUTES_URL, json_response(200, {}))
+
+    result = await tmap.plan_departure_result(tool_deps, **ARGS)
+
+    assert not result.ok
+    assert result.error_code == "bad_response"
+    assert "경로가 없다는 뜻은 아닙니다" in (result.user_message or "")

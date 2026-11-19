@@ -32,6 +32,7 @@
 
 변경 이력:
 - 2026-11-18 처음 작성.
+- 2026-11-19 빈 응답·오류 본문·모르는 상태·0초 이하 소요를 "경로 없음"이 아니라 응답 확인 실패(bad_response)로 바꿈.
 """
 
 from datetime import datetime, timedelta
@@ -86,6 +87,9 @@ NO_ROUTE_REASONS = {
     12: "출발지 근처 정류장을 찾지 못했습니다.",
     13: "도착지 근처 정류장을 찾지 못했습니다.",
 }
+# 경로 응답을 해석하지 못했을 때(빈 응답·오류 본문·모르는 상태·0분 이하 경로뿐). "경로 없음"과 구분한다.
+# 문구를 바꾸면 tests/test_tmap.py의 '경로가 없다는 뜻은 아닙니다' 검사를 같이 고친다.
+UNREADABLE_MESSAGE = "TMAP 경로 응답을 확인하지 못했습니다(경로가 없다는 뜻은 아닙니다). 잠시 후 다시 시도해 주세요."
 MODE_NAMES = {"WALK": "도보", "BUS": "버스", "SUBWAY": "지하철", "EXPRESSBUS": "고속버스", "TRAIN": "기차"}
 
 PlaceName = Annotated[str, Field(min_length=1, max_length=50, description="장소 이름이나 주소. 예: 역삼역")]
@@ -131,9 +135,12 @@ def leg_name(leg: dict[str, Any]) -> str:
 
 
 def route_from(itinerary: dict[str, Any]) -> RouteOption | None:
-    """TMAP 경로 하나 → RouteOption. 총 소요가 없으면 None(모르는 소요를 만들지 않는다)."""
+    """TMAP 경로 하나 → RouteOption. 총 소요가 없거나 0초 이하면 None(모르는 소요·0분 경로를 만들지 않는다).
+
+    0분 이하를 받으면 권장 출발 = 도착 목표가 되어 "지금 나가도 된다"는 틀린 안내가 된다(2026-11-19 합성 응답으로 확인).
+    """
     total = itinerary.get("totalTime")
-    if not isinstance(total, int | float) or isinstance(total, bool):
+    if not isinstance(total, int | float) or isinstance(total, bool) or total <= 0:
         return None
     fare = ((itinerary.get("fare") or {}).get("regular") or {}).get("totalFare")
     legs = [leg for leg in itinerary.get("legs") or [] if isinstance(leg, dict)]
@@ -147,7 +154,12 @@ def route_from(itinerary: dict[str, Any]) -> RouteOption | None:
 
 
 def parse_routes(body: Any) -> tuple[list[RouteOption], str | None]:
-    """응답 → (경로들, 경로가 없을 때 이유). 문서상 plan은 metaData 아래지만 바로 아래에 와도 읽는다."""
+    """응답 → (경로들, 경로가 없을 때 이유). 문서상 plan은 metaData 아래지만 바로 아래에 와도 읽는다.
+
+    "경로 없음"은 문서에 있는 상태 코드(NO_ROUTE_REASONS)일 때만이다. 빈 응답·오류 본문·모르는 상태·쓸 수 있는 경로가
+    하나도 없는 목록은 ExternalApiError(bad_response)로 올린다(2026-11-19): '모른다'를 '경로가 없다'로 바꾸면
+    사용자가 대중교통을 포기하거나 다른 수단을 고르게 된다. 재시도는 하지 않는다(하루 10건 한도).
+    """
     body = body if isinstance(body, dict) else {}
     meta = body.get("metaData") if isinstance(body.get("metaData"), dict) else {}
     plan = meta.get("plan") or body.get("plan") or {}
@@ -156,9 +168,9 @@ def parse_routes(body: Any) -> tuple[list[RouteOption], str | None]:
     if routes:
         return routes, None
     status = (body.get("result") or {}).get("status") if isinstance(body.get("result"), dict) else None
-    return [], NO_ROUTE_REASONS.get(status, "조건에 맞는 대중교통 경로가 없습니다.") if isinstance(status, int) else (
-        "조건에 맞는 대중교통 경로가 없습니다."
-    )
+    if isinstance(status, int) and status in NO_ROUTE_REASONS:
+        return [], NO_ROUTE_REASONS[status]
+    raise ExternalApiError(UNREADABLE_MESSAGE, code="bad_response")
 
 
 async def fetch_routes(deps: AgentDeps, start: dict[str, Any], end: dict[str, Any], when: datetime) -> Any:
