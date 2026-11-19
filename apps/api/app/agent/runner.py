@@ -61,7 +61,7 @@ import httpx
 from cryptography.fernet import Fernet
 from pydantic_ai import capture_run_messages
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolReturnPart
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 from pydantic_ai.usage import RunUsage
 from sqlalchemy import func, select, update
@@ -69,6 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent import approvals, plans
 from app.agent.agent import MyAgent
+from app.agent.ambiguity import ambiguity_question
 from app.agent.budget import (
     UNPRICED_MESSAGE,
     DailyBudgetExceededError,
@@ -120,6 +121,10 @@ PLAN_REJECTED_MESSAGE = "이 외부 작업은 서버 정책상 실행 계획을 
 # 2026-11-19 한 번의 승인 요청에서 일정 삭제는 1건까지(사용자 결정: 추천 제안). 모델이 "전부 지워"에 카드를 여러 장
 # 띄우지 못하게 서버가 막는다(eval 08번, docs/EVALS.md). 바꾸면 tests/test_bulk_delete_limit.py를 같이 고친다.
 MAX_DELETES_PER_ROUND = 1
+# 2026-11-19 모호한 수정·삭제 대상을 서버가 막았을 때 막은 호출에 붙이는 도구 결과(모델 기록용, ambiguity.py).
+AMBIGUOUS_RETURN = (
+    "서버가 승인 카드를 만들지 않았다: 조회한 일정 중 후보가 둘 이상이다. 사용자에게 어느 일정인지 물었다."
+)
 BULK_DELETE_MESSAGE = "일정은 한 번에 한 건씩만 지울 수 있어 진행하지 않았습니다. 지울 일정을 하나씩 말씀해 주세요."
 # 승인됐지만 작업이 그 전에 끝나(하루 비용 상한, 오류) 실행하지 않은 EXTERNAL 호출의 step 결과.
 NOT_EXECUTED_MESSAGE = "작업이 이 단계 전에 멈춰 실행하지 않았습니다."
@@ -511,7 +516,8 @@ def usage_rows(info: TaskInfo, messages: Sequence[ModelMessage]) -> list[UsageLo
     return [
         usage_log(info, UsagePurpose.AGENT, r.model_name or "unknown", r.usage.input_tokens, r.usage.output_tokens)
         for r in messages
-        if isinstance(r, ModelResponse)
+        # 서버가 만든 응답(모델 이름·토큰 없음, asked_instead)은 모델 호출이 아니라 비용 기록에서 뺀다.
+        if isinstance(r, ModelResponse) and (r.model_name or r.usage.input_tokens or r.usage.output_tokens)
     ]
 
 
@@ -636,6 +642,40 @@ def too_many_deletes(deferred: DeferredToolRequests) -> bool:
     return sum(call.tool_name == "delete_event" for call in deferred.approvals) > MAX_DELETES_PER_ROUND
 
 
+async def screen_deferred(services: RunServices, info: TaskInfo, outcome: Outcome) -> Outcome:
+    """승인 카드를 만들기 전 서버 검사. 통과하면 outcome 그대로, 아니면 카드 없이 끝나는 outcome.
+
+    - 자동 작업(예약·감시)은 READ 도구만 받으므로 승인이 올 수 없다. 와도 실패로 끝낸다.
+    - 한 번에 삭제 2건 이상이면 실패(대량 삭제를 카드 여러 장으로 연달아 승인하는 사고 방지, 2026-11-19).
+    - 수정·삭제 대상이 모호하면 카드 대신 후보를 보여 주며 되묻고 done으로 끝낸다(ambiguity, 2026-11-19).
+    부수 효과: DB 읽기(ambiguity). 쓰지 않는다.
+    """
+    if outcome.deferred is None:
+        return outcome
+    if info.origin != TaskOrigin.CHAT:
+        return Outcome(TaskStatus.FAILED, error=UNEXPECTED_MESSAGE, new_messages=outcome.new_messages)
+    if too_many_deletes(outcome.deferred):
+        return Outcome(TaskStatus.FAILED, error=BULK_DELETE_MESSAGE, new_messages=outcome.new_messages)
+    async with services.session_factory() as session:
+        question = await ambiguity_question(session, info.id, info.user_id, outcome.deferred)
+    return asked_instead(outcome, question) if question else outcome
+
+
+def asked_instead(outcome: Outcome, question: str) -> Outcome:
+    """막은 호출마다 '승인 카드를 만들지 않았다'는 도구 결과를 붙이고, 되묻는 문장을 답으로 남긴다(done).
+
+    결과를 붙이는 이유: 결과 없는 도구 호출이 기록에 남으면 다음 대화의 모델이 무슨 일이 있었는지 모른다
+    (history는 짝 없는 호출을 지운다). 되묻는 응답은 서버가 만든 것이라 모델 이름·토큰이 없다(usage_rows가 건너뜀).
+    """
+    assert outcome.deferred is not None
+    returns = [
+        ToolReturnPart(tool_name=call.tool_name, content=AMBIGUOUS_RETURN, tool_call_id=call.tool_call_id)
+        for call in outcome.deferred.approvals
+    ]
+    messages = [*outcome.new_messages, ModelRequest(parts=returns), ModelResponse(parts=[TextPart(question)])]
+    return Outcome(TaskStatus.DONE, final_answer=question, new_messages=messages)
+
+
 async def finish(
     services: RunServices, info: TaskInfo, outcome: Outcome, previous: Sequence[ModelMessage]
 ) -> PushKind | None:
@@ -645,12 +685,7 @@ async def finish(
     승인 요청·답변 메시지·usage_logs가 두 번 생기지 않는다.
     """
     requests, reviews = [], []
-    if outcome.deferred is not None and info.origin != TaskOrigin.CHAT:
-        # 자동 작업(예약·감시)은 READ 도구만 받으므로 여기에 올 수 없다. 와도 승인을 만들지 않고 실패로 끝낸다.
-        outcome = Outcome(TaskStatus.FAILED, error=UNEXPECTED_MESSAGE, new_messages=outcome.new_messages)
-    if outcome.deferred is not None and too_many_deletes(outcome.deferred):
-        # 승인 카드를 하나도 만들지 않는다(대량 삭제를 사람이 카드 여러 장으로 한꺼번에 승인하는 사고를 막는다).
-        outcome = Outcome(TaskStatus.FAILED, error=BULK_DELETE_MESSAGE, new_messages=outcome.new_messages)
+    outcome = await screen_deferred(services, info, outcome)
     if outcome.deferred is not None:
         try:
             requests, reviews = await prepare_requests(services, info, outcome.deferred)
