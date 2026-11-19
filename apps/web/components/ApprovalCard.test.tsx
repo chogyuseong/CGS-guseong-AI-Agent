@@ -330,4 +330,25 @@ describe("ApprovalCard", () => {
     render(<ApprovalCard approval={makeApproval()} onDecide={vi.fn()} />);
     expect(screen.queryByRole("region", { name: "이전 카드와 달라진 점" })).toBeNull();
   });
+
+  // 2026-11-19(분석 10·54번): 다른 기기·오래된 탭에서 이미 처리된 카드를 누르면 서버는 changed=false와 현재 상태를 준다.
+  // 결과만 바뀌어 보이면 왜 내가 누른 것과 다른지 모르므로, 반영되지 않았다고 알린다.
+  it("다른 화면에서 이미 처리된 카드를 누르면 반영되지 않았다고 알린다", async () => {
+    const onDecide = vi.fn().mockResolvedValue({ status: "approved", changed: false });
+    render(<ApprovalCard approval={makeApproval()} onDecide={onDecide} />);
+    fireEvent.click(screen.getByRole("button", { name: "거절" }));
+
+    const note = await screen.findByText(/다른 화면에서 이미 처리된 카드입니다/);
+    expect(note).toHaveTextContent("현재: 승인함");
+    expect(note).toHaveTextContent("방금 누른 '거절'은 반영되지 않았습니다");
+  });
+
+  it("내가 누른 결정이 반영됐으면 안내를 보이지 않는다", async () => {
+    const onDecide = vi.fn().mockResolvedValue({ status: "approved", changed: true });
+    render(<ApprovalCard approval={makeApproval()} onDecide={onDecide} />);
+    fireEvent.click(screen.getByRole("button", { name: "승인" }));
+
+    await waitFor(() => expect(onDecide).toHaveBeenCalled());
+    expect(screen.queryByText(/다른 화면에서 이미 처리된 카드입니다/)).toBeNull();
+  });
 });

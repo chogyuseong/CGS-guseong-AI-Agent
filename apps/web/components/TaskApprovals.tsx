@@ -30,7 +30,10 @@ function ApprovalItem({ task, approval }: { task: Task; approval: Approval }) {
   return (
     <ApprovalCard
       approval={approval}
-      onDecide={async (decision) => (await decide.mutateAsync(decision)).approval.status}
+      onDecide={async (decision) => {
+        const result = await decide.mutateAsync(decision);
+        return { status: result.approval.status, changed: result.changed };
+      }}
     />
   );
 }

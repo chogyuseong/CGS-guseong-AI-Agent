@@ -15,6 +15,7 @@
 //   approval.spec.ts의 expectTappable이 화면 안에 다 보이는지와 높이를 잰다.
 // - '고쳐서 다시' 버튼·메모 칸 이름("고쳐서 다시", "무엇을 고칠까요?", "고쳐 달라고 보내기")은 ApprovalCard.test.tsx가 찾는다.
 // 변경 이력:
+// - 2026-11-19 이미 처리된 카드를 다시 누르면(changed=false) "다른 화면에서 이미 처리된 카드입니다" 안내.
 // - 2026-11-18 '고쳐서 다시' 추가(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18). 메모를 붙인 거절이라 실행은 없고,
 //   모델이 고친 계획으로 새 카드를 만든다. 결정된 카드에는 "고쳐 달라고 함" 배지와 적은 내용을 보여 준다.
 // - 2026-11-19 새 카드에 '이전 카드와 달라진 점'(서버 changes)을 보인다. 요청하지 않은 날짜·대상 변경을 승인 전에 알아보게.
@@ -41,8 +42,11 @@ type ApprovalCardProps = {
   // 서버 GET /api/tasks/{id}의 approvals 한 건(ApprovalOut). 결정된 카드도 같은 모양으로 온다.
   approval: Approval;
   // 서버에 결정을 보내고 결정 뒤 승인 상태를 돌려준다. 실패하면 ApprovalActionError를 던진다.
-  onDecide: (decision: Decision) => Promise<ApprovalStatus>;
+  // 2026-11-19: {status, changed}도 받는다. changed=false면 이 결정이 반영되지 않았다(다른 화면에서 이미 처리됨).
+  onDecide: (decision: Decision) => Promise<ApprovalStatus | DecisionOutcome>;
 };
+
+type DecisionOutcome = { status: ApprovalStatus; changed: boolean };
 
 // 결정된 카드의 머리 배지. Record라 서버 상태가 하나 늘면(gen:api 뒤) tsc가 여기 빠진 것을 알려 준다.
 // "승인함"은 실행 완료가 아니다: 실행 결과는 ExecutionLine(영수증 기준)이 따로 보여 준다.
@@ -102,6 +106,11 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
           {flow.error}
         </p>
       )}
+      {flow.stale && (
+        <p role="status" className="text-sm font-medium text-warning">
+          {flow.stale}
+        </p>
+      )}
     </article>
   );
 }
@@ -126,6 +135,7 @@ function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [decided, setDecided] = useState<ApprovalStatus | null>(null);
+  const [stale, setStale] = useState<string | null>(null);
   const locked = useRef(false);
 
   async function submit(decision: Decision) {
@@ -134,8 +144,11 @@ function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
     setBusy(busyActionOf(decision));
     setError(null);
     try {
-      const status = await onDecide(decision);
+      const outcome = await onDecide(decision);
+      const { status, changed } =
+        typeof outcome === "string" ? { status: outcome, changed: true } : outcome;
       setDecided(status);
+      if (!changed && status !== "pending") setStale(staleText(decision, status));
       // 결정됐으면 카드에서 버튼이 사라지므로 잠금을 풀지 않는다.
       if (status === "pending") unlock();
     } catch (caught) {
@@ -153,7 +166,20 @@ function useDecisionFlow(onDecide: ApprovalCardProps["onDecide"]) {
     setBusy(null);
   }
 
-  return { busy, confirming, setConfirming, error, decided, submit };
+  return { busy, confirming, setConfirming, error, decided, stale, submit };
+}
+
+// 2026-11-19(분석 10·54번): 다른 기기·오래된 탭에서 이미 처리된 카드를 눌렀을 때의 안내.
+// 서버는 이미 결정된 승인에 다시 요청하면 changed=false와 현재 상태를 준다(apps/api routers/approvals.py).
+// 결과 배지만 바뀌면 왜 내가 누른 것과 다른지 알 수 없어, 지금 상태와 반영되지 않은 행동을 함께 말한다.
+function staleText(
+  decision: Decision,
+  status: Exclude<ApprovalStatus, "pending"> | ApprovalStatus,
+): string {
+  const action =
+    decision.revisionNote !== undefined ? "고쳐서 다시" : decision.approve ? "승인" : "거절";
+  const current = status === "pending" ? "대기" : DECIDED_LABELS[status];
+  return `다른 화면에서 이미 처리된 카드입니다(현재: ${current}). 방금 누른 '${action}'은 반영되지 않았습니다.`;
 }
 
 // 대기 중인 카드의 버튼 영역. 거절은 확인 없이 보낸다(서버도 거절에는 확인을 요구하지 않는다).
