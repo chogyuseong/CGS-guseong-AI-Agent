@@ -92,10 +92,26 @@ def classify(criteria: ShoppingCriteria, offer: Offer, total: int | None) -> tup
     if offer.price is None:
         return "확인 필요", "상품 가격 미확인"
     if total is None:
-        return "확인 필요", "배송비 미확인"
+        return "확인 필요", shipping_unknown_reason(criteria, offer)
     if reason := purchase_terms(criteria, title):
         return "확인 필요", reason
     return "조건 일치", "입력된 판매 조건이 일치합니다."
+
+
+def shipping_unknown_reason(criteria: ShoppingCriteria, offer: Offer) -> str:
+    """배송비를 모를 때의 이유. 배송비 포함 예산이 있으면 예산을 넘지 않는 배송비 경계를 알려 준다
+    (2026-11-19, 분석 26번).
+
+    "배송비 미확인"만 말하면 사용자가 상품 페이지에서 무엇을 확인해야 할지 모른다.
+    상품가가 예산과 같으면 무료배송만 충족한다.
+    상품가가 예산을 넘는 경우는 classify가 먼저 '예산 초과'로 제외한다.
+    """
+    if not criteria.max_price or offer.price is None:
+        return "배송비 미확인"
+    room = criteria.max_price - offer.price
+    if room <= 0:
+        return "배송비 미확인 · 무료배송일 때만 예산 충족"
+    return f"배송비 미확인 · 배송비 {room:,}원 이하면 예산 충족"
 
 
 def won(value: int | None) -> str:

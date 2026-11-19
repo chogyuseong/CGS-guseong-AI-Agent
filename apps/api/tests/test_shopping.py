@@ -73,3 +73,40 @@ def test_unit_price_requires_one_clear_count(offers):
     for title in ("생수 6병/12병", "생수 12병 x 2", "생수 12병 2세트"):
         result = compare_offers(request, [row.model_copy(update={"title": title})])
         assert "단가" not in result["조건 일치"][0]
+
+
+# ---- 2026-11-19(분석 26번): 배송비를 모를 때 예산을 넘지 않는 배송비 경계를 알려 준다 ----
+
+
+def shipping_unknown(price: int) -> Offer:
+    return Offer.model_validate(
+        {
+            "title": "KB100 한글 갈축 키보드",
+            "store": "판매처 X",
+            "url": "https://example.com/x",
+            "price": price,
+            "condition": "신품",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("price", "reason"),
+    [
+        (119_000, "배송비 미확인 · 배송비 1,000원 이하면 예산 충족"),
+        (120_000, "배송비 미확인 · 무료배송일 때만 예산 충족"),
+    ],
+)
+def test_unknown_shipping_names_the_budget_boundary(price, reason):
+    report = compare_offers(criteria(), [shipping_unknown(price)])
+    assert [row["이유"] for row in report["확인 필요"]] == [reason]
+
+
+def test_unknown_shipping_without_budget_stays_plain():
+    report = compare_offers(criteria(max_price=None), [shipping_unknown(119_000)])
+    assert [row["이유"] for row in report["확인 필요"]] == ["배송비 미확인"]
+
+
+def test_price_over_budget_is_still_excluded():
+    report = compare_offers(criteria(), [shipping_unknown(121_000)])
+    assert [row["이유"] for row in report["제외 이유"]] == ["예산 초과"]
