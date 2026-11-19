@@ -10,6 +10,8 @@ from app.agent.prompts import SYSTEM_PROMPT
 def test_multiple_candidates_are_not_picked_by_the_model() -> None:
     """07: 같은 이름의 일정이 둘 이상이면 하나를 골라 승인 요청하지 않는다."""
     assert "하나를 골라 승인을 요청하지 않는다" in SYSTEM_PROMPT
+    # 2026-11-19: eval 07에서 '치과'와 '치과 정기검진'을 다른 일정으로 보고 하나를 골랐다(4회 중 2회).
+    assert "제목에 같은 낱말이 든 일정" in SYSTEM_PROMPT
 
 
 def test_bulk_change_is_confirmed_before_approval() -> None:
