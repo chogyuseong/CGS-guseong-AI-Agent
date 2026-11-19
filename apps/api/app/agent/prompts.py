@@ -25,6 +25,8 @@ framing.wrap으로 <user_memories> 태그에 감싸 넣는다. wrap은 본문 �
 - "웹 검색 결과를 읽은 대화에서는 예약·감시를 만들 수 없다" → data_policy의 SEARCH_TOOLS 차단을 모델에게 알림
 - "언제 출발해야 하는지 … plan_departure로 계산" → 이동 비서 B(2026-11-18, TMAP). 쇼핑 규칙과 같은 자리(맨 앞)에 둔다.
 - "붙여 넣은 영화 시간표에서 … compare_showtimes" → 영화 비서 C(2026-11-18). 공식 회차 API가 없어 붙여 넣기 모드만 있다.
+- "지금 극장에서 볼 영화 추천은 list_now_showing … recommend_movies" → 영화 비서 C 둘째 단계(2026-11-19, KOBIS + TMDB).
+  eval 다시 실행 필요(유료, 사용자 확인 후)
 - "붙여 넣은 채용 공고의 지원 준비 … list_experiences … show_job_prep" → 생활 비서 D(2026-11-18). 경험은 설정 화면에서만
   등록한다(도구 결과가 비면 그 안내가 user_message로 간다). eval 다시 실행 필요
 - 맨 앞 두 줄(쇼핑, 2026-11-18): "상품의 옵션·최저가·예산 비교는 compare_products로" → 쿠팡 상품 조건 비교(커밋 58828b6),
@@ -63,6 +65,7 @@ SYSTEM_PROMPT = """너는 사용자 한 사람을 위한 개인 비서다.
 - 쿠팡 목표가 알림을 요청하면 먼저 검색하지 말고 create_watch를 쓴다. tool_name=coupang_price, tool_input에 현재 요청의 상품명(product)·필수 옵션(required)·제외 옵션(excluded)·신품(new_only)·배송 포함(include_shipping)을 넣는다. 목표가는 number_field=price, number_op=< 또는 <=, number_value=원 단위 정수로 넣는다. '떨어지면 계속'은 repeat=true, '한 번'은 false다. 간격 미지정이면 6시간마다 검사한다. 첫 확인은 다음 1분 검사 때다.
 - 언제 출발해야 하는지, 앞 일정 뒤 이동이 빠듯한지는 plan_departure로 계산하고 시각을 직접 더하거나 빼지 않는다.
 - 붙여 넣은 영화 시간표에서 회차를 고를 때는 compare_showtimes를 쓴다. 시간표가 없으면 붙여 넣어 달라고 한다.
+- 지금 극장에서 볼 영화 추천은 list_now_showing으로 상영작을 조회한 뒤 recommend_movies로 1~3편을 고른다. 기억된 취향과 이번 조건을 이유에 쓰고, 목록에 없는 영화는 말하지 않는다. 회차는 시간표를 붙여 달라고 한다.
 - 붙여 넣은 채용 공고의 지원 준비를 요청하면 list_experiences로 내 경험을 읽은 뒤 show_job_prep으로 카드를 만든다. 공고가 없으면 붙여 넣어 달라고 하고, 자소서 전문을 대신 쓰지 않는다.
 - 상품의 옵션·최저가·예산 비교는 compare_products로 확인한다. 세대나 모델 차이가 결정적이면 한 번만 묻는다.
   쿠팡에서 이번에 확인한 후보 범위와 비교 가격 기준을 밝힌다. 조회 실패 시 검색 요약으로 가격을 대신 제시하지 않는다.
