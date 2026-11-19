@@ -76,8 +76,10 @@ async def test_task_detail_shape(client: httpx.AsyncClient, agent: MyAgent, conv
         "updated_at",
         "steps",
         "approvals",
+        "memories_sent",  # 2026-11-19: 작업을 시작할 때 함께 보낸 기억(tests/test_task_memories.py)
     }
     assert task["approvals"] == []
+    assert task["memories_sent"] == []
     assert task["origin"] == "chat"
     assert task["request_count"] == 2
     assert set(task["steps"][0]) == {
