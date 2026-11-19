@@ -10,7 +10,8 @@ TMDB에서는 줄거리(overview)·평점(vote_average)·평가 수(vote_count)�
 
 인증: "API Read Access Token"을 Bearer 헤더로 보낸다(주소에 키를 붙이지 않는다 — 로그·기록에 남지 않게).
 토큰이 없으면 외부 요청 없이 빈 결과. TMDB 오류는 ExternalApiError로 던지고, 호출 쪽(boxoffice)이 KOBIS만으로 계속한다.
-이용 조건(2026-11-19 확인): 비상업 무료, 출처 표기(로고 + 문구) 의무, 캐시 6개월 이내, AI 학습 금지(추론 입력은 해당 없음).
+이용 조건(2026-11-19 확인): 비상업 무료, 출처 표기(로고 + 문구) 의무, 캐시 6개월 이내,
+AI 학습 금지(추론 입력은 해당 없음).
 
 진입점: app/tools/boxoffice.py. 테스트: tests/test_tmdb.py(fixture는 2026-11-19 실제 응답).
 

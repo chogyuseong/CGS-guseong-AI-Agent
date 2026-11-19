@@ -1,7 +1,8 @@
 """영화 비서 C 둘째 단계: KOBIS(영화관입장권통합전산망) 오픈API로 지금 극장 상영작의 사실 칸을 모은다.
 
 KOBIS는 한국 극장 기준 공식 데이터다. 사실 칸(순위·개봉일·누적 관객·스크린 수·장르·상영 시간·관람 등급·감독·배우)의
-정본은 여기뿐이고 TMDB 값으로 채우지 않는다(설계 2026-11-19, docs/superpowers/specs/2026-11-19-movie-recommend-design.md).
+정본은 여기뿐이고 TMDB 값으로 채우지 않는다
+(설계 2026-11-19, docs/superpowers/specs/2026-11-19-movie-recommend-design.md).
 
 - 일별 박스오피스(상위 10편, itemPerPage 최대 10) → 영화마다 상세 1회. 기준일은 서울 어제(오늘 집계는 아직 없다).
   어제 목록이 비면(새벽 집계 전) 그 전날로 한 번 더 조회한다.
@@ -9,7 +10,8 @@ KOBIS는 한국 극장 기준 공식 데이터다. 사실 칸(순위·개봉일�
   보고 ExternalApiError로 바꾼다. 메시지에 KOBIS 본문·키를 넣지 않는다.
 - 상세 하나가 실패해도 그 영화는 박스오피스 칸만으로 남긴다(장르 등은 빈 값 → 화면은 "정보 없음").
 
-진입점: app/tools/boxoffice.py의 list_now_showing. 테스트: tests/test_kobis.py(fixture는 2026-11-19 실제 응답을 줄인 것).
+진입점: app/tools/boxoffice.py의 list_now_showing.
+테스트: tests/test_kobis.py(fixture는 2026-11-19 실제 응답을 줄인 것).
 
 고칠 때 주의:
 - KobisMovie 칸 이름은 boxoffice.movie_row가 화면·recommend_movies 칸으로 옮긴다. 바꾸면 그쪽과 테스트를 같이 고친다.

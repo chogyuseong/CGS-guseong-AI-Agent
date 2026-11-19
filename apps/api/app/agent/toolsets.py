@@ -44,6 +44,7 @@ from app.agent.results import EXTERNAL_CONTENT_TOOLS as EXTERNAL_CONTENT_TOOLS
 from app.models.enums import RiskLevel, TaskOrigin
 from app.tools import (
     automation,
+    boxoffice,
     coupang,
     drafts,
     experiences,
@@ -142,8 +143,9 @@ shopping_tools = FunctionToolset[AgentDeps](
     [coupang.compare_products], id="shopping_tools", metadata=risk_metadata(RiskLevel.READ), sequential=True
 )
 # 2026-11-18 이동 비서 B. TMAP 한도를 예약·감시가 쓰지 않게 채팅에만 준다(READ).
+# 2026-11-19 영화 추천(list_now_showing)도 여기: 회차 고르기와 한 흐름이고, 예약·감시 사용은 제안으로 남겼다(설계 문서).
 travel_tools = FunctionToolset[AgentDeps](
-    [tmap.plan_departure, showtimes.compare_showtimes],
+    [tmap.plan_departure, showtimes.compare_showtimes, boxoffice.list_now_showing],
     id="travel_tools",
     metadata=risk_metadata(RiskLevel.READ),
     sequential=True,
@@ -174,6 +176,7 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "compare_products": lambda _: "쿠팡 상품 조건 비교하는 중",
     "plan_departure": tmap.plan_departure_label,
     "compare_showtimes": showtimes.compare_showtimes_label,
+    "list_now_showing": boxoffice.list_now_showing_label,
     **experiences.LABELS,
     "show_job_prep": jobprep.show_job_prep_label,
     **gcal.LABELS,

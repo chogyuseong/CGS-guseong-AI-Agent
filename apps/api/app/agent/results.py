@@ -74,6 +74,7 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         "compare_products",
         "plan_departure",
         "compare_showtimes",
+        "list_now_showing",
         "list_events",
         "list_mail",
         "read_mail",

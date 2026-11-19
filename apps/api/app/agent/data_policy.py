@@ -170,6 +170,8 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         STEPS,
         "결론·이유·차선·제외 이유·계산 표·예매 링크와 조회 시각",
     ),
+    # 2026-11-19 영화 추천. 보내는 것은 날짜·영화 코드·제목뿐(사용자 글이 들어가지 않는다).
+    "list_now_showing": public_lookup("KOBIS·TMDB", "상영작 목록(사실은 KOBIS, 줄거리·평점은 TMDB)과 출처"),
     "compare_products": ToolPolicy(
         "쿠팡 파트너스",
         PUBLIC_ONLY,
