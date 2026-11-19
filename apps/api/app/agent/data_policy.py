@@ -219,6 +219,8 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
 }
 
 MAIL_TOOLS = ("list_mail", "read_mail")
+# 2026-11-19 Google 캘린더 연결이 있어야 보이는 일정 쓰기 도구(visible_tool).
+CALENDAR_WRITE_TOOLS = ("create_event", "update_event", "delete_event")
 EVENT_TOOLS = ("list_events",)
 EXPERIENCE_TOOLS = ("list_experiences",)  # results.EXPERIENCE_TOOLS와 같은 이름(2026-11-18 생활 비서 D)
 EXPERIENCE_REFUSAL = (
@@ -319,7 +321,11 @@ def visible_tool(ctx: RunContext[AgentDeps], tool_def: ToolDefinition) -> bool:
       함께 주지 않고, 메일 속 지시로 예약·감시가 생기지 않게 한다. 실행 직전 검사(outbound_refusal,
       automation_refusal)는 두 번째 방어선으로 남긴다.
     - 자동화 생성은 웹 검색 결과를 읽은 문맥에서도 보이지 않는다(2026-11-18 사용자 결정).
+    - 일정 쓰기(create·update·delete_event)는 Google 캘린더가 연결되지 않은 채팅 run에서 보이지 않는다(2026-11-19).
+      연결 여부(deps.calendar_connected)는 run 동안 바뀌지 않아 도구 목록이 run 중간에 흔들리지 않는다.
     """
+    if tool_def.name in CALENDAR_WRITE_TOOLS and not ctx.deps.calendar_connected:
+        return False  # 미연결이면 승인해도 실패할 카드를 띄우지 않는다(2026-11-19, runner가 run 시작 때 한 번 확인)
     if tool_def.name in MAIL_TOOLS or tool_def.name in EXPERIENCE_TOOLS:
         return mail_enabled(ctx.deps.settings)  # 같은 키(PAYLOAD_ENCRYPTION_KEY)가 있어야 원문을 봉해 둘 수 있다
     private = mail_read_in(ctx.messages) or experience_read_in(ctx.messages)

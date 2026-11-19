@@ -48,6 +48,10 @@ class AgentDeps:
     db: async_sessionmaker[AsyncSession]
     settings: Settings
     http: httpx.AsyncClient
+    # 2026-11-19 Google 캘린더 연결 여부. runner가 새 채팅 run을 시작할 때 한 번만 채운다(run 도중 바뀌지 않게).
+    # False면 data_policy.visible_tool이 일정 쓰기 도구를 숨기고 prompts.calendar_instruction이 연결 안내를 붙인다.
+    # 기본 True: 확인하지 않은 실행(재개 run, 감시·예약, 도구 직접 호출 테스트)은 예전처럼 둔다.
+    calendar_connected: bool = True
 
     @property
     def budget_scope(self) -> "BudgetScope":

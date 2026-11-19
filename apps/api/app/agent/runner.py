@@ -94,6 +94,7 @@ from app.agent.replies import AutomationReply
 from app.agent.results import not_executed_output
 from app.agent.toolsets import label_for, preview_for, run_toolsets, toolsets_for
 from app.config import Settings
+from app.google_auth import is_connected
 from app.models import ActionPlan, AgentRun, Approval, Conversation, Message, Operation, Step, Task, UsageLog
 from app.models.enums import (
     MessageRole,
@@ -370,6 +371,18 @@ def deps_for(services: RunServices, info: TaskInfo) -> AgentDeps:
     )
 
 
+async def with_calendar_status(deps: AgentDeps, info: TaskInfo, run_input: RunInput) -> AgentDeps:
+    """새 채팅 run이면 Google 캘린더 연결 여부를 한 번 읽어 deps에 넣는다(2026-11-19, 미연결이면 일정 쓰기 도구를 숨김).
+
+    승인 뒤 재개하는 run(deferred_results 있음)은 읽지 않는다: 그 사이 연결을 끊었어도 승인한 호출이 도구를 찾아야
+    executor가 연결 확인으로 실패를 기록한다(도구가 사라지면 모델 응답 처리부터 깨진다). 예약·감시에는 쓰기 도구가 없다.
+    부수 효과: DB 읽기 한 번(google_auth.is_connected). 토큰을 풀거나 Google에 묻지 않는다.
+    """
+    if info.origin != TaskOrigin.CHAT or run_input.deferred_results is not None:
+        return deps
+    return replace(deps, calendar_connected=await is_connected(deps))
+
+
 # execute_agent 보충(40줄 제한으로 함수 위에 둔다):
 # - 결과: 항상 Outcome. 예외를 밖으로 내지 않는다. 멈춘 경우에도 그때까지의 새 메시지(captured)를 돌려줘
 #   finish가 기록·사용량(usage_logs)을 남긴다(이미 쓴 토큰을 빠뜨리지 않게).
@@ -383,7 +396,7 @@ async def execute_agent(services: RunServices, info: TaskInfo, run_input: RunInp
     7단계 보강: 이전 기록의 메일 결과는 여기서만 풀어 모델에게 준다(prepare 단계 결과에는 암호문만 남는다).
     도구 묶음은 run_toolsets(메일 기능 플래그, 메일 작업의 공개 검색 제외)다.
     """
-    deps = deps_for(services, info)
+    deps = await with_calendar_status(deps_for(services, info), info, run_input)
     history = open_mail_returns(run_input.history, payload_cipher(services.settings))
     with capture_run_messages() as captured:
         try:

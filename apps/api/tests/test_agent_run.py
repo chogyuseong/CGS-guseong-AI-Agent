@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.agent import MyAgent
+from app.agent.deps import AgentDeps
 from app.agent.guard import GuardAgent
 from app.agent.runner import RunServices, run_task
 from app.config import Settings
@@ -16,6 +17,7 @@ from app.push import PushNotifier
 from tests.conftest import TEST_PAYLOAD_KEY, message_body
 from tests.fake_push import FakePushSender
 from tests.model_scripts import call, scripted, text
+from tests.test_gcal import connect_google
 
 # 등급별 도구 이름(4단계에서 실제 도구가 더해졌다). 예약·감시 task는 READ만, chat task는 세 등급 모두를 받는다.
 READ_TOOL_NAMES = sorted(
@@ -190,10 +192,12 @@ async def test_schedule_task_gets_read_tools_only(
 
 
 async def test_chat_task_gets_all_tool_levels(
-    client: httpx.AsyncClient, agent: MyAgent, conversation: int, test_settings: Settings
+    client: httpx.AsyncClient, agent: MyAgent, conversation: int, test_settings: Settings, tool_deps: AgentDeps
 ) -> None:
     # 7단계 보강: 메일 도구는 메일 기능 플래그(PAYLOAD_ENCRYPTION_KEY)가 있을 때만 보인다(test_mail_privacy.py).
     test_settings.payload_encryption_key = SecretStr(TEST_PAYLOAD_KEY)
+    # 2026-11-19: 일정 쓰기 도구는 Google 캘린더가 연결돼 있을 때만 보인다(test_calendar_visibility.py).
+    await connect_google(tool_deps)
     model = scripted(text("네"))
 
     with agent.override(model=model.model()):

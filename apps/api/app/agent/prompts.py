@@ -144,6 +144,19 @@ AUTOMATION_NOTICE = (
 )
 
 
+# 2026-11-19 Google 캘린더가 연결되지 않은 채팅 run에만 붙는 안내(일정 쓰기 도구는 data_policy.visible_tool이 숨긴다).
+# 연결된 사용자(eval 포함)의 지시문은 바뀌지 않는다. 문구를 바꾸면 tests/test_calendar_visibility.py도 고친다.
+CALENDAR_NOT_CONNECTED = (
+    "Google 캘린더가 연결되어 있지 않아 일정을 만들거나 고치거나 지울 수 없다. 그런 요청을 받으면 "
+    "설정 화면의 '연결'에서 Google 계정을 연결하면 할 수 있다고 안내한다. 할 일이나 메모로 대신 남길지는 물어볼 수 있다."
+)
+
+
+def calendar_instruction(ctx: RunContext[AgentDeps]) -> str:
+    """캘린더 미연결 채팅 run에만 안내를 붙인다. 연결됐거나 확인하지 않은 run에는 아무것도 넣지 않는다."""
+    return CALENDAR_NOT_CONNECTED if not ctx.deps.calendar_connected else ""
+
+
 def automation_instruction(ctx: RunContext[AgentDeps]) -> str:
     """예약·감시로 시작된 task에만 붙는 안내. 채팅 task에는 아무것도 넣지 않는다."""
     return "" if ctx.deps.origin == TaskOrigin.CHAT else AUTOMATION_NOTICE

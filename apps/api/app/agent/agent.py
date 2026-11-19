@@ -54,6 +54,7 @@ from app.agent.model_choice import build_model_resolver, model_settings_for
 from app.agent.prompts import (
     SYSTEM_PROMPT,
     automation_instruction,
+    calendar_instruction,
     current_date_instruction,
     memory_instruction,
 )
@@ -82,7 +83,13 @@ def build_agent(settings: Settings, *, extra_models: Mapping[str, Model] | None 
         model_settings=model_settings_for(settings),
         # 기억(memory_instruction)은 마지막에 둔다. 요청마다 DB에서 최근 30줄을 새로 읽는다(prompts.py).
         # automation_instruction(6단계)은 예약·감시 task에만 "자동 실행, 조회만, 행동은 suggestions로"를 붙인다.
-        instructions=[SYSTEM_PROMPT, current_date_instruction, automation_instruction, memory_instruction],
+        instructions=[
+            SYSTEM_PROMPT,
+            current_date_instruction,
+            automation_instruction,
+            calendar_instruction,
+            memory_instruction,
+        ],
         capabilities=[
             ResolveModelId(build_model_resolver(settings)),
             BudgetCapability(),
