@@ -29,26 +29,67 @@ def test_spec_example_departs_at_1750_with_ten_minutes_to_spare() -> None:
     assert plan.target_arrival == at(18, 45)
     assert plan.depart_at == at(17, 50)
     assert plan.slack_minutes == 10
+    assert plan.status == "여유"
     assert plan.conclusion == "17:50에 출발하면 18:45에 도착합니다(19:00보다 15분 일찍)."
     assert plan.reason == "앞 일정이 끝나고 10분 여유가 있습니다."
 
 
-def test_shortage_says_how_many_minutes_and_what_to_change() -> None:
+# 2026-11-19 고침: 예전 기대값은 18:53 도착(약속 19:00 전)을 "8분 부족"이라 하고, 앞 일정(17:50) 전에는 나갈 수 없는데
+# "출발을 8분 앞당기면"이라고 안내했다. 약속에 늦는 것과 원한 사전 여유만 줄어드는 것을 나눈다.
+def test_buffer_shortage_is_not_lateness() -> None:
     plan = plan_departure_times(at(19, 0), early_minutes=15, routes=[route(63)], previous_end=at(17, 50))
 
     assert plan is not None
-    assert plan.depart_at == at(17, 42)
     assert plan.slack_minutes == -8
-    assert plan.reason == (
-        "앞 일정이 끝나고 바로 출발해도 8분 부족합니다(18:53 도착 예상). "
-        "출발을 8분 앞당기면 목표 도착 시각을 맞출 수 있습니다."
-    )
+    assert plan.status == "여유부족"
+    assert plan.arrival_if_leave_now == at(18, 53)
+    assert plan.conclusion == "앞 일정이 끝나는 17:50에 바로 출발하면 18:53 도착 예상입니다."
+    assert plan.reason == "약속(19:00)에는 맞지만 원하신 15분 전 도착보다 8분 늦습니다(여유 7분)."
+    assert "앞당기" not in plan.conclusion + plan.reason
+
+
+def test_late_says_how_late_and_what_would_have_to_change() -> None:
+    plan = plan_departure_times(at(19, 0), early_minutes=15, routes=[route(55)], previous_end=at(18, 20))
+
+    assert plan is not None
+    assert plan.status == "지각"
+    assert plan.conclusion == "앞 일정이 끝나는 18:20에 바로 출발하면 19:15 도착 예상입니다."
+    assert plan.reason == "약속(19:00)보다 15분 늦습니다. 약속에 맞추려면 앞 일정이 15분 일찍 끝나야 합니다."
+    assert "앞당기" not in plan.conclusion + plan.reason
+
+
+def test_late_without_early_buffer() -> None:
+    plan = plan_departure_times(at(19, 0), early_minutes=0, routes=[route(55)], previous_end=at(18, 20))
+
+    assert plan is not None and plan.status == "지각"
+    assert plan.reason.startswith("약속(19:00)보다 15분 늦습니다.")
+
+
+def test_departure_never_before_previous_event_ends() -> None:
+    """결론의 출발 시각이 앞 일정 종료보다 빠르면 따를 수 없는 지시다."""
+    for end, minutes in ((at(17, 40), 55), (at(17, 50), 55), (at(17, 50), 63), (at(18, 20), 55)):
+        plan = plan_departure_times(at(19, 0), early_minutes=15, routes=[route(minutes)], previous_end=end)
+        assert plan is not None
+        if plan.status in ("여유", "딱맞음"):
+            assert plan.depart_at >= end
+        else:  # 권장 출발이 앞 일정 종료보다 빠르면, 결론은 종료 시각에 바로 출발하는 경우를 말한다
+            assert f"{end:%H:%M}에 바로 출발" in plan.conclusion
+
+
+def test_midnight_crossing_shows_dates() -> None:
+    """금요일 밤 출발·토요일 새벽 도착은 날짜·요일을 함께 쓴다(시각만 쓰면 전날인지 알 수 없다)."""
+    arrive = datetime(2026, 11, 21, 0, 30, tzinfo=SEOUL)
+    plan = plan_departure_times(arrive, early_minutes=0, routes=[route(55)], previous_end=None)
+
+    assert plan is not None
+    assert plan.conclusion == "11월 20일(금) 23:35에 출발하면 11월 21일(토) 00:30에 도착합니다."
 
 
 def test_exactly_on_time_has_zero_slack() -> None:
     plan = plan_departure_times(at(19, 0), early_minutes=15, routes=[route(55)], previous_end=at(17, 50))
 
     assert plan is not None and plan.slack_minutes == 0
+    assert plan.status == "딱맞음"
     assert plan.reason == "앞 일정이 끝나자마자 출발해야 맞출 수 있습니다(여유 0분)."
 
 
@@ -57,6 +98,7 @@ def test_without_previous_event_there_is_no_slack_claim() -> None:
 
     assert plan is not None
     assert plan.slack_minutes is None
+    assert plan.status is None
     assert plan.conclusion == "18:05에 출발하면 19:00에 도착합니다."
     assert plan.reason == "가장 빠른 경로 기준 예상 55분, 환승 2회입니다."
 

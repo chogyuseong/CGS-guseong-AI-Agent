@@ -13,18 +13,24 @@
 
 변경 이력:
 - 2026-11-18 처음 작성.
+- 2026-11-19 앞 일정 뒤 판정을 네 상태(여유·딱맞음·여유부족·지각)로 나눔. 예전에는 약속 전에 도착해도 "N분 부족",
+  앞 일정이 끝나기 전에는 나갈 수 없는데 "출발을 N분 앞당기면"이라고 했다. 자정을 넘으면 날짜·요일을 함께 쓴다.
 """
 
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 # 같은 이름이 든 결과들이 이 거리보다 멀리 떨어져 있으면 서로 다른 지점으로 본다. 한 역의 출구·호선(수백 m)은
 # 같은 곳, 같은 상호의 다른 지점(수 km)은 다른 곳이 되도록 1km로 잡았다.
 AMBIGUOUS_DISTANCE_M = 1000
 # 모호할 때 보여 줄 후보 수. 더 많으면 사용자가 고르기 어렵다.
 MAX_CANDIDATES = 3
+WEEKDAYS = "월화수목금토일"
+# 앞 일정 뒤 판정. 여유부족 = 약속에는 맞지만 원한 사전 도착 여유가 줄어듦, 지각 = 바로 출발해도 약속보다 늦음.
+# 바꾸면 tests/test_departure.py와 docs/TOOLS.md "TMAP 대중교통" 절을 같이 고친다.
+type SlackStatus = Literal["여유", "딱맞음", "여유부족", "지각"]
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,9 @@ class DeparturePlan:
     fastest: RouteOption
     fewer_transfers: RouteOption | None
     slack_minutes: int | None
+    # 앞 일정이 끝나자마자 출발했을 때의 도착 예상과 판정(앞 일정이 없으면 둘 다 None).
+    arrival_if_leave_now: datetime | None
+    status: SlackStatus | None
     conclusion: str
     reason: str
 
@@ -58,6 +67,22 @@ def minutes_from_seconds(seconds: int) -> int:
 
 def hhmm(moment: datetime) -> str:
     return moment.strftime("%H:%M")
+
+
+def day_time(moment: datetime) -> str:
+    """'11월 20일(금) 23:35'. 자정을 넘는 출발·도착에서 날짜를 함께 보이려고 쓴다."""
+    return f"{moment.month}월 {moment.day}일({WEEKDAYS[moment.weekday()]}) {hhmm(moment)}"
+
+
+def slack_status(slack: int | None, arrival_now: datetime | None, arrive_by: datetime) -> SlackStatus | None:
+    """앞 일정 뒤 판정. 늦는지는 약속 시각(arrive_by)으로, 여유부족은 원한 일찍 도착 목표로 가른다."""
+    if slack is None or arrival_now is None:
+        return None
+    if slack > 0:
+        return "여유"
+    if slack == 0:
+        return "딱맞음"
+    return "여유부족" if arrival_now <= arrive_by else "지각"
 
 
 def plan_departure_times(
@@ -75,43 +100,62 @@ def plan_departure_times(
     target = arrive_by - timedelta(minutes=early_minutes)
     depart = target - timedelta(minutes=fastest.minutes)
     slack = None if previous_end is None else int((depart - previous_end).total_seconds() // 60)
+    arrival_now = None if previous_end is None else previous_end + timedelta(minutes=fastest.minutes)
+    status = slack_status(slack, arrival_now, arrive_by)
+    if status in ("여유부족", "지각") and previous_end is not None and arrival_now is not None:
+        # 권장 출발이 앞 일정 종료보다 빠르다: 따를 수 없는 출발 시각 대신 끝나자마자 출발한 경우를 말한다.
+        conclusion = f"앞 일정이 끝나는 {hhmm(previous_end)}에 바로 출발하면 {hhmm(arrival_now)} 도착 예상입니다."
+        reason = shortage_text(status, arrive_by, target, arrival_now, early_minutes)
+    else:
+        conclusion = conclusion_text(arrive_by, target, depart, early_minutes)
+        reason = reason_text(fastest, slack, previous_end)
     return DeparturePlan(
         target_arrival=target,
         depart_at=depart,
         fastest=fastest,
         fewer_transfers=easiest if easiest.transfers < fastest.transfers else None,
         slack_minutes=slack,
-        conclusion=conclusion_text(arrive_by, target, depart, early_minutes),
-        reason=reason_text(fastest, slack, previous_end),
+        arrival_if_leave_now=arrival_now,
+        status=status,
+        conclusion=conclusion,
+        reason=reason,
     )
+
+
+def shortage_text(
+    status: SlackStatus, arrive_by: datetime, target: datetime, arrival_now: datetime, early_minutes: int
+) -> str:
+    """여유부족·지각 이유. "앞당기라"처럼 앞 일정 때문에 따를 수 없는 지시나 조회하지 않은 대안(택시)은 쓰지 않는다."""
+    if status == "여유부족":
+        late_for_buffer = int((arrival_now - target).total_seconds() // 60)
+        spare = int((arrive_by - arrival_now).total_seconds() // 60)
+        return (
+            f"약속({hhmm(arrive_by)})에는 맞지만 원하신 {early_minutes}분 전 도착보다 "
+            f"{late_for_buffer}분 늦습니다(여유 {spare}분)."
+        )
+    late = int((arrival_now - arrive_by).total_seconds() // 60)
+    return f"약속({hhmm(arrive_by)})보다 {late}분 늦습니다. 약속에 맞추려면 앞 일정이 {late}분 일찍 끝나야 합니다."
 
 
 def conclusion_text(arrive_by: datetime, target: datetime, depart: datetime, early_minutes: int) -> str:
     """결론 한 줄: 언제 출발해 언제 도착하는지. 일찍 도착 여유가 있으면 원래 시각과 함께 밝힌다."""
-    base = f"{hhmm(depart)}에 출발하면 {hhmm(target)}에 도착합니다"
+    # 자정을 넘으면(출발과 도착의 날짜가 다르면) 날짜·요일을 함께 쓴다. 같은 날이면 예전처럼 시각만.
+    if depart.date() != target.date():
+        base = f"{day_time(depart)}에 출발하면 {day_time(target)}에 도착합니다"
+    else:
+        base = f"{hhmm(depart)}에 출발하면 {hhmm(target)}에 도착합니다"
     if early_minutes:
         return f"{base}({hhmm(arrive_by)}보다 {early_minutes}분 일찍)."
     return f"{base}."
 
 
 def reason_text(fastest: RouteOption, slack: int | None, previous_end: datetime | None) -> str:
-    """이유 한 줄: 앞 일정 뒤 여유·부족(있을 때), 없으면 경로 기준.
-
-    부족하면 '늦을 수 있어요'로 끝내지 않고 몇 분 부족한지, 바로 출발하면 언제 도착하는지, 무엇을 바꾸면 되는지를 쓴다
-    (명세 3절). 택시 같은 조회하지 않은 대안은 만들지 않는다.
-    """
+    """이유 한 줄(여유·딱맞음·앞 일정 없음). 여유부족·지각은 shortage_text가 쓴다."""
     if slack is None or previous_end is None:
         return f"가장 빠른 경로 기준 예상 {fastest.minutes}분, 환승 {fastest.transfers}회입니다."
     if slack > 0:
         return f"앞 일정이 끝나고 {slack}분 여유가 있습니다."
-    if slack == 0:
-        return "앞 일정이 끝나자마자 출발해야 맞출 수 있습니다(여유 0분)."
-    arrival = previous_end + timedelta(minutes=fastest.minutes)
-    short = -slack
-    return (
-        f"앞 일정이 끝나고 바로 출발해도 {short}분 부족합니다({hhmm(arrival)} 도착 예상). "
-        f"출발을 {short}분 앞당기면 목표 도착 시각을 맞출 수 있습니다."
-    )
+    return "앞 일정이 끝나자마자 출발해야 맞출 수 있습니다(여유 0분)."
 
 
 def route_difference(fastest: RouteOption, other: RouteOption) -> str:
