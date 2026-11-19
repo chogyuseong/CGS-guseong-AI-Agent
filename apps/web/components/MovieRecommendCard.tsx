@@ -11,6 +11,8 @@ import { safeHttpUrl } from "@/lib/stepOutput";
 import { withUniqueKeys } from "@/lib/uniqueKeys";
 
 const UNKNOWN = "정보 없음";
+// TMDB 출처 문구. 서버 boxoffice.TMDB_NOTICE와 같은 글자다(추천 카드는 서버가 보낸 값을, 조회 단계는 이 값을 쓴다).
+const TMDB_NOTICE = "이 서비스는 TMDB API를 사용하지만 TMDB의 보증이나 인증을 받지 않았습니다.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -77,7 +79,7 @@ function BookingLinks({ value }: { value: unknown }) {
   );
 }
 
-function Attribution({ notice }: { notice: unknown }) {
+export function Attribution({ notice }: { notice: unknown }) {
   return (
     <div className="flex flex-col gap-1 text-xs text-muted-foreground">
       <p>영화 정보: KOBIS(영화관입장권통합전산망)</p>
@@ -90,6 +92,19 @@ function Attribution({ notice }: { notice: unknown }) {
       )}
     </div>
   );
+}
+
+// 상영작 조회(list_now_showing) 출력의 출처.TMDB. 조회 결과 모양이 아니면 null(출처 줄을 그리지 않음).
+export function readLookupTmdb(output: unknown): boolean | null {
+  const data = isRecord(output) ? output.data : null;
+  const content = isRecord(data) ? data.content : null;
+  const source = isRecord(content) ? content.출처 : null;
+  return isRecord(source) && typeof source.TMDB === "boolean" ? source.TMDB : null;
+}
+
+// 조회 단계 아래 출처 줄. 모델이 추천 카드 없이 조회 결과만으로 답해도 TMDB 출처가 보이게(2026-11-19 최종 검토).
+export function MovieSourceNote({ tmdb }: { tmdb: boolean }) {
+  return <Attribution notice={tmdb ? TMDB_NOTICE : null} />;
 }
 
 export function MovieRecommendCard({ card }: { card: Record<string, unknown> }) {

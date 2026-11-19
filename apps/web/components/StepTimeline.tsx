@@ -22,7 +22,12 @@ import {
 import { useState } from "react";
 import { ExternalContent } from "@/components/ExternalContent";
 import { JobPrepCard, readJobPrep, storedExperienceCount } from "@/components/JobPrepCard";
-import { MovieRecommendCard, readMovieRecommend } from "@/components/MovieRecommendCard";
+import {
+  MovieRecommendCard,
+  MovieSourceNote,
+  readLookupTmdb,
+  readMovieRecommend,
+} from "@/components/MovieRecommendCard";
 import type { Step } from "@/lib/chat";
 import { isMailTool, readExternalOutput } from "@/lib/stepOutput";
 import { cn } from "@/lib/utils";
@@ -148,6 +153,9 @@ function StepDetail({ step }: { step: Step }) {
             travel={step.tool_name === "plan_departure"}
             movie={step.tool_name === "compare_showtimes"}
           />
+          {step.tool_name === "list_now_showing" && readLookupTmdb(step.output) !== null && (
+            <MovieSourceNote tmdb={readLookupTmdb(step.output) === true} />
+          )}
         </div>
       ) : (
         <JsonBlock title="출력" value={step.output} />

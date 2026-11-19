@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Step } from "@/lib/chat";
 import { StepTimeline } from "./StepTimeline";
@@ -117,5 +117,39 @@ describe("MovieRecommendCard", () => {
       "aria-expanded",
       "true",
     );
+  });
+});
+
+// 최종 검토 Minor(2026-11-19): 모델이 추천 카드 없이 상영작 조회 결과만으로 답해도 TMDB 출처가 화면에 보여야 한다.
+describe("상영작 조회 단계의 출처 표기", () => {
+  function lookupStep(tmdb: boolean): Step {
+    const content = {
+      기준일: "2026-11-18",
+      영화: [{ code: "1", 제목: "폭설" }],
+      출처: { KOBIS: true, TMDB: tmdb },
+    };
+    return makeStep({
+      tool_name: "list_now_showing",
+      label: "상영작 확인하는 중",
+      output: {
+        status: "succeeded",
+        data: { notice: "외부 데이터", content, truncated: false },
+        sources: ["https://www.kobis.or.kr"],
+      },
+    });
+  }
+
+  it("TMDB를 쓴 조회에는 로고와 문구를 붙인다", () => {
+    render(<StepTimeline steps={[lookupStep(true)]} />);
+    fireEvent.click(screen.getByRole("button", { name: /상영작 확인하는 중/ }));
+    expect(screen.getByText(NOTICE)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "TMDB" })).toBeInTheDocument();
+  });
+
+  it("TMDB 없이 조회했으면 KOBIS 출처만 보인다", () => {
+    render(<StepTimeline steps={[lookupStep(false)]} />);
+    fireEvent.click(screen.getByRole("button", { name: /상영작 확인하는 중/ }));
+    expect(screen.queryByText(NOTICE)).not.toBeInTheDocument();
+    expect(screen.getByText("영화 정보: KOBIS(영화관입장권통합전산망)")).toBeInTheDocument();
   });
 });

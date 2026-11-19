@@ -50,6 +50,7 @@
 - KOBIS(`app/tools/kobis.py`): `GET https://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json`
   (key, targetDt=서울 어제, itemPerPage 10. 비면 전날 한 번) → 영화마다 `movie/searchMovieInfo.json`(key, movieCd).
   키 오류도 HTTP 200 + `faultInfo`(errorCode 320010)라 본문을 보고 실패로 바꾼다. 하루 호출 한도는 문서에 없음.
+  키는 쿼리 문자열로만 받는 방식이다 — 주소를 남기는 계측·로그를 켤 때 가리기 필요(docs/OBSERVABILITY.md).
   사실 칸(순위·개봉일·누적 관객·장르·상영 시간·관람 등급·감독·배우 상위 2명)의 정본. 값이 없으면 "정보 없음".
 - TMDB(`app/tools/tmdb.py`): `GET https://api.themoviedb.org/3/movie/now_playing?region=KR&language=ko-KR`(1~2쪽),
   짝이 없으면 `GET /3/search/movie?query=제목&language=ko-KR&region=KR`. 인증은 `Authorization: Bearer TMDB_READ_TOKEN`
@@ -61,7 +62,9 @@
   (2026-11-19 최종 검토). TMDB 검색 하나가 실패해도 다른 영화의 짝은 남긴다. 결과는 10편 기준 약 3,400자(6,000자 안).
 - `recommend_movies`: 인자는 code·이유(120자)·조건(60자)뿐. 이번 작업에서 마지막으로 성공한 `list_now_showing` 단계 기록에 있는
   code만 받고(목록 밖·중복 거절), 사실 칸은 그 기록에서 서버가 채운다. 외부 요청 없음. 예매는 CGV·롯데시네마·메가박스 공식 홈페이지.
-- 화면: `components/MovieRecommendCard.tsx`(TMDB를 쓴 결과에만 공식 로고 `public/tmdb-logo.svg`와 문구).
+- 화면: `components/MovieRecommendCard.tsx`(TMDB를 쓴 결과에만 공식 로고 `public/tmdb-logo.svg`와 문구. 상영작 조회 단계에도
+  같은 출처 줄을 붙인다 — 모델이 카드 없이 조회 결과만으로 답해도 출처가 보이게). 조회 결과가 6,000자를 넘으면 줄거리를 뺀다.
+  KOBIS 목록에 정규화 제목이 같은 영화가 둘이면 TMDB 짝짓기를 건너뛴다.
 - 실제 확인(2026-11-19, 모델 없이 1회): 기준일 2026-11-18, 10편, TMDB 짝 8편(공연 실황 1편, 표기가 다른 애니메이션 1편은 짝 없음).
 
 ## 영화 회차 고르기 (2026-11-18, 영화 비서 C 첫 단계)
