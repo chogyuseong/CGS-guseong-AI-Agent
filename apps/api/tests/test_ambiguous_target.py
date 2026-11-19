@@ -121,3 +121,38 @@ async def test_pinned_update_still_asks_for_approval(
 
     assert task["status"] == "waiting_approval"
     assert [a["tool_name"] for a in task["approvals"]] == ["update_event"]
+
+
+def calendar_by_range(fake_http: FakeHttp) -> None:
+    """조회 기간(timeMin~timeMax) 안의 일정만 돌려주는 가짜 Google(실제 API처럼)."""
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        low, high = request.url.params.get("timeMin", ""), request.url.params.get("timeMax", "9999")
+        items = [
+            {"id": e["id"], "summary": e["title"], "start": {"dateTime": e["start"]}, "end": {"dateTime": e["start"]}}
+            for e in EVENTS
+            if low[:10] <= e["start"][:10] < high[:10]
+        ]
+        return json_response(200, {"items": items})
+
+    fake_http.route("GET", "https://www.googleapis.com/calendar/v3/calendars/primary/events", reply)
+
+
+async def test_narrow_lookup_does_not_hide_other_candidates(
+    client: httpx.AsyncClient, agent: MyAgent, conversation: int, tool_deps: AgentDeps, fake_http: FakeHttp, monkeypatch
+) -> None:
+    """eval 07 재발(2026-11-19): 모델이 일주일(11/18~11/24)만 조회해 11/26 '치과 정기검진'을 못 봤다.
+    서버가 넓은 범위를 직접 한 번 더 조회해 후보를 찾는다."""
+    monkeypatch.setattr(ambiguity, "today_seoul", lambda: TODAY)
+    await connect_google(tool_deps)
+    calendar_by_range(fake_http)
+    model = scripted(
+        call("list_events", date_from="2026-11-18", date_to="2026-11-24"),
+        call("update_event", event_id="evtdentist1", start="2026-11-19T17:00", end="2026-11-19T18:00"),
+        text("옮겼습니다."),
+    )
+    with agent.override(model=model.model()):
+        task = await send(client, conversation, "치과 일정 5시로 옮겨줘")
+
+    assert task["approvals"] == []
+    assert "치과 정기검진" in task["final_answer"]

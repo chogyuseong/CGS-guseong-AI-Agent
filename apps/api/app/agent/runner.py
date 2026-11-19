@@ -648,7 +648,7 @@ async def screen_deferred(services: RunServices, info: TaskInfo, outcome: Outcom
     - 자동 작업(예약·감시)은 READ 도구만 받으므로 승인이 올 수 없다. 와도 실패로 끝낸다.
     - 한 번에 삭제 2건 이상이면 실패(대량 삭제를 카드 여러 장으로 연달아 승인하는 사고 방지, 2026-11-19).
     - 수정·삭제 대상이 모호하면 카드 대신 후보를 보여 주며 되묻고 done으로 끝낸다(ambiguity, 2026-11-19).
-    부수 효과: DB 읽기(ambiguity). 쓰지 않는다.
+    부수 효과: DB 읽기와 Google Calendar 조회 1회(ambiguity). 쓰지 않는다.
     """
     if outcome.deferred is None:
         return outcome
@@ -657,7 +657,7 @@ async def screen_deferred(services: RunServices, info: TaskInfo, outcome: Outcom
     if too_many_deletes(outcome.deferred):
         return Outcome(TaskStatus.FAILED, error=BULK_DELETE_MESSAGE, new_messages=outcome.new_messages)
     async with services.session_factory() as session:
-        question = await ambiguity_question(session, info.id, info.user_id, outcome.deferred)
+        question = await ambiguity_question(session, deps_for(services, info), outcome.deferred)
     return asked_instead(outcome, question) if question else outcome
 
 
