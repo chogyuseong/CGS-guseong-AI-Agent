@@ -26,15 +26,20 @@ KOBIS + TMDB). 첫 단계(회차 고르기, showtimes.compare_showtimes)는 그�
 """
 
 from datetime import date
-from typing import Any
+from typing import Annotated, Any
 
+from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
+from sqlalchemy import select
 
 from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
+from app.models import Step, Task
+from app.models.enums import StepStatus
 from app.tools import kobis, tmdb
 from app.tools.http import ExternalApiError
 from app.tools.kobis import KobisMovie
+from app.tools.showtimes import BOOKING_SITES
 from app.tools.tmdb import TmdbInfo
 
 KOBIS_SOURCE = "https://www.kobis.or.kr"
@@ -127,3 +132,111 @@ async def list_now_showing(ctx: RunContext[AgentDeps]) -> ToolResult:
 
 def list_now_showing_label(args: dict[str, Any]) -> str:
     return "상영작 확인하는 중"
+
+
+# ---- recommend_movies ---------------------------------------------------------------------------------------------
+
+# TMDB 이용 조건의 출처 표기 문구(2026-11-19 확인: "uses TMDB and the TMDB APIs but is not endorsed, certified, or
+# otherwise approved by TMDB"). 화면은 이 문구와 TMDB 로고를 함께 보인다. 바꾸면 화면 테스트도 고친다.
+TMDB_NOTICE = "이 서비스는 TMDB API를 사용하지만 TMDB의 보증이나 인증을 받지 않았습니다."
+NEXT_STEP = "보고 싶은 영화의 시간표를 붙여 주시면 회차를 골라 드릴게요."
+NEED_LOOKUP = "먼저 상영작을 조회해야 합니다. list_now_showing을 부른 뒤 그 목록에서 골라 주세요."
+# 카드 사실 칸(정본은 단계 기록의 KOBIS 값, 평점만 TMDB). 줄거리는 넣지 않는다 — 외부 글을 카드로 다시 내보내지 않는다.
+FACT_KEYS = ("장르", "상영 시간", "등급", "감독", "배우", "누적 관객", "평점")
+# 예매는 극장 브랜드 공식 홈페이지 링크만(회차 고르기와 같은 목록, showtimes.BOOKING_SITES).
+BOOKING_LINKS = tuple({"극장": name, "주소": url} for name, url in BOOKING_SITES.items())
+
+
+class Pick(BaseModel):
+    """모델이 고른 영화 하나: list_now_showing 결과의 code와 추천 이유."""
+
+    code: str = Field(min_length=1, max_length=20, description="list_now_showing 결과의 code")
+    reason: str = Field(min_length=1, max_length=120, description="이 사용자에게 추천하는 이유(취향·조건에 맞춰)")
+
+
+async def last_lookup(deps: AgentDeps) -> dict[str, Any] | None:
+    """이번 작업에서 마지막으로 성공한 list_now_showing의 결과 내용(기준일·영화·출처). 없거나 구조가 아니면 None.
+
+    기준을 메모리 캐시가 아니라 단계 기록으로 둔 이유: 사용자가 본 목록과 같고, 재시작·복구 뒤에도 남고,
+    외부 요청이 없다.
+    불변 조건: Task.user_id 조건으로 남의 작업 기록을 읽지 않는다. 읽기만 한다.
+    """
+    async with deps.db() as session:
+        output = await session.scalar(
+            select(Step.output)
+            .join(Task, Task.id == Step.task_id)
+            .where(
+                Step.task_id == deps.task_id,
+                Task.user_id == deps.user_id,
+                Step.tool_name == "list_now_showing",
+                Step.status == StepStatus.DONE,
+            )
+            .order_by(Step.order.desc())
+            .limit(1)
+        )
+    data = output.get("data") if isinstance(output, dict) else None
+    content = data.get("content") if isinstance(data, dict) else None
+    return content if isinstance(content, dict) and isinstance(content.get("영화"), list) else None
+
+
+def pick_problem(picks: list[Pick], movies: dict[str, dict[str, Any]]) -> str | None:
+    """목록 밖 code·중복 code를 거절하는 문장. 모델이 목록에서 다시 고르게 어느 code인지 알려 준다."""
+    codes = [p.code for p in picks]
+    if len(set(codes)) != len(codes):
+        return "같은 영화를 두 번 고르셨습니다. 서로 다른 영화로 골라 주세요."
+    missing = [code for code in codes if code not in movies]
+    if missing:
+        return f"조회한 상영작 목록에 없는 code입니다: {', '.join(missing)}. 목록 안에서 골라 주세요."
+    return None
+
+
+def recommend_card(lookup: dict[str, Any], picks: list[Pick], taste: str | None) -> dict[str, Any]:
+    """카드 내용. 사실 칸은 단계 기록에서 채운다(모델 인자에는 code와 이유뿐)."""
+    movies = {str(m.get("code")): m for m in lookup["영화"] if isinstance(m, dict)}
+    rows = [
+        {"제목": movies[p.code].get("제목", ""), "이유": p.reason}
+        | {key: movies[p.code].get(key, UNKNOWN) for key in FACT_KEYS}
+        for p in picks
+    ]
+    card: dict[str, Any] = {
+        "결론": f"{rows[0]['제목']} 추천",
+        "기준일": lookup.get("기준일"),
+        "추천": rows,
+        "다음": NEXT_STEP,
+        "예매": list(BOOKING_LINKS),
+    }
+    if taste:
+        card["조건"] = taste
+    if (lookup.get("출처") or {}).get("TMDB"):
+        card["출처 표기"] = TMDB_NOTICE
+    return card
+
+
+async def recommend_result(deps: AgentDeps, picks: list[Pick], taste: str | None) -> ToolResult:
+    """도구 본문. 외부 요청 없음. 예외를 밖으로 던지지 않는다."""
+    lookup = await last_lookup(deps)
+    if lookup is None:
+        return ToolResult.failure(NEED_LOOKUP, error_code="invalid")
+    movies = {str(m.get("code")): m for m in lookup["영화"] if isinstance(m, dict)}
+    if problem := pick_problem(picks, movies):
+        return ToolResult.failure(problem, error_code="invalid")
+    return ToolResult.success(recommend_card(lookup, picks, taste))
+
+
+# 도구(READ). docstring은 모델에게 보이는 도구 설명이다.
+async def recommend_movies(
+    ctx: RunContext[AgentDeps],
+    picks: Annotated[list[Pick], Field(min_length=1, max_length=3, description="추천할 영화 1~3편, 좋은 순서대로")],
+    taste: Annotated[str | None, Field(max_length=60, description="사용자가 말한 조건 요약(예: 친구와 가볍게)")] = None,
+) -> ToolResult:
+    """list_now_showing으로 조회한 상영작 중 1~3편을 이유와 함께 추천 카드로 보여 준다.
+
+    code는 반드시 이번 list_now_showing 결과에서 고른다. 장르·상영 시간·등급·평점은 서버가 채우므로 이유에는
+    이 사용자의 취향(기억)과 이번 조건에 왜 맞는지를 쓴다.
+    회차는 사용자가 시간표를 붙여 넣으면 compare_showtimes로 고른다.
+    """
+    return await recommend_result(ctx.deps, picks, taste)
+
+
+def recommend_movies_label(args: dict[str, Any]) -> str:
+    return "영화 추천 정리하는 중"

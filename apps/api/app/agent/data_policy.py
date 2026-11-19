@@ -172,6 +172,8 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     ),
     # 2026-11-19 영화 추천. 보내는 것은 날짜·영화 코드·제목뿐(사용자 글이 들어가지 않는다).
     "list_now_showing": public_lookup("KOBIS·TMDB", "상영작 목록(사실은 KOBIS, 줄거리·평점은 TMDB)과 출처"),
+    # 외부 전송 없음(이번 작업의 단계 기록만 읽는다). 결과에 사용자가 말한 조건(taste)이 들어가 user_private.
+    "recommend_movies": internal("추천 카드(제목·이유·KOBIS 사실 칸·TMDB 평점, 예매 공식 링크)"),
     "compare_products": ToolPolicy(
         "쿠팡 파트너스",
         PUBLIC_ONLY,

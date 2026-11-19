@@ -212,6 +212,7 @@ async def test_chat_task_gets_all_tool_levels(
                 "plan_departure",
                 "compare_showtimes",
                 "list_now_showing",  # 2026-11-19 영화 추천(travel_tools)
+                "recommend_movies",
                 "list_experiences",
                 "show_job_prep",
             ]

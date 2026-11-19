@@ -145,7 +145,7 @@ shopping_tools = FunctionToolset[AgentDeps](
 # 2026-11-18 이동 비서 B. TMAP 한도를 예약·감시가 쓰지 않게 채팅에만 준다(READ).
 # 2026-11-19 영화 추천(list_now_showing)도 여기: 회차 고르기와 한 흐름이고, 예약·감시 사용은 제안으로 남겼다(설계 문서).
 travel_tools = FunctionToolset[AgentDeps](
-    [tmap.plan_departure, showtimes.compare_showtimes, boxoffice.list_now_showing],
+    [tmap.plan_departure, showtimes.compare_showtimes, boxoffice.list_now_showing, boxoffice.recommend_movies],
     id="travel_tools",
     metadata=risk_metadata(RiskLevel.READ),
     sequential=True,
@@ -177,6 +177,7 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "plan_departure": tmap.plan_departure_label,
     "compare_showtimes": showtimes.compare_showtimes_label,
     "list_now_showing": boxoffice.list_now_showing_label,
+    "recommend_movies": boxoffice.recommend_movies_label,
     **experiences.LABELS,
     "show_job_prep": jobprep.show_job_prep_label,
     **gcal.LABELS,
