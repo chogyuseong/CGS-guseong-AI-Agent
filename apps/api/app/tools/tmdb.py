@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agent.deps import AgentDeps
-from app.tools.http import get_json
+from app.tools.http import ExternalApiError, get_json
 from app.tools.kobis import KobisMovie
 
 SERVICE = "TMDB"
@@ -107,20 +107,26 @@ async def search_one(deps: AgentDeps, movie: KobisMovie) -> TmdbInfo | None:
     return to_info(candidates[0]) if len(candidates) == 1 else None
 
 
-async def match_movies(deps: AgentDeps, movies: list[KobisMovie]) -> dict[str, TmdbInfo]:
-    """KOBIS 영화 코드 → TMDB 정보. 짝이 없는 영화는 빠진다. 토큰이 없으면 외부 요청 없이 {}.
+async def match_movies(deps: AgentDeps, movies: list[KobisMovie]) -> tuple[dict[str, TmdbInfo], bool]:
+    """(KOBIS 영화 코드 → TMDB 정보, 완전한가). 짝이 없는 영화는 빠진다. 토큰이 없으면 외부 요청 없이 ({}, True).
 
-    부수 효과: TMDB 호출(now_playing 1~2회 + 짝 없는 영화마다 검색 1회). 오류는 ExternalApiError로 던진다.
+    완전한가: 검색이 하나라도 실패했으면 False(그 영화만 짝 없이 두고 나머지 짝은 남긴다 — 2026-11-19 최종 검토).
+    호출 쪽은 완전하지 않은 결과를 하루 캐시에 두지 않는다(일시 오류가 하루 내내 남지 않게).
+    부수 효과: TMDB 호출(now_playing 1~2회 + 짝 없는 영화마다 검색 1회). now_playing 오류는 ExternalApiError로 던진다.
     """
     if not deps.settings.tmdb_read_token.get_secret_value().strip():
-        return {}
+        return {}, True
     by_title: dict[str, list[dict[str, Any]]] = {}
     for item in await now_playing(deps):
         by_title.setdefault(normalize_title(str(item.get("title") or "")), []).append(item)
     found: dict[str, TmdbInfo] = {}
+    complete = True
     for movie in movies:
         same = by_title.get(normalize_title(movie.title), [])
-        info = to_info(same[0]) if len(same) == 1 else await search_one(deps, movie)
+        try:
+            info = to_info(same[0]) if len(same) == 1 else await search_one(deps, movie)
+        except ExternalApiError:
+            info, complete = None, False
         if info is not None:
             found[movie.code] = info
-    return found
+    return found, complete

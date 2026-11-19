@@ -56,6 +56,8 @@ class KobisMovie:
     directors: list[str]
     actors: list[str]
     production_year: str | None
+    # 상세 조회가 성공했는가. 실패면 위 상세 칸이 비어 있고, boxoffice는 이 결과를 하루 캐시에 두지 않는다.
+    detail_ok: bool = True
 
 
 def target_day() -> date:
@@ -125,6 +127,7 @@ def parse_movie(row: dict[str, Any], info: dict[str, Any] | None) -> KobisMovie:
         directors=names(detail.get("directors"), "peopleNm", PEOPLE_LIMIT),
         actors=names(detail.get("actors"), "peopleNm", PEOPLE_LIMIT),
         production_year=str(detail["prdtYear"]) if detail.get("prdtYear") else None,
+        detail_ok=info is not None,
     )
 
 

@@ -32,7 +32,8 @@ def test_normalize_title_ignores_spacing_and_marks():
 
 async def test_matches_now_playing_by_title(tool_deps, fake_http):
     route_tmdb(fake_http)
-    found = await tmdb.match_movies(tool_deps, [HUNGER])
+    found, complete = await tmdb.match_movies(tool_deps, [HUNGER])
+    assert complete is True
     assert found["20267121"].tmdb_id == 1300968
     assert found["20267121"].vote_average == pytest.approx(7.448)
     assert found["20267121"].vote_count == 29
@@ -42,7 +43,7 @@ async def test_matches_now_playing_by_title(tool_deps, fake_http):
 
 async def test_search_fallback_with_year(tool_deps, fake_http):
     route_tmdb(fake_http)
-    found = await tmdb.match_movies(tool_deps, [SNOW])
+    found, _ = await tmdb.match_movies(tool_deps, [SNOW])
     assert found["20247221"].tmdb_id == 1244809  # 같은 제목 셋 중 개봉 연도가 1년 이내인 하나
     search = fake_http.sent("GET", tmdb.SEARCH_URL)[0]
     assert search.url.params["query"] == "폭설"
@@ -52,18 +53,18 @@ async def test_search_fallback_with_year(tool_deps, fake_http):
 async def test_search_ambiguous_skips(tool_deps, fake_http):
     route_tmdb(fake_http)
     # 2025년 개봉이라면 2024·2026 두 "폭설"이 모두 1년 이내 → 확실하지 않으니 붙이지 않는다
-    found = await tmdb.match_movies(tool_deps, [movie("x1", "폭설", "2025-06-01")])
+    found, _ = await tmdb.match_movies(tool_deps, [movie("x1", "폭설", "2025-06-01")])
     assert found == {}
 
 
 async def test_search_year_far_skips(tool_deps, fake_http):
     route_tmdb(fake_http)
-    assert await tmdb.match_movies(tool_deps, [movie("x2", "폭설", "2030-01-01")]) == {}
+    assert (await tmdb.match_movies(tool_deps, [movie("x2", "폭설", "2030-01-01")]))[0] == {}
 
 
 async def test_no_token_no_request(tool_deps, fake_http):
     tool_deps.settings.tmdb_read_token = SecretStr("")
-    assert await tmdb.match_movies(tool_deps, [HUNGER, SNOW]) == {}
+    assert await tmdb.match_movies(tool_deps, [HUNGER, SNOW]) == ({}, True)  # 토큰이 없으면 완전한 결과로 본다
     assert fake_http.requests == []
 
 
@@ -81,3 +82,12 @@ async def test_unauthorized_raises(tool_deps, fake_http):
     with pytest.raises(ExternalApiError) as caught:
         await tmdb.match_movies(tool_deps, [HUNGER])
     assert caught.value.code == "unauthorized"
+
+
+async def test_search_error_keeps_other_matches(tool_deps, fake_http):
+    """검색 하나가 실패해도 이미 짝지은 영화는 남기고, 결과가 완전하지 않다고 알린다(최종 검토 Important 2)."""
+    fake_http.route("GET", tmdb.NOW_PLAYING_URL, fixture_response("tmdb_now_playing_kr.json"))
+    fake_http.route("GET", tmdb.SEARCH_URL, json_response(503, {}))
+    found, complete = await tmdb.match_movies(tool_deps, [HUNGER, SNOW])
+    assert set(found) == {"20267121"}
+    assert complete is False

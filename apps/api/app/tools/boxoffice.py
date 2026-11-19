@@ -5,7 +5,8 @@ KOBIS + TMDB). 첫 단계(회차 고르기, showtimes.compare_showtimes)는 그�
 
 - list_now_showing: KOBIS 상위 10편의 사실 칸(kobis.py) + TMDB 줄거리·평점(tmdb.py)을 외부 콘텐츠로 돌려준다.
   KOBIS 키가 없으면 외부 요청 없이 안내. TMDB가 실패하거나 토큰이 없으면 KOBIS 정보만으로 성공(출처.TMDB=false).
-  같은 기준일 결과는 프로세스 메모리에 둔다(CACHE, 재시작하면 비움). 하루 외부 호출을 약 13회로 묶는다
+  같은 기준일의 완전한 결과만 프로세스 메모리에 둔다(CACHE, 재시작하면 비움). 한 번 조회의 외부 호출은 최대
+  24회(KOBIS 박스오피스 2 + 상세 10, TMDB now_playing 2 + 검색 10)이고, 캐시가 차면 그날은 다시 부르지 않는다
   (두 API 모두 하루 한도가 문서에 없다, 2026-11-19 확인).
 - 줄거리는 OVERVIEW_CHARS로 자른다: 10편 결과 JSON이 results.MAX_EXTERNAL_CHARS(6,000자) 안에 들어야
   잘린 문자열이 아니라 구조로 남고, recommend_movies가 단계 기록에서 영화 목록을 다시 읽을 수 있다
@@ -54,7 +55,7 @@ CACHE_DAYS = 2
 
 
 def clear_cache() -> None:
-    """테스트와 키 교체 뒤에 쓴다(다른 테스트의 조회 결과가 섞이지 않게)."""
+    """테스트가 쓴다(다른 테스트의 조회 결과가 섞이지 않게). 운영에서는 API를 다시 시작하면 비워진다."""
     CACHE.clear()
 
 
@@ -92,12 +93,21 @@ def movie_row(movie: KobisMovie, info: TmdbInfo | None) -> dict[str, Any]:
 
 
 async def tmdb_matches(deps: AgentDeps, movies: list[KobisMovie]) -> tuple[dict[str, TmdbInfo], bool]:
-    """(짝, TMDB를 썼는가). TMDB 오류는 삼키고 KOBIS만으로 계속한다 — 줄거리는 덤이고 사실은 KOBIS에 있다."""
+    """(짝, 완전한가). TMDB 오류는 삼키고 KOBIS만으로 계속한다 — 줄거리는 덤이고 사실은 KOBIS에 있다.
+
+    TMDB 일시 오류는 완전하지 않은 결과다(다음 조회 때 다시 시도). 토큰이 없는 것은 오류가 아니라 완전하다.
+    """
     try:
-        found = await tmdb.match_movies(deps, movies)
+        return await tmdb.match_movies(deps, movies)
     except ExternalApiError:
         return {}, False
-    return found, bool(found)
+
+
+def remember(requested: date, entry: tuple[dict[str, Any], list[str]]) -> None:
+    """완전한 결과만 하루 캐시에 둔다. 최근 CACHE_DAYS개만 남긴다."""
+    for old in sorted(CACHE)[: max(0, len(CACHE) - CACHE_DAYS + 1)]:
+        del CACHE[old]
+    CACHE[requested] = entry
 
 
 async def lookup_now_showing(deps: AgentDeps) -> ToolResult:
@@ -105,22 +115,25 @@ async def lookup_now_showing(deps: AgentDeps) -> ToolResult:
     if not deps.settings.kobis_api_key.get_secret_value().strip():
         return ToolResult.failure(NO_KEY_MESSAGE, error_code="not_configured")
     requested = kobis.target_day()
-    if requested not in CACHE:
-        try:
-            day, movies = await kobis.fetch_now_showing(deps)
-        except ExternalApiError as error:
-            return ToolResult.from_api_error(error)
-        found, used_tmdb = await tmdb_matches(deps, movies)
-        content = {
-            "기준일": day.isoformat(),
-            "영화": [movie_row(m, found.get(m.code)) for m in movies],
-            "출처": {"KOBIS": True, "TMDB": used_tmdb},
-        }
-        for old in sorted(CACHE)[: max(0, len(CACHE) - CACHE_DAYS + 1)]:
-            del CACHE[old]
-        CACHE[requested] = (content, [KOBIS_SOURCE, *([TMDB_SOURCE] if used_tmdb else [])])
-    content, sources = CACHE[requested]
-    return ToolResult.external(content, sources)
+    if requested in CACHE:
+        return ToolResult.external(*CACHE[requested])
+    try:
+        day, movies = await kobis.fetch_now_showing(deps)
+    except ExternalApiError as error:
+        return ToolResult.from_api_error(error)
+    found, tmdb_complete = await tmdb_matches(deps, movies)
+    used_tmdb = bool(found)
+    content = {
+        "기준일": day.isoformat(),
+        "영화": [movie_row(m, found.get(m.code)) for m in movies],
+        "출처": {"KOBIS": True, "TMDB": used_tmdb},
+    }
+    entry = (content, [KOBIS_SOURCE, *([TMDB_SOURCE] if used_tmdb else [])])
+    # 캐시하지 않는 경우(2026-11-19 최종 검토): 새벽에 전날 목록으로 대신한 결과(곧 어제 집계가 나온다),
+    # 상세 조회 실패·TMDB 일시 오류로 생긴 반쪽 결과. 하루 내내 옛 목록·빈 칸이 보이지 않게 다음 조회 때 다시 묻는다.
+    if day == requested and tmdb_complete and all(m.detail_ok for m in movies):
+        remember(requested, entry)
+    return ToolResult.external(*entry)
 
 
 # 도구(READ). docstring은 모델에게 보이는 도구 설명이다.

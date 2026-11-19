@@ -165,3 +165,43 @@ async def test_no_votes_hides_rating(tool_deps, fake_http):
     hunger = content_of(await lookup(tool_deps))["영화"][2]
     assert "줄거리" in hunger
     assert "평점" not in hunger and "평가 수" not in hunger
+
+
+# 최종 검토 Important 1·2(2026-11-19): 완전한 결과만 하루 캐시에 둔다. 그 밖에는 다음 조회 때 다시 요청한다.
+async def test_fallback_result_not_cached(tool_deps, fake_http):
+    route_all(fake_http)
+    empty = {"boxOfficeResult": {"dailyBoxOfficeList": []}}
+    fake_http.route(
+        "GET", kobis.BOXOFFICE_URL, json_response(200, empty), fixture_response("kobis_daily_boxoffice.json")
+    )
+    first = content_of(await lookup(tool_deps))
+    assert first["기준일"] == "2026-11-17"
+    sent = len(fake_http.sent("GET", kobis.BOXOFFICE_URL))
+    await lookup(tool_deps)
+    assert len(fake_http.sent("GET", kobis.BOXOFFICE_URL)) > sent  # 어제 집계가 나왔을 수 있어 다시 묻는다
+
+
+async def test_partial_tmdb_not_cached(tool_deps, fake_http):
+    route_all(fake_http, tmdb_reply=json_response(503, {}))
+    await lookup(tool_deps)
+    sent = len(fake_http.sent("GET", kobis.BOXOFFICE_URL))
+    await lookup(tool_deps)
+    assert len(fake_http.sent("GET", kobis.BOXOFFICE_URL)) > sent
+
+
+async def test_detail_failure_not_cached(tool_deps, fake_http):
+    route_all(fake_http)
+    fake_http.route("GET", kobis.MOVIE_INFO_URL, json_response(404, {}))
+    await lookup(tool_deps)
+    sent = len(fake_http.sent("GET", kobis.BOXOFFICE_URL))
+    await lookup(tool_deps)
+    assert len(fake_http.sent("GET", kobis.BOXOFFICE_URL)) > sent
+
+
+async def test_no_tmdb_token_result_is_cached(tool_deps, fake_http):
+    tool_deps.settings.tmdb_read_token = SecretStr("")
+    route_all(fake_http)
+    await lookup(tool_deps)
+    count = len(fake_http.requests)
+    await lookup(tool_deps)
+    assert len(fake_http.requests) == count  # 토큰이 없는 것은 일시 오류가 아니다

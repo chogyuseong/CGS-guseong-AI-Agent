@@ -83,6 +83,7 @@ async def test_info_failure_keeps_movie(tool_deps, fake_http, kobis_key):
     assert movies[0].runtime_minutes is None
     assert movies[0].grade is None
     assert movies[0].title == "폭설"  # 박스오피스 칸은 남는다
+    assert movies[0].detail_ok is False
 
 
 async def test_timeout_is_retryable(tool_deps, fake_http, kobis_key):
