@@ -22,7 +22,7 @@ docs/DECISIONS.md.
 변경 이력:
 - 2026-11-18 처음 작성.
 - 2026-11-19 시간표 검증을 숫자 포함 검사에서 회차 단위 대조로 바꿈(timetable.py, tests/test_showtime_paste.py).
-  recent_user_messages 추가(recent_user_text는 같은 결과를 그대로 돌려줌 — jobprep이 씀).
+  recent_user_messages 추가(메시지 단위. 같은 날 취업 준비 jobprep도 이것으로 바꿔 recent_user_text는 지움).
 """
 
 from datetime import datetime, timedelta
@@ -93,14 +93,6 @@ async def recent_user_messages(deps: AgentDeps) -> list[str]:
             .limit(RECENT_USER_MESSAGES)
         )
         return list(rows)
-
-
-async def recent_user_text(deps: AgentDeps) -> str:
-    """최근 사용자 메시지들을 줄바꿈으로 이은 글(새 것부터). 취업 준비(jobprep)가 공고 인용 검사에 쓴다.
-
-    고칠 때 주의: 반환 모양(새 것부터, 줄바꿈으로 이음)을 바꾸면 jobprep 테스트를 같이 본다.
-    """
-    return "\n".join(await recent_user_messages(deps))
 
 
 async def paste_problem(deps: AgentDeps, items: list[tuple[ShowingIn, Showing]]) -> str | None:

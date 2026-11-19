@@ -12,6 +12,7 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -218,3 +219,71 @@ async def test_without_payload_key_list_experiences_is_hidden(
     _, model = await run(client, agent, conversation)
 
     assert "list_experiences" not in model.seen_tool_names[0]
+
+
+# ---- 2026-11-19: 요구 사항 인용은 한 공고(한 메시지) 안에서, 필수·우대는 공고 머리글대로 ----
+
+POSTING_A = "[A사 채용] 백엔드 개발자\n필수: Python 웹 개발 경험"
+POSTING_B = "[B사 채용] 데이터 엔지니어\n필수: SQL 쿼리 작성 경험"
+HEADER_BLOCKS = "[C사 채용] 데이터 분석가\n[필수]\n- SQL 쿼리 작성 경험\n[우대]\n- Airflow 운영 경험"
+
+
+def card_for(company: str, *requirements: tuple[str, str]):
+    reqs = [{"quote": quote, "kind": kind} for quote, kind in requirements]
+    return prep(0, company=company, requirements=reqs, matches=[])
+
+
+async def two_postings(client, agent, conversation) -> None:
+    """A사 공고를 먼저 붙이고(모델은 답만 함), 다음 메시지로 B사 공고를 붙인다."""
+    await run(client, agent, conversation, message=POSTING_A)
+
+
+async def test_requirement_from_other_company_posting_is_refused(client, agent, conversation, tool_deps) -> None:
+    await two_postings(client, agent, conversation)
+    task, _ = await run(
+        client, agent, conversation, card_for("B사", ("Python 웹 개발 경험", "필수")), message=POSTING_B
+    )
+    [step] = task["steps"]
+    assert not step["ok"]
+    assert "B사" in step["output"]["user_message"]
+
+
+async def test_requirements_mixed_from_two_postings_are_refused(client, agent, conversation, tool_deps) -> None:
+    await two_postings(client, agent, conversation)
+    mixed = card_for("B사", ("SQL 쿼리 작성 경험", "필수"), ("Python 웹 개발 경험", "필수"))
+    task, _ = await run(client, agent, conversation, mixed, message=POSTING_B)
+    [step] = task["steps"]
+    assert not step["ok"]
+    assert "서로 다른" in step["output"]["user_message"]
+
+
+async def test_requirement_from_right_posting_passes(client, agent, conversation, tool_deps) -> None:
+    await two_postings(client, agent, conversation)
+    task, _ = await run(client, agent, conversation, card_for("B사", ("SQL 쿼리 작성 경험", "필수")), message=POSTING_B)
+    [step] = task["steps"]
+    assert step["ok"]
+
+
+async def test_kind_must_match_inline_header(client, agent, conversation, tool_deps) -> None:
+    wrong = card_for("SK", ("Kubernetes 운영 경험", "필수"))  # 공고에는 '우대 사항:' 줄에 있다
+    task, _ = await run(client, agent, conversation, wrong)
+    [step] = task["steps"]
+    assert not step["ok"]
+    assert "우대" in step["output"]["user_message"]
+
+
+@pytest.mark.parametrize(
+    ("quote", "kind", "ok"),
+    [("SQL 쿼리 작성 경험", "필수", True), ("Airflow 운영 경험", "우대", True), ("Airflow 운영 경험", "필수", False)],
+)
+async def test_kind_follows_header_blocks(client, agent, conversation, tool_deps, quote, kind, ok) -> None:
+    task, _ = await run(client, agent, conversation, card_for("C사", (quote, kind)), message=HEADER_BLOCKS)
+    [step] = task["steps"]
+    assert step["ok"] is ok
+
+
+async def test_posting_without_headers_does_not_check_kind(client, agent, conversation, tool_deps) -> None:
+    plain = "[D사 채용] 백엔드\nGo 언어 개발 경험이 있으면 좋습니다"
+    task, _ = await run(client, agent, conversation, card_for("D사", ("Go 언어 개발 경험", "필수")), message=plain)
+    [step] = task["steps"]
+    assert step["ok"]
