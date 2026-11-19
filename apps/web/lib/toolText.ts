@@ -82,6 +82,8 @@ const TOOL_NAMES: Record<string, string> = {
   compare_products: "쿠팡 상품 비교",
   plan_departure: "출발 시각 계산",
   compare_showtimes: "영화 회차 비교",
+  list_now_showing: "상영작 확인",
+  recommend_movies: "영화 추천",
   list_experiences: "내 경험 읽기",
   show_job_prep: "지원 준비 카드",
   coupang_price: "쿠팡 목표가 확인",

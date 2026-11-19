@@ -22,6 +22,7 @@ import {
 import { useState } from "react";
 import { ExternalContent } from "@/components/ExternalContent";
 import { JobPrepCard, readJobPrep, storedExperienceCount } from "@/components/JobPrepCard";
+import { MovieRecommendCard, readMovieRecommend } from "@/components/MovieRecommendCard";
 import type { Step } from "@/lib/chat";
 import { isMailTool, readExternalOutput } from "@/lib/stepOutput";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,7 @@ const CARD_TOOLS: ReadonlySet<string> = new Set([
   "plan_departure",
   "compare_showtimes",
   "show_job_prep", // 2026-11-18 생활 비서 D: 공고별 준비 카드(JobPrepCard)
+  "recommend_movies", // 2026-11-19 영화 비서 C 둘째 단계: 영화 추천 카드(MovieRecommendCard)
 ]);
 
 // 한 줄. 아이콘에 role=img·aria-label로 상태 이름을 붙여 화면 낭독기와 e2e가 상태를 읽는다.
@@ -114,6 +116,8 @@ function StepRow({ step }: { step: Step }) {
 function StepDetail({ step }: { step: Step }) {
   const external = readExternalOutput(step.output);
   const jobPrep = step.tool_name === "show_job_prep" ? readJobPrep(step.output) : null;
+  const movieRecommend =
+    step.tool_name === "recommend_movies" ? readMovieRecommend(step.output) : null;
   const experienceCount =
     step.tool_name === "list_experiences" ? storedExperienceCount(step.output) : null;
   if (isPruned(step)) {
@@ -128,6 +132,8 @@ function StepDetail({ step }: { step: Step }) {
       {!CARD_TOOLS.has(step.tool_name) && <JsonBlock title="입력" value={step.input} />}
       {jobPrep ? (
         <JobPrepCard card={jobPrep} />
+      ) : movieRecommend ? (
+        <MovieRecommendCard card={movieRecommend} />
       ) : experienceCount !== null ? (
         <p className="text-muted-foreground">
           저장한 경험 {experienceCount}개를 읽었습니다. 작업 기록에는 내용을 남기지 않습니다.
