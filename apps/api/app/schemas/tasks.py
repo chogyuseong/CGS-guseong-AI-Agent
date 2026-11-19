@@ -53,6 +53,17 @@ class GuardOut(BaseModel):
     reason: str
 
 
+class ApprovalChange(BaseModel):
+    """'고쳐서 다시' 뒤 새 카드가 이전 카드와 다른 항목 하나(2026-11-19).
+
+    값은 사람이 읽는 말이다(날짜는 '11월 20일(금) 15:00', 없으면 '(없음)').
+    """
+
+    field: str
+    before: str
+    after: str
+
+
 class ApprovalOut(BaseModel):
     """승인 카드 하나. EXTERNAL 도구 호출 한 번에 하나."""
 
@@ -83,6 +94,8 @@ class ApprovalOut(BaseModel):
     receipt_confirmed: bool
     # '고쳐서 다시'로 거절할 때 사용자가 적은 고칠 내용(요구사항 밖, 2026-11-18). 그냥 거절·승인·대기면 null.
     revision_note: str | None
+    # '고쳐서 다시'로 거절된 바로 앞 카드(같은 작업·같은 도구)와 달라진 항목. 비교할 카드가 없으면 빈 목록(2026-11-19).
+    changes: list[ApprovalChange] = Field(default_factory=list)
 
 
 class ApproveRequest(BaseModel):

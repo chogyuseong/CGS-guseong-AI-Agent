@@ -17,6 +17,7 @@
 // 변경 이력:
 // - 2026-11-18 '고쳐서 다시' 추가(요구사항 밖, 사용자 결정 DECISIONS 2026-11-18). 메모를 붙인 거절이라 실행은 없고,
 //   모델이 고친 계획으로 새 카드를 만든다. 결정된 카드에는 "고쳐 달라고 함" 배지와 적은 내용을 보여 준다.
+// - 2026-11-19 새 카드에 '이전 카드와 달라진 점'(서버 changes)을 보인다. 요청하지 않은 날짜·대상 변경을 승인 전에 알아보게.
 "use client";
 
 import { LoaderCircle, ShieldCheck, ShieldQuestionMark, ShieldX } from "lucide-react";
@@ -54,6 +55,25 @@ const DECIDED_LABELS: Record<Exclude<ApprovalStatus, "pending">, string> = {
 
 // 승인 카드 하나. 외부에 흔적을 남기는 도구 호출 한 건을 실행 전에 보여 주고 사용자가 승인·거절한다.
 // 여러 건이면 카드도 여러 장이고 건마다 따로 결정한다("모두 승인"은 두지 않는다: 명세의 절대 원칙).
+// 2026-11-19(08번): '고쳐서 다시' 뒤 새 카드가 이전 카드와 다른 항목(서버 revisions.revision_changes).
+// 요청한 것만 바뀌었는지(예: 시각만) 승인 전에 확인하게 한다. 값은 서버가 만든 글자를 텍스트로만 그린다.
+function ChangeList({ changes }: { changes: NonNullable<Approval["changes"]> }) {
+  const titleId = useId();
+  if (changes.length === 0) return null;
+  return (
+    <section aria-labelledby={titleId} className="rounded border bg-muted/40 p-2 text-sm">
+      <p id={titleId} className="font-medium">
+        이전 카드와 달라진 점
+      </p>
+      <ul className="grid gap-0.5 wrap-anywhere">
+        {changes.map((change) => (
+          <li key={change.field}>{`${change.field}: ${change.before} → ${change.after}`}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
   const flow = useDecisionFlow(onDecide);
   // 서버 데이터가 아직 pending이어도 방금 받은 결정 결과가 있으면 그것을 먼저 보여 준다.
@@ -68,6 +88,7 @@ export function ApprovalCard({ approval, onDecide }: ApprovalCardProps) {
       <TargetLines target={approval.target} account={approval.account} />
       {/* summary에는 「」로 감싼 외부 문자열(일정 제목)이 섞여 올 수 있다. 텍스트로만 그리고 긴 글자는 어디서든 줄을 바꾼다. */}
       <p className="text-base font-medium wrap-anywhere">{approval.summary}</p>
+      <ChangeList changes={approval.changes ?? []} />
       <GuardVerdictView guard={approval.guard} />
       <ToolInputDetails toolName={approval.tool_name} input={approval.tool_input} />
       {status === "pending" && <ExpiryLine expiresAt={approval.expires_at} />}

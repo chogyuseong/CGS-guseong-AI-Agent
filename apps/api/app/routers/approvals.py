@@ -36,11 +36,13 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import approvals, outbox, plans
+from app.agent.revisions import revision_changes
 from app.agent.workflows import start_resume_if_waiting
 from app.db import DbSession
 from app.models import ActionPlan, Approval, ExecutionReceipt, GuardCheck, Operation, Step, Task
 from app.models.enums import VerdictKind
 from app.schemas.tasks import (
+    ApprovalChange,
     ApprovalDecisionOut,
     ApprovalErrorOut,
     ApprovalOut,
@@ -125,7 +127,7 @@ def target_text(plan: ActionPlan | None) -> str:
     return spec.target_label if spec else plans.ExternalToolSpec(version="0").target_label
 
 
-def approval_view(row: CardRow) -> ApprovalOut:
+def approval_view(row: CardRow, changes: list[ApprovalChange] | None = None) -> ApprovalOut:
     """DB 행 묶음 → 승인 카드 응답. DB를 읽거나 쓰지 않는다.
 
     receipt_confirmed는 영수증 행이 있을 때만 true다. 화면의 "실행 완료"는 이 값에만 기대야 한다
@@ -149,6 +151,7 @@ def approval_view(row: CardRow) -> ApprovalOut:
         operation_status=row.operation.status if row.operation else None,
         receipt_confirmed=row.receipt_id is not None,
         revision_note=approval.revision_note,
+        changes=changes or [],
     )
 
 
@@ -170,9 +173,21 @@ def approval_query() -> Select[Approval, Step, GuardCheck, ActionPlan, Operation
 
 
 async def approvals_of_task(session: AsyncSession, task_id: int) -> list[ApprovalOut]:
-    """작업의 승인 카드 목록(step 순서). 호출하는 쪽이 작업 소유자를 이미 확인했다."""
-    rows = await session.execute(approval_query().where(Step.task_id == task_id).order_by(Step.order))
-    return [approval_view(CardRow(*row)) for row in rows]
+    """작업의 승인 카드 목록(step 순서). 호출하는 쪽이 작업 소유자를 이미 확인했다.
+
+    2026-11-19: 각 카드에 '고쳐서 다시'로 거절된 바로 앞 카드(같은 도구)와의 변경점을 붙인다
+    (revisions.revision_changes).
+    """
+    rows = [
+        CardRow(*row)
+        for row in await session.execute(approval_query().where(Step.task_id == task_id).order_by(Step.order))
+    ]
+    cards = []
+    for index, row in enumerate(rows):
+        earlier = [r for r in rows[:index] if r.approval.revision_note and r.step.tool_name == row.step.tool_name]
+        changes = revision_changes(earlier[-1].step.input, row.step.input) if earlier else None
+        cards.append(approval_view(row, changes))
+    return cards
 
 
 async def decision_view(session: AsyncSession, decision: approvals.Decision) -> ApprovalDecisionOut:
@@ -182,9 +197,10 @@ async def decision_view(session: AsyncSession, decision: approvals.Decision) -> 
     decision.approval_id는 decide가 user_id로 확인한 승인이라 여기서 소유자를 다시 보지 않는다.
     """
     session.expire_all()  # 재개 워크플로가 다른 세션에서 바꾼 값을 다시 읽는다
-    row = (await session.execute(approval_query().where(Approval.id == decision.approval_id))).one()
+    cards = await approvals_of_task(session, decision.task_id)  # 목록과 같은 변경점을 붙이려고 작업 단위로 읽는다
+    card = next(c for c in cards if c.id == decision.approval_id)
     task = await session.get_one(Task, decision.task_id)
-    return ApprovalDecisionOut(approval=approval_view(CardRow(*row)), changed=decision.changed, task_status=task.status)
+    return ApprovalDecisionOut(approval=card, changed=decision.changed, task_status=task.status)
 
 
 async def decide_and_resume(

@@ -644,6 +644,20 @@ export interface components {
             is_active: boolean;
         };
         /**
+         * ApprovalChange
+         * @description '고쳐서 다시' 뒤 새 카드가 이전 카드와 다른 항목 하나(2026-11-19).
+         *
+         *     값은 사람이 읽는 말이다(날짜는 '11월 20일(금) 15:00', 없으면 '(없음)').
+         */
+        ApprovalChange: {
+            /** Field */
+            field: string;
+            /** Before */
+            before: string;
+            /** After */
+            after: string;
+        };
+        /**
          * ApprovalDecisionOut
          * @description 승인·거절 결과. 이미 결정된 승인에 다시 요청하면 changed=false와 현재 상태를 돌려준다.
          */
@@ -707,6 +721,8 @@ export interface components {
             receipt_confirmed: boolean;
             /** Revision Note */
             revision_note: string | null;
+            /** Changes */
+            changes?: components["schemas"]["ApprovalChange"][];
         };
         /**
          * ApprovalStatus

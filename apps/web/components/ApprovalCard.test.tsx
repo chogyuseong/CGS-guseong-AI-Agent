@@ -308,4 +308,26 @@ describe("ApprovalCard", () => {
     expect(card).toHaveTextContent("고칠 내용: 3시로 바꿔 줘");
     expect(within(card).queryByRole("button", { name: "고쳐서 다시" })).toBeNull();
   });
+
+  // 2026-11-19(08번): '고쳐서 다시' 뒤 새 카드는 이전 카드와 달라진 항목을 보여 준다(요청하지 않은 변경을 알아보게).
+  it("이전 카드와 달라진 항목을 이전 → 이후로 보여 준다", () => {
+    const approval = makeApproval({
+      changes: [
+        { field: "시작", before: "11월 20일(금) 15:00", after: "11월 20일(금) 16:00" },
+        { field: "장소", before: "(없음)", after: "강남역 치과" },
+      ],
+    });
+    render(<ApprovalCard approval={approval} onDecide={vi.fn()} />);
+    const changes = screen.getByRole("region", { name: "이전 카드와 달라진 점" });
+
+    expect(changes).toHaveTextContent("시작: 11월 20일(금) 15:00 → 11월 20일(금) 16:00");
+    expect(changes).toHaveTextContent("장소: (없음) → 강남역 치과");
+  });
+
+  it("비교할 이전 카드가 없으면 달라진 점을 그리지 않는다", () => {
+    render(<ApprovalCard approval={makeApproval({ changes: [] })} onDecide={vi.fn()} />);
+    expect(screen.queryByRole("region", { name: "이전 카드와 달라진 점" })).toBeNull();
+    render(<ApprovalCard approval={makeApproval()} onDecide={vi.fn()} />);
+    expect(screen.queryByRole("region", { name: "이전 카드와 달라진 점" })).toBeNull();
+  });
 });

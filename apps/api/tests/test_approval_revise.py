@@ -13,6 +13,7 @@ from app.agent.agent import MyAgent
 from app.agent.approvals import REVISION_PREFIX
 from app.agent.guard import GuardAgent
 from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.revisions import revision_changes
 from tests.conftest import UserFactory, login
 from tests.fake_tools import FakeExternalCounter
 from tests.model_scripts import GuardScript, call, scripted, text
@@ -47,6 +48,10 @@ async def test_revise_tells_model_and_new_card_runs_with_fixed_args(
     assert [a["status"] for a in waiting["approvals"]] == ["rejected", "pending"]
     assert second["tool_input"] == {"value": 9}
     assert second["revision_note"] is None
+    # 2026-11-19(08번): 새 카드는 '고쳐서 다시' 한 이전 카드와 무엇이 달라졌는지 보인다. 첫 카드는 비교 대상이 없다.
+    assert first["changes"] == []
+    assert second["changes"] == [{"field": "value", "before": "7", "after": "9"}]
+    assert approved.json()["approval"]["changes"] == second["changes"]  # 승인 응답의 카드도 같은 변경점
     assert approved.status_code == 200, approved.text
     assert [c["value"] for c in fake_external_counter.calls] == [9]
     assert (await task_detail(client, task["id"]))["final_answer"] == "9로 처리했습니다."
@@ -172,3 +177,22 @@ async def test_guard_sees_revision_note_on_new_card(
     assert "외부 도구 실행해줘" in second
     assert f"승인 카드에서 고쳐 달라고 함: {NOTE}" in second
     assert fake_external_counter.count == 0
+
+
+# ---- 2026-11-19(08번): 변경점 계산(순수 함수) ----
+
+
+def test_changes_between_calendar_cards_use_readable_labels_and_dates() -> None:
+    before = {"title": "치과", "start": "2026-11-20T15:00", "end": "2026-11-20T16:00", "location": None}
+    after = {"title": "치과", "start": "2026-11-20T16:00", "end": "2026-11-20T17:00", "location": "강남역 치과"}
+
+    assert [c.model_dump() for c in revision_changes(before, after)] == [
+        {"field": "시작", "before": "11월 20일(금) 15:00", "after": "11월 20일(금) 16:00"},
+        {"field": "끝", "before": "11월 20일(금) 16:00", "after": "11월 20일(금) 17:00"},
+        {"field": "장소", "before": "(없음)", "after": "강남역 치과"},
+    ]
+
+
+def test_same_args_have_no_changes() -> None:
+    args = {"event_id": "evt1", "title": "회의"}
+    assert revision_changes(args, dict(args)) == []
