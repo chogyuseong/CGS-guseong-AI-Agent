@@ -116,6 +116,10 @@ TASK_BUDGET_MESSAGE = "이 작업에 정해 둔 요청 수나 토큰 한도를 �
 MODEL_BEHAVIOR_MESSAGE = "모델이 도구를 올바르게 부르지 못해 작업을 끝내지 못했습니다."
 UNEXPECTED_MESSAGE = "작업 중 오류가 발생해 끝내지 못했습니다."
 PLAN_REJECTED_MESSAGE = "이 외부 작업은 서버 정책상 실행 계획을 만들 수 없어 진행하지 않았습니다."
+# 2026-11-19 한 번의 승인 요청에서 일정 삭제는 1건까지(사용자 결정: 추천 제안). 모델이 "전부 지워"에 카드를 여러 장
+# 띄우지 못하게 서버가 막는다(eval 08번, docs/EVALS.md). 바꾸면 tests/test_bulk_delete_limit.py를 같이 고친다.
+MAX_DELETES_PER_ROUND = 1
+BULK_DELETE_MESSAGE = "일정은 한 번에 한 건씩만 지울 수 있어 진행하지 않았습니다. 지울 일정을 하나씩 말씀해 주세요."
 # 승인됐지만 작업이 그 전에 끝나(하루 비용 상한, 오류) 실행하지 않은 EXTERNAL 호출의 step 결과.
 NOT_EXECUTED_MESSAGE = "작업이 이 단계 전에 멈춰 실행하지 않았습니다."
 # 명세: task_done 푸시는 20초 넘게 걸렸거나 origin이 schedule·watch일 때만.
@@ -614,6 +618,11 @@ def push_kind_for(info: TaskInfo, status: TaskStatus, *, finished_at: float) -> 
 # - 안전 분기: 자동 작업의 승인 요청은 실패로(절대 원칙 7, 자동 작업은 READ만), 계획을 못 만드는 호출은 실패로,
 #   취소 요청 뒤의 승인 대기는 cancelled로 바꿔 승인 카드를 만들지 않는다.
 # - 결과 None: 푸시 없음(이미 저장됨, 또는 푸시 규칙상 없음).
+def too_many_deletes(deferred: DeferredToolRequests) -> bool:
+    """이번 승인 요청에 일정 삭제가 MAX_DELETES_PER_ROUND건보다 많은가."""
+    return sum(call.tool_name == "delete_event" for call in deferred.approvals) > MAX_DELETES_PER_ROUND
+
+
 async def finish(
     services: RunServices, info: TaskInfo, outcome: Outcome, previous: Sequence[ModelMessage]
 ) -> PushKind | None:
@@ -626,6 +635,9 @@ async def finish(
     if outcome.deferred is not None and info.origin != TaskOrigin.CHAT:
         # 자동 작업(예약·감시)은 READ 도구만 받으므로 여기에 올 수 없다. 와도 승인을 만들지 않고 실패로 끝낸다.
         outcome = Outcome(TaskStatus.FAILED, error=UNEXPECTED_MESSAGE, new_messages=outcome.new_messages)
+    if outcome.deferred is not None and too_many_deletes(outcome.deferred):
+        # 승인 카드를 하나도 만들지 않는다(대량 삭제를 사람이 카드 여러 장으로 한꺼번에 승인하는 사고를 막는다).
+        outcome = Outcome(TaskStatus.FAILED, error=BULK_DELETE_MESSAGE, new_messages=outcome.new_messages)
     if outcome.deferred is not None:
         try:
             requests, reviews = await prepare_requests(services, info, outcome.deferred)
