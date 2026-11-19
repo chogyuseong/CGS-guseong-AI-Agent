@@ -38,8 +38,8 @@
   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`(mailto:), 선택 `DAILY_COST_LIMIT_USD`, `EXECUTION_RETENTION_DAYS`,
   `RECEIPT_RETENTION_DAYS`, `TELEMETRY_ENABLED`(true일 때만 전송) + `LOGFIRE_TOKEN`.
   생활 비서 키(없으면 그 기능만 꺼지고 안내만 한다, 2026-11-19 보강): `TMAP_APP_KEY`(출발 시각·영화 이동 시간),
-  `KOBIS_API_KEY`·`TMDB_READ_TOKEN`(영화 추천, TMDB는 긴 "API Read Access Token"), `COUPANG_ACCESS_KEY`·`COUPANG_SECRET_KEY`
-  (파트너스 최종 승인 후에만). 선택: `AGENT_MODEL_FAST`·`AGENT_MODEL_SMART`·`AGENT_MODEL_GUARD`, `TASK_MAX_REQUESTS`,
+  `KOBIS_API_KEY`·`TMDB_READ_TOKEN`(영화 추천, TMDB는 긴 "API Read Access Token")
+  선택: `AGENT_MODEL_FAST`·`AGENT_MODEL_SMART`·`AGENT_MODEL_GUARD`, `TASK_MAX_REQUESTS`,
   `TASK_MAX_TOKENS`, `MODEL_CALL_TIMEOUT_SECONDS`(기본값은 .env.example).
   ★ 새 키를 추가할 때는 .env.example과 이 목록을 같이 고친다(.env.example의 변수 이름과 이 목록을 비교해 빠진 것을 찾는다).
 - 사설망 주소: `api.railway.internal`. 포트는 `PORT` 변수로 고정한다(예: `PORT=8080`).

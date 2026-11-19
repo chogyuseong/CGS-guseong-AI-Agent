@@ -45,7 +45,6 @@ from app.models.enums import RiskLevel, TaskOrigin
 from app.tools import (
     automation,
     boxoffice,
-    coupang,
     drafts,
     experiences,
     gcal,
@@ -138,10 +137,7 @@ internal_tools = FunctionToolset[AgentDeps](
 )
 # 일정 쓰기 도구. 함수 첫 줄은 모두 begin_execution(ctx, 인자)다(두 번째 방어선, app/tools/gcal.py).
 external_tools = build_external_toolset([gcal.create_event, gcal.update_event, gcal.delete_event])
-# 2026-11-18 생활 비서 A단계. 가격 감시는 후속 단계이고 검색 할당량은 모든 대화가 공유한다.
-shopping_tools = FunctionToolset[AgentDeps](
-    [coupang.compare_products], id="shopping_tools", metadata=risk_metadata(RiskLevel.READ), sequential=True
-)
+# 2026-11-19 쇼핑(쿠팡 비교·목표가 감시)은 사용자 결정으로 지웠다(shopping_tools 없음).
 # 2026-11-18 이동 비서 B. TMAP 한도를 예약·감시가 쓰지 않게 채팅에만 준다(READ).
 # 2026-11-19 영화 추천(list_now_showing)도 여기: 회차 고르기와 한 흐름이고, 예약·감시 사용은 제안으로 남겼다(설계 문서).
 travel_tools = FunctionToolset[AgentDeps](
@@ -162,7 +158,7 @@ job_tools = FunctionToolset[AgentDeps](
 
 # 스스로 도는 작업(예약, 감시)에는 READ 도구만 넘긴다(절대 원칙 4). 메일(mail_tools)은 READ지만 chat에만 넘긴다.
 TOOLSETS_BY_ORIGIN: dict[TaskOrigin, list[FunctionToolset[AgentDeps]]] = {
-    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools, shopping_tools, travel_tools, job_tools],
+    TaskOrigin.CHAT: [read_tools, internal_tools, mail_tools, external_tools, travel_tools, job_tools],
     TaskOrigin.SCHEDULE: [read_tools],
     TaskOrigin.WATCH: [read_tools],
 }
@@ -173,7 +169,6 @@ TOOL_LABELS: dict[str, Callable[[dict[str, Any]], str]] = {
     "get_weather": weather.get_weather_label,
     "search_places": places.search_places_label,
     "web_search": websearch.web_search_label,
-    "compare_products": lambda _: "쿠팡 상품 조건 비교하는 중",
     "plan_departure": tmap.plan_departure_label,
     "compare_showtimes": showtimes.compare_showtimes_label,
     "list_now_showing": boxoffice.list_now_showing_label,

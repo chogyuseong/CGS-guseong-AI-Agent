@@ -1,8 +1,9 @@
 """계산 방향 테스트(2026-11-19, 분석 56번): 조건을 한쪽으로 바꾸면 결과도 그 방향으로만 움직여야 한다.
 
-개별 사례 테스트는 숫자 하나를 고정할 뿐이라, 부호를 잘못 쓰거나 비교 방향을 뒤집은 수정(여유를 늘렸는데 출발이 늦어짐,
-예산을 줄였는데 맞는 상품이 늘어남)을 놓칠 수 있다. 여기서는 여러 입력을 격자로 바꿔 가며 방향만 확인한다.
-모델·외부 호출·DB 없음(순수 함수). 새 계산(쇼핑·이동·영화)을 고치면 여기 방향 규칙이 아직 맞는지 같이 본다.
+개별 사례 테스트는 숫자 하나를 고정할 뿐이라, 부호를 잘못 쓰거나 비교 방향을 뒤집은 수정
+(여유를 늘렸는데 출발이 늦어짐)을 놓칠 수 있다. 여기서는 여러 입력을 격자로 바꿔 가며 방향만 확인한다.
+쇼핑 예산 방향 테스트는 2026-11-19 쇼핑 기능 삭제로 지웠다.
+모델·외부 호출·DB 없음(순수 함수). 새 계산(이동·영화)을 고치면 여기 방향 규칙이 아직 맞는지 같이 본다.
 """
 
 from datetime import datetime, timedelta
@@ -12,7 +13,6 @@ import pytest
 
 from app.tools.departure import RouteOption, plan_departure_times
 from app.tools.movie import Conditions, Legs, Showing, evaluate
-from app.tools.shopping import Offer, ShoppingCriteria, compare_offers
 
 SEOUL = ZoneInfo("Asia/Seoul")
 APPOINTMENT = datetime(2026, 11, 20, 19, 0, tzinfo=SEOUL)
@@ -78,31 +78,3 @@ def test_longer_dinner_never_adds_showings() -> None:
 def test_later_deadline_never_removes_showings() -> None:
     sets = [feasible(60, MEET + timedelta(minutes=minutes)) for minutes in range(120, 421, 30)]
     assert all(earlier <= later for earlier, later in zip(sets, sets[1:], strict=False))
-
-
-# ---- 쇼핑 ----
-
-OFFERS = [
-    Offer.model_validate(  # url 문자열을 HttpUrl로 검증해 넣는다
-        {
-            "title": f"무선 키보드 한글 {i}",
-            "store": "판매처",
-            "url": f"https://example.com/{i}",
-            "price": price,
-            "shipping": 0,
-            "condition": "신품",
-        }
-    )
-    for i, price in enumerate([25_000, 29_000, 31_000, 45_000, 60_000])
-]
-
-
-def matched(max_price: int | None) -> int:
-    criteria = ShoppingCriteria(product="무선 키보드", required=["한글"], max_price=max_price)
-    return len(compare_offers(criteria, OFFERS)["조건 일치"])
-
-
-def test_lower_budget_never_adds_matches() -> None:
-    counts = [matched(budget) for budget in (100_000, 60_000, 45_000, 31_000, 29_000, 25_000, 20_000)]
-    assert counts == sorted(counts, reverse=True)
-    assert matched(None) >= counts[0]

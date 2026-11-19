@@ -9,6 +9,7 @@
 // - 출발 계산 카드(travel)의 칸 이름(결론·이유·다른 경로·출발지·도착지·기준·경로·지도·확인 필요·후보)은 서버
 //   apps/api/app/tools/tmap.py plan_content·place_question과 맞물린다. 링크 이름 "지도에서 경로 열기"는 e2e travel.spec.ts가 찾는다.
 // 변경 이력:
+// - 2026-11-19 쇼핑 카드(ShoppingCards) 삭제(사용자 결정으로 쇼핑 기능 삭제).
 // - 2026-11-19 이동 카드: 이미 지난 출발 시각이면 "이미 지난 출발 시각입니다" 표시(서버 content.출발).
 // - 2026-11-18 이동 비서 B 출발 계산 카드(TravelCard). 결론 한 줄 / 이유 한 줄 / 조회 시각 / 다음 행동(지도) 하나,
 //   경로 비교·기준은 펼쳐서 본다(생활 비서 명세 7절 카드 기본 표시).
@@ -36,17 +37,15 @@ const MAX_DEPTH = 4;
 export function ExternalContent({
   external,
   mail = false,
-  shopping = false,
   travel = false,
   movie = false,
 }: {
   external: ExternalOutput;
   mail?: boolean;
-  shopping?: boolean;
   travel?: boolean;
   movie?: boolean;
 }) {
-  const card = (shopping || travel || movie) && isRecord(external.content);
+  const card = (travel || movie) && isRecord(external.content);
   const titleId = useId();
   return (
     <section
@@ -62,8 +61,6 @@ export function ExternalContent({
       </p>
       {mail ? (
         <MailContent content={external.content} />
-      ) : shopping && isRecord(external.content) ? (
-        <ShoppingCards content={external.content} />
       ) : travel && isRecord(external.content) ? (
         <TravelCard content={external.content} />
       ) : movie && isRecord(external.content) ? (
@@ -84,37 +81,6 @@ export function ExternalContent({
 
 // 7단계 보강: 메일 결과는 작업 기록에 내용이 없다(통 수만). 보강 전 기록(앞 500자 문자열)은 그대로 보여 준다.
 const NOTE_CLASS = "font-medium text-warning";
-
-// 2026-11-18 생활 비서 A단계. 정렬·판정은 서버 결과 그대로 두고 긴 추적 URL은 상품명으로 표시한다.
-// 이전 기록이나 일부 칸 누락도 나머지 카드를 가리지 않게 한다. 필드 변경은 test_shopping과 함께 확인한다.
-function ShoppingCards({ content }: { content: Record<string, unknown> }) {
-  return (
-    <>
-      <p>
-        {[content.안내, content["요청 조건"], content["가격 기준"]]
-          .filter((v) => typeof v === "string")
-          .join(" · ")}
-      </p>
-      {typeof content["출처 안내"] === "string" && <p>{content["출처 안내"]}</p>}
-      {["조건 일치", "확인 필요", "제외 이유"].map((group) => {
-        const values = content[group];
-        if (!Array.isArray(values) || !values.length) return null;
-        return (
-          <section key={group} aria-label={group}>
-            <p className="font-medium">{group}</p>
-            <ul className="grid gap-2">
-              {withUniqueKeys(values.filter(isRecord), (row) => String(row.링크)).map(
-                ({ key, item }) => (
-                  <ShoppingOffer key={key} row={item} />
-                ),
-              )}
-            </ul>
-          </section>
-        );
-      })}
-    </>
-  );
-}
 
 // 출발 계산 카드. 서버가 계산한 문장을 그대로 보인다(화면은 시각을 다시 계산하지 않는다).
 // '확인 필요'면 후보만 보이고 지도 링크는 만들지 않는다(어느 지점인지 모르는 채로 길을 안내하지 않게).
@@ -247,31 +213,6 @@ function TravelDetails({ content }: { content: Record<string, unknown> }) {
         </ul>
       </div>
     </details>
-  );
-}
-
-// 사용자가 링크를 열 때만 판매처에 접속한다. 외부 제목은 React 텍스트로 표시한다.
-function ShoppingOffer({ row }: { row: Record<string, unknown> }) {
-  const href = safeHttpUrl(row.링크);
-  const title = typeof row.상품 === "string" ? row.상품 : "상품 보기";
-  return (
-    <li className="grid gap-1 rounded border bg-background p-2 wrap-anywhere">
-      {href ? (
-        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
-          {title}
-        </a>
-      ) : (
-        title
-      )}
-      {["판매처", "비교 가격", "표시가", "배송비", "단가"].map((key) =>
-        typeof row[key] === "string" ? (
-          <p key={key}>
-            {key} <span>{row[key]}</span>
-          </p>
-        ) : null,
-      )}
-      {typeof row.이유 === "string" && <p>{row.이유}</p>}
-    </li>
   );
 }
 

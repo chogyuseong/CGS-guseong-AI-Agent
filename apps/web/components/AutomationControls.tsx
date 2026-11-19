@@ -67,7 +67,6 @@ type ItemProps = {
   // 켤 수 없는 이유(만료 등). 있으면 꺼진 스위치를 막는다.
   cannotEnable?: string;
   badges?: ReactNode;
-  stopLabel?: string;
   report: Report;
   children: ReactNode;
 };
@@ -96,16 +95,6 @@ export function AutomationItem(props: ItemProps) {
         />
       </div>
       {props.children}
-      {props.stopLabel && props.active && (
-        <Button
-          variant="outline"
-          className={BIG_BUTTON}
-          disabled={actions.busy !== null}
-          onClick={actions.toggle}
-        >
-          {props.stopLabel}
-        </Button>
-      )}
       <DeleteArea kind={props.kind} busy={actions.busy} onDelete={actions.remove} />
     </li>
   );

@@ -40,7 +40,6 @@ from typing import Any
 
 import httpx
 
-from app.tools.coupang import SHOP_URL
 from app.tools.gcal import EVENTS_URL
 from app.tools.gmail import MESSAGES_URL
 from app.tools.places import KEYWORD_URL
@@ -186,9 +185,6 @@ class EvalHttp:
 
     def read(self, address: str, params: httpx.QueryParams) -> httpx.Response:
         """주소(쿼리 뺀 것)로 가짜 응답을 고른다. 모르는 주소는 404(실제 네트워크로 넘기지 않는다)."""
-        if address == SHOP_URL:
-            # 2026-11-18 기존 30개 사례에는 상품이 없다. 허구 가격을 만들지 않고 정상 빈 조회를 재현한다.
-            return httpx.Response(200, json={"rCode": "0", "data": {"productData": []}})
         if address.startswith(KEYWORD_URL):
             return httpx.Response(200, json=self.kakao(params))
         if address.startswith(FORECAST_URL):

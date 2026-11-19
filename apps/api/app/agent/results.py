@@ -71,7 +71,6 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         "get_weather",
         "search_places",
         "web_search",
-        "compare_products",
         "plan_departure",
         "compare_showtimes",
         "list_now_showing",

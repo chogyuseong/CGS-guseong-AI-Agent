@@ -18,11 +18,10 @@ import하므로, 순환 import를 피해 함수 안에서 불러온다.
 - 여기서 도구를 직접 부르므로 메인 Agent run의 StepTracking(데이터 정책 검사, 단계 기록)을 거치지 않는다.
   READ 도구가 ctx.deps 밖의 것(ctx.model, 메시지 기록 등)에 기대게 바뀌면 감시 실행이 깨진다.
 - 실행 때 검사를 빼지 않는다: DB의 tool_name만 믿으면 READ가 아닌 도구가 자동으로 돌 수 있다.
-- 감시 전용 도구(WATCH_ONLY_TOOLS)는 read_tools 밖이라 채팅·예약 모델에게 보이지 않는다. 새로 더하면
-  data_policy.TOOL_POLICIES에도 등록한다(tests/test_data_policy.py가 이 목록까지 본다).
 
 변경 이력:
 - 2026-11-18 쿠팡 목표가 감시(coupang_price): 사용자가 등록한 감시만 쓰는 READ 도구. WATCH_ONLY_TOOLS로 이름을 모았다.
+- 2026-11-19 쇼핑 기능 삭제(사용자 결정)로 coupang_price와 감시 전용 도구 구조(WATCH_ONLY_TOOLS)를 지웠다.
 """
 
 import logging
@@ -42,8 +41,6 @@ logger = logging.getLogger(__name__)
 
 # 예상 못 한 예외일 때 last_result.error에 남는 고정 문구. 예외 내용은 화면에 보이지 않고 로그에만 남는다.
 TOOL_FAILED_MESSAGE = "감시 도구를 실행하지 못했습니다."
-# 감시에서만 쓰는 READ 도구(채팅·예약 도구 묶음에는 없다). 2026-11-18 쿠팡 목표가.
-WATCH_ONLY_TOOLS = ("coupang_price",)
 
 
 class WatchToolError(Exception):
@@ -61,11 +58,6 @@ def watchable_tool(tool_name: str) -> Tool[AgentDeps]:
     메일은 따로 먼저 막아 더 분명한 안내를 준다.
     """
     from app.agent.toolsets import read_tools  # 순환 import 회피(모듈 설명)
-    from app.tools.coupang import coupang_price
-
-    # 2026-11-18 목표가 조회는 사용자 등록을 거친 감시 전용 READ다. 일반 채팅·예약 도구에는 노출하지 않는다.
-    if tool_name in WATCH_ONLY_TOOLS:
-        return Tool(coupang_price)
 
     if tool_name in rules.MAIL_TOOLS:
         raise WatchToolError("메일 도구로는 감시를 만들 수 없습니다.")

@@ -114,7 +114,6 @@ async def request_json(
     그런 요청은 응답이 없어도 '결과 불명'이 아니라 실패(failed)다. 한도를 아끼려고 재시도하지 않는다(1회).
     로그에는 서비스 이름·메서드·code만 남긴다(주소·쿼리·본문·헤더 없음).
     """
-    # 쿠팡 상품 검색은 시간당 10회이므로 예약한 한 건만 호출한다.
     attempts = READ_ATTEMPTS if method == "GET" and retry_read else 1
     kind = "GET" if read_only else method  # 문구는 조회용(다시 보내지 말라는 쓰기용 안내를 붙이지 않는다)
     message, code = "", "network"

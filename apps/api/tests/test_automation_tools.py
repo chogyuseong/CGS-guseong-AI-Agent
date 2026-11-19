@@ -257,3 +257,15 @@ async def test_list_and_delete_only_my_automations(
     assert await db_session.get(ScheduledJob, other_job.id) is not None
     assert await count(db_session, ScheduledJob, tool_deps.user_id) == 0
     assert await count(db_session, Watch, tool_deps.user_id) == 0
+
+
+async def test_coupang_price_watch_no_longer_exists(tool_deps: AgentDeps, db_session: AsyncSession) -> None:
+    """2026-11-19 사용자 결정으로 쇼핑 기능(쿠팡 비교·목표가 감시)을 지웠다. 그 도구 이름으로 감시를 만들 수 없다."""
+    result = await create_watch(
+        tool_deps, tool_name="coupang_price", tool_input={"product": "KB100"}, condition_text="10만 원 이하"
+    )
+
+    assert result.ok is False
+    assert "조회(READ) 도구만" in (result.error or "")  # 감시 전용 도구가 아니라 없는 도구로 거절된다
+    assert "coupang_price" not in (result.error or "")  # 쓸 수 있는 도구 목록에도 없다
+    assert await count(db_session, Watch, tool_deps.user_id) == 0

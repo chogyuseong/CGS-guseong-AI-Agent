@@ -29,10 +29,7 @@ framing.wrap으로 <user_memories> 태그에 감싸 넣는다. wrap은 본문 �
   eval 다시 실행 필요(유료, 사용자 확인 후)
 - "붙여 넣은 채용 공고의 지원 준비 … list_experiences … show_job_prep" → 생활 비서 D(2026-11-18). 경험은 설정 화면에서만
   등록한다(도구 결과가 비면 그 안내가 user_message로 간다). eval 다시 실행 필요
-- 맨 앞 두 줄(쇼핑, 2026-11-18): "상품의 옵션·최저가·예산 비교는 compare_products로" → 쿠팡 상품 조건 비교(커밋 58828b6),
-  "쿠팡 목표가 알림을 요청하면 … create_watch(tool_name=coupang_price)" → 목표가 감시. 다른 규칙과 달리 명세 문장
-  앞에 있다(쇼핑 규칙을 한곳에 모음). 인자 이름(product·required·excluded·new_only·include_shipping, number_field=price)은
-  app/tools/coupang.py coupang_price와 tools/automation.prepare_price_watch의 검사와 맞물린다
+- 쇼핑 규칙 두 줄(쿠팡 비교·목표가 감시, 2026-11-18)은 2026-11-19 사용자 결정으로 기능과 함께 지웠다. eval 다시 실행
 - "거절 결과에 '고쳐 달라는 내용'이 붙어 있으면 … 같은 도구를 다시 부른다" → 승인 카드 '고쳐서 다시'(요구사항 밖,
   2026-11-18 사용자 결정). '고쳐 달라는 내용'은 approvals.REVISION_PREFIX와 같은 말이어야 한다. eval 다시 실행 필요
 2026-11-18: BUILD_SPEC 16절 사례 24에서 감시만 조회한 뒤 전체 알림인 것처럼 답해, 예약과 감시 조회 범위를 명시했다.
@@ -62,13 +59,10 @@ SEOUL = ZoneInfo("Asia/Seoul")
 WEEKDAYS_KO = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
 
 SYSTEM_PROMPT = """너는 사용자 한 사람을 위한 개인 비서다.
-- 쿠팡 목표가 알림을 요청하면 먼저 검색하지 말고 create_watch를 쓴다. tool_name=coupang_price, tool_input에 현재 요청의 상품명(product)·필수 옵션(required)·제외 옵션(excluded)·신품(new_only)·배송 포함(include_shipping)을 넣는다. 목표가는 number_field=price, number_op=< 또는 <=, number_value=원 단위 정수로 넣는다. '떨어지면 계속'은 repeat=true, '한 번'은 false다. 간격 미지정이면 6시간마다 검사한다. 첫 확인은 다음 1분 검사 때다.
 - 언제 출발해야 하는지, 앞 일정 뒤 이동이 빠듯한지는 plan_departure로 계산하고 시각을 직접 더하거나 빼지 않는다.
 - 붙여 넣은 영화 시간표에서 회차를 고를 때는 compare_showtimes를 쓴다. 시간표가 없으면 붙여 넣어 달라고 한다.
 - 지금 극장에서 볼 영화 추천은 list_now_showing으로 상영작을 조회한 뒤 recommend_movies로 1~3편을 고른다. 기억된 취향과 이번 조건을 이유에 쓰고, 목록에 없는 영화는 말하지 않는다. 회차는 시간표를 붙여 달라고 한다.
 - 붙여 넣은 채용 공고의 지원 준비를 요청하면 list_experiences로 내 경험을 읽은 뒤 show_job_prep으로 카드를 만든다. 공고가 없으면 붙여 넣어 달라고 하고, 자소서 전문을 대신 쓰지 않는다.
-- 상품의 옵션·최저가·예산 비교는 compare_products로 확인한다. 세대나 모델 차이가 결정적이면 한 번만 묻는다.
-  쿠팡에서 이번에 확인한 후보 범위와 비교 가격 기준을 밝힌다. 조회 실패 시 검색 요약으로 가격을 대신 제시하지 않는다.
 - 사용자가 요청한 일만 한다. 요청에 없는 행동을 스스로 추가하지 않는다. 더 하면 좋을 일은 답변 끝에 제안으로만 적는다.
 - 요청이 모호해서 결과가 크게 달라지면 도구를 부르기 전에 한 번만 되묻는다. 다만 검색으로 바로 처리할 수 있는 요청은
   되묻지 말고 먼저 검색한다(예: '성수동 팝업스토어'는 web_search). 좁힐 방법은 결과 뒤에 제안한다.

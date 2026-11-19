@@ -41,14 +41,11 @@ from pydantic import Field
 from pydantic_ai import RunContext
 
 from app import clock
-from app.agent.data_policy import outbound_refusal
 from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
 from app.automation import rules, store
 from app.automation.store import AutomationError
-from app.automation.watchable import WatchToolError, validated_input, watchable_tool
 from app.models import ScheduledJob, Watch
-from app.tools import coupang
 from app.tools.notes import short
 
 ScheduleTitle = Annotated[str, Field(min_length=1, max_length=100, description="예약 이름. 예: 다음 주 일정 요약")]
@@ -210,60 +207,6 @@ async def delete_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> ToolR
 # 메일 도구는 감시에 쓸 수 없다(명세 금지, toolsets.py mail_tools 주석·DECISIONS 7단계).
 # READ만 허용하는 것은 절대 원칙 7.
 # 아래 세 숫자 칸 검사는 "일부만 넣은 숫자 조건"이 문장 조건으로 조용히 바뀌어 모델 판정 비용이 드는 일을 막는다.
-async def prepare_price_watch(deps: AgentDeps, fields: dict[str, Any]) -> ToolResult | None:
-    """등록 시 공개한 상품명과 목표 금액을 고정한다. 실패하면 DB를 쓰거나 공급자를 호출하지 않는다.
-
-    2026-11-18 목표가 감시. 검색 결과·메일을 본 대화에서의 등록 금지는 일반 create_watch 정책을 그대로 거친다.
-    """
-    try:
-        args = validated_input(watchable_tool("coupang_price"), fields["tool_input"])
-    except WatchToolError as error:
-        return ToolResult.failure(error.message, error_code="invalid")
-    fields["tool_input"] = args
-    product = args.get("product")
-    if not isinstance(product, str) or not await coupang.public_product(deps, product):
-        return ToolResult.failure("현재 요청에 감시할 공개 상품명을 직접 적어 주세요.", error_code="data_policy")
-    refusal = await outbound_refusal(deps, "compare_products", {"product": product})
-    if refusal is not None:
-        return refusal
-    spec = fields.get("condition_spec") or {}
-    target = target_price(spec)
-    if target is None:
-        return ToolResult.failure(
-            "목표가는 원 단위 양수이며 price의 미만 또는 이하 조건이어야 합니다.", error_code="invalid"
-        )
-    if not (
-        deps.settings.coupang_access_key.get_secret_value().strip()
-        and deps.settings.coupang_secret_key.get_secret_value().strip()
-    ):
-        return ToolResult.failure("쿠팡 파트너스 키를 먼저 설정해 주세요.", error_code="not_configured")
-    basis = "배송비 포함" if args.get("include_shipping") else "표시가"
-    comparison = "미만" if spec["op"] == "<" else "이하"
-    options = [product, *(args.get("required") or [])]
-    if args.get("new_only"):
-        options.append("신품")
-    if excluded := args.get("excluded"):
-        options.append("제외: " + ", ".join(excluded))
-    fields["condition_text"] = " · ".join([*options, f"{basis} {target:,}원 {comparison}"])
-    return None
-
-
-def target_price(spec: dict[str, Any]) -> int | None:
-    """목표가 조건(price < 또는 <= 원 단위 양의 정수)이면 그 금액, 아니면 None.
-
-    숫자 감시의 기준은 float로 저장된다(conditions). 2**53 미만이어야 원 단위 정수가 정확히 남는다.
-    bool은 int의 하위형이라 True가 1원으로 통과하지 않게 따로 막는다. 소수 금액(19900.5)도 거절한다.
-    """
-    value = spec.get("value")
-    if spec.get("field") != "price" or spec.get("op") not in ("<", "<="):
-        return None
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    if not (0 < value < 2**53) or int(value) != value:
-        return None
-    return int(value)
-
-
 async def create_watch(
     ctx: RunContext[AgentDeps],
     description: WatchDescription,
@@ -296,10 +239,6 @@ async def create_watch(
         "repeat": repeat,
         "condition_spec": spec,
     }
-    if tool_name == "coupang_price":
-        refusal = await prepare_price_watch(ctx.deps, fields)
-        if refusal is not None:
-            return refusal
     return await save_watch(ctx.deps, fields)
 
 

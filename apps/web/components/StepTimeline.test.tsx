@@ -59,30 +59,6 @@ function placesStep(): Step {
 }
 
 describe("StepTimeline", () => {
-  it("상품 비교 가격·조회 시각과 판매처 링크를 바로 확인한다", () => {
-    const step = makeStep({
-      tool_name: "compare_products",
-      output: {
-        data: {
-          notice: NOTICE,
-          content: {
-            "조건 일치": [
-              { 상품: "KB100", 표시가: "90,000원", 링크: "https://example.org/products/4" },
-            ],
-          },
-          truncated: false,
-        },
-        fetched_at: "2026-11-18T00:00:00Z",
-      },
-    });
-    render(<StepTimeline steps={[step]} />);
-    expect(screen.getByText("90,000원")).toBeVisible();
-    expect(screen.getByText(/조회 시각/)).toBeVisible();
-    expect(screen.getByRole("link", { name: /KB100/ })).toHaveAttribute(
-      "href",
-      "https://example.org/products/4",
-    );
-  });
   // 2026-11-18 이동 비서 B: 결론 한 줄 / 이유 한 줄 / 조회 시각 / 다음 행동(지도) 하나, 자세한 경로는 펼쳐서.
   const TRAVEL = {
     결론: "17:50에 출발하면 18:45에 도착합니다(19:00보다 15분 일찍).",
