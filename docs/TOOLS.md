@@ -43,6 +43,25 @@
 - 경험을 읽은 대화에서는 공개 검색·장소·날씨와 예약·감시 만들기를 숨기고 실행 직전에도 막는다(`data_policy.EXPERIENCE_TOOLS`).
 - 범위 밖(제안): 채용 API로 공고 모으기, 공고 저장·목록, 경험 고치기(지금은 지우고 다시 등록), 자소서 전문 대필.
 
+## 영화 추천 (2026-11-19, 영화 비서 C 둘째 단계)
+
+"이번 주말에 뭐 볼까?"라고 하면 `list_now_showing`(READ, 채팅 전용)으로 지금 상영작을 조회하고 `recommend_movies`(READ)로 1~3편을
+이유와 함께 카드로 보인다. 카드 끝의 안내로 회차 고르기(`compare_showtimes`)에 이어진다. 설계: docs/superpowers/specs/2026-11-19-movie-recommend-design.md.
+- KOBIS(`app/tools/kobis.py`): `GET https://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json`
+  (key, targetDt=서울 어제, itemPerPage 10. 비면 전날 한 번) → 영화마다 `movie/searchMovieInfo.json`(key, movieCd).
+  키 오류도 HTTP 200 + `faultInfo`(errorCode 320010)라 본문을 보고 실패로 바꾼다. 하루 호출 한도는 문서에 없음.
+  사실 칸(순위·개봉일·누적 관객·장르·상영 시간·관람 등급·감독·배우 상위 2명)의 정본. 값이 없으면 "정보 없음".
+- TMDB(`app/tools/tmdb.py`): `GET https://api.themoviedb.org/3/movie/now_playing?region=KR&language=ko-KR`(1~2쪽),
+  짝이 없으면 `GET /3/search/movie?query=제목&language=ko-KR&region=KR`. 인증은 `Authorization: Bearer TMDB_READ_TOKEN`
+  (API Read Access Token, 주소에 키를 붙이지 않음). 줄거리(150자)·평점·평가 수만 쓴다. 평가 0건이면 평점을 뺀다.
+  짝짓기: 제목(공백·문장부호 제거) 일치, 검색이면 개봉 연도 1년 이내 후보가 하나뿐일 때만. 실패·토큰 없음이면 KOBIS만으로 성공.
+  이용 조건(2026-11-19 확인): 비상업 무료, 출처 표기(로고 + 문구) 의무, 캐시 6개월 이내, AI 학습 금지(추론 입력은 해당 없음).
+- 같은 기준일 결과는 메모리 캐시(`boxoffice.CACHE`, 최근 2일) → 하루 외부 호출 약 13회. 결과는 10편 기준 약 3,400자(6,000자 안).
+- `recommend_movies`: 인자는 code·이유(120자)·조건(60자)뿐. 이번 작업에서 마지막으로 성공한 `list_now_showing` 단계 기록에 있는
+  code만 받고(목록 밖·중복 거절), 사실 칸은 그 기록에서 서버가 채운다. 외부 요청 없음. 예매는 CGV·롯데시네마·메가박스 공식 홈페이지.
+- 화면: `components/MovieRecommendCard.tsx`(TMDB를 쓴 결과에만 공식 로고 `public/tmdb-logo.svg`와 문구).
+- 실제 확인(2026-11-19, 모델 없이 1회): 기준일 2026-11-18, 10편, TMDB 짝 8편(공연 실황 1편, 표기가 다른 애니메이션 1편은 짝 없음).
+
 ## 영화 회차 고르기 (2026-11-18, 영화 비서 C 첫 단계)
 
 채팅에 극장 시간표를 붙여 넣고 “금요일 강남 6시 반 만남, 밥 한 시간, 11시 전에 집”처럼 말하면 `compare_showtimes`(READ, 채팅 전용)가
