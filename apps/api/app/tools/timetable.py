@@ -18,18 +18,26 @@
   새 극장 머리글은 영화 문맥을 지우고, 이름을 모르는 머리글(다른 영화)도 영화 문맥을 지운다(앞 영화를 물려받지 않게).
   상영 시간은 그 시각 뒤 같은 줄(다음 시각 전)에서, 없으면 그 영화 머리글 줄에서 하나만 찾는다.
 
+확인 답(2026-11-19): 되물음 뒤 사용자가 시각 하나뿐인 짧은 한 줄로 답하면("오후 7:30이야", "20:10은 메가박스 코엑스
+영화 B야") 더 오래된 메시지(시간표)의 회차 빈칸(오전·오후, 극장, 영화)만 채운다.
+새 시각을 만들거나 이미 다른 극장에 붙은 회차를 바꾸지 않는다.
+사용자가 극장·영화·시각을 한 줄로 모두 말하면 그 줄은 사용자가 준 시간표 줄로 읽힌다.
+이름 뒤의 흔한 조사(PARTICLES)는 같은 이름으로 본다("영화 B야", "CGV 강남에서").
+
 지원하지 않는 형식(확인 질문으로 돌아간다): 'HH시 MM분' 같은 글 시각, 극장·영화가 없는 시각, 오전·오후 없는 12시간제,
-한 회차에 상영 시간이 여럿 적힌 줄, 극장 이름 뒤에 조사가 붙은 경우("CGV 강남에서").
+한 회차에 상영 시간이 여럿 적힌 줄, 긴 문장으로 쓴 확인 답.
 
 고칠 때 주의: 거절 문구의 시각 표기(HH:MM)와 "오전인지 오후인지"·"극장·영화"·"상영 시간"·"종료" 낱말은
 tests/test_showtime_paste.py가 찾는다. NOISE_LIMIT·FILLER를 바꾸면 문장 숫자 테스트(test_6_*)를 다시 본다.
 
 변경 이력:
 - 2026-11-19 처음 작성.
+- 2026-11-19 확인 답으로 정상 흐름에 돌아오게 함(confirmation_of·confirm), 이름 뒤 조사 허용,
+  회차에 메시지 순번(source).
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 EDGE = "0-9A-Za-z가-힣"
@@ -45,6 +53,11 @@ FILLER = re.compile(
 )
 NOISE_LIMIT = 4
 DAY = 24 * 60
+# 이름 바로 뒤에 와도 같은 이름으로 보는 조사(2026-11-19). "영화 B야", "메가박스 코엑스에서"를 찾되 "CGV 강남역"처럼
+# 조사가 아닌 글자가 붙으면 여전히 다른 이름이다. 조사는 경계 판단에만 쓰고 이름(지운 글자)에 넣지 않는다.
+PARTICLES = "이야|야|이에요|예요|이요|요|입니다|은|는|이|가|을|를|에서|의|와|과|도|만"
+# 확인 답(되물음에 대한 짧은 대답)으로 볼 최대 글자 수. 긴 문장 속 시각은 확인 답이 아니다(문장 숫자 규칙 6번).
+CONFIRM_MAX_CHARS = 40
 
 
 @dataclass(frozen=True)
@@ -68,6 +81,18 @@ class Slot:
     end: int | None
     runtime: int | None
     runtime_many: bool
+    source: int = 0  # 몇 번째 메시지에서 읽었는가(0 = 가장 새 메시지). 확인 답은 더 오래된 메시지의 회차에만 적용한다
+
+
+@dataclass(frozen=True)
+class Confirmation:
+    """되물음에 대한 사용자의 짧은 확인 답(시각 하나, 한 줄). 시간표에 이미 있는 회차의 빈칸만 채운다(2026-11-19)."""
+
+    source: int
+    minutes: int
+    meridiem: bool  # 오전·오후를 밝혔는가
+    theater: Mention | None
+    movie: Mention | None
 
 
 @dataclass
@@ -84,7 +109,7 @@ def norm(name: str) -> str:
 def name_pattern(name: str) -> re.Pattern[str]:
     """공백은 무시하고, 앞뒤에 글자·숫자가 이어지면 다른 이름으로 보는 패턴."""
     body = r"\s*".join(re.escape(c) for c in name if not c.isspace())
-    return re.compile(rf"(?<![{EDGE}]){body}(?![{EDGE}])", re.IGNORECASE)
+    return re.compile(rf"(?<![{EDGE}]){body}(?=(?:{PARTICLES})?(?![{EDGE}]))", re.IGNORECASE)
 
 
 def find_mentions(line: str, theaters: list[str], movies: list[str]) -> list[Mention]:
@@ -206,17 +231,64 @@ def read_times(line: str, mentions: list[Mention], ctx: Context) -> list[Slot]:
 
 
 def parse(messages: list[str], theaters: list[str], movies: list[str]) -> list[Slot]:
-    """메시지들의 회차 목록. 메시지마다 극장·영화 문맥을 새로 시작한다(다른 메시지의 머리글을 물려받지 않게)."""
+    """메시지들(새 것부터)의 회차 목록. 메시지마다 극장·영화 문맥을 새로 시작한다(다른 메시지의 머리글을 물려받지 않게).
+
+    마지막에 확인 답(confirmation_of)으로 더 오래된 메시지 회차의 빈칸(오전·오후, 극장, 영화)을 채운다.
+    """
     slots: list[Slot] = []
-    for message in messages:
+    for index, message in enumerate(messages):
         ctx = Context()
         for line in message.splitlines():
             mentions = find_mentions(line, theaters, movies)
             if not TIME.search(line):
                 read_header(line, mentions, ctx)
             elif is_listing(line, mentions):
-                slots += read_times(line, mentions, ctx)
+                slots += [replace(slot, source=index) for slot in read_times(line, mentions, ctx)]
+    confirmations = [c for i, m in enumerate(messages) if (c := confirmation_of(i, m, theaters, movies))]
+    for confirmation in sorted(confirmations, key=lambda c: -c.source):  # 오래된 답부터, 새 답이 나중에 덮는다
+        slots = [confirm(slot, confirmation) for slot in slots]
     return slots
+
+
+def confirmation_of(index: int, message: str, theaters: list[str], movies: list[str]) -> Confirmation | None:
+    """'오후 7:30이야', '20:10은 메가박스 코엑스 영화 B야'처럼 시각 하나뿐인 짧은 한 줄 메시지면 확인 답.
+
+    긴 문장·여러 줄·시각이 둘 이상이면 None(식사·귀가 문장의 시각을 확인 답으로 쓰지 않게).
+    """
+    text = message.strip()
+    times = list(TIME.finditer(text))
+    if "\n" in text or len(text) > CONFIRM_MAX_CHARS or len(times) != 1:
+        return None
+    mentions = find_mentions(text, theaters, movies)
+    if not is_listing(text, mentions):
+        return None
+    minutes, _ = minutes_of(times[0])
+    theater = next((m for m in mentions if m.kind == "theater"), None)
+    movie = next((m for m in mentions if m.kind == "movie"), None)
+    return Confirmation(index, minutes, bool(times[0].group(1)), theater, movie)
+
+
+def confirm(slot: Slot, answer: Confirmation) -> Slot:
+    """확인 답을 더 오래된 메시지의 회차 하나에 적용한다.
+
+    빈칸만 채우고, 시각을 새로 만들거나 이미 붙은 극장·영화를 바꾸지 않는다.
+
+    - 오전·오후: 답이 오전·오후를 밝혔고 회차가 오전·오후 없는 같은 시각(12시간 차)이면 그 시각으로 고친다.
+    - 극장·영화: 같은 시각의 회차가 극장이나 영화를 모르면 답에 있는 것으로 채운다(답의 극장이 다르면 손대지 않음).
+    """
+    if slot.source <= answer.source:
+        return slot
+    same_clock = slot.bare and slot.start % 720 == answer.minutes % 720 and slot.start != answer.minutes
+    same_theater = answer.theater is None or (slot.theater is not None and slot.theater.key == answer.theater.key)
+    if answer.meridiem and same_clock and same_theater:
+        slot = replace(slot, start=answer.minutes, bare=False)
+    if slot.start % DAY != answer.minutes % DAY:
+        return slot
+    if slot.theater is not None and answer.theater is not None and slot.theater.key != answer.theater.key:
+        return slot
+    theater = slot.theater or answer.theater
+    movie = slot.movie or answer.movie
+    return replace(slot, theater=theater, movie=movie)
 
 
 def describe(slot: Slot) -> str:

@@ -158,3 +158,56 @@ async def test_time_without_theater_asks(client, agent, conversation, keys, fake
     message = "영화 A 110분\n19:30"  # 극장이 없다
     step = await check(client, agent, conversation, fake_http, message, A_OK)
     assert_refused(step, fake_http, "19:30", "극장")
+
+
+# ---- 2026-11-19: 되물음에 대한 사용자 확인 답으로 정상 흐름에 돌아온다(분석 프롬프트 7절) ----
+# 확인 답은 시간표에 이미 있는 회차의 빈칸(오전·오후, 극장, 영화)만 채운다. 새 시각을 만들거나 이미 다른 극장에 붙은
+# 회차를 바꾸지 못한다. 시각이 하나뿐인 짧은 한 줄이어야 하고, 시간표보다 나중 메시지여야 한다.
+
+from datetime import datetime  # noqa: E402
+
+from app.tools import timetable  # noqa: E402
+
+NAMES = (["CGV 강남", "메가박스 코엑스"], ["영화 A", "영화 B"])
+
+
+def problem(newest_first: list[str], theater: str, movie: str, hour: int, minute: int, runtime=None):
+    slots = timetable.parse(newest_first, *NAMES)
+    return timetable.showing_problem(slots, theater, movie, datetime(2026, 11, 20, hour, minute), None, runtime)
+
+
+def test_afternoon_confirmation_resolves_bare_time():
+    assert problem(["오후 7:30이야", "CGV 강남 영화 A 7:30 (110분)"], "CGV 강남", "영화 A", 19, 30, 110) is None
+
+
+def test_theater_confirmation_fills_loose_time():
+    messages = ["20:10은 메가박스 코엑스 영화 B야", "영화 B 95분\n20:10"]
+    assert problem(messages, "메가박스 코엑스", "영화 B", 20, 10, 95) is None
+
+
+def test_theater_only_reply_does_not_make_a_showing():
+    """극장만 말한 답은 영화가 비어 있어 회차가 되지 않는다(되묻는다). 시간표에 없는 시각이면 더더욱."""
+    messages = ["20:10은 CGV 강남이야", "CGV 강남 | 영화 A | 19:30 | 110분"]
+    assert problem(messages, "CGV 강남", "영화 A", 20, 10) is not None
+
+
+def test_user_full_statement_counts_as_timetable_row():
+    """사용자가 극장·영화·시각을 한 줄로 직접 말하면 사용자가 준 시간표 줄로 본다(모델이 섞은 조합과 다르다)."""
+    messages = ["20:10은 CGV 강남 영화 A야", "CGV 강남 | 영화 A | 19:30 | 110분"]
+    assert problem(messages, "CGV 강남", "영화 A", 20, 10) is None
+
+
+def test_confirmation_older_than_timetable_does_not_apply():
+    assert problem(["CGV 강남 영화 A 7:30 (110분)", "오후 7:30이야"], "CGV 강남", "영화 A", 19, 30) is not None
+
+
+def test_long_sentence_is_not_a_confirmation():
+    messages = ["메가박스 코엑스에서 영화 B 보고 밥 먹고 20:10까지 집에 가고 싶은데 괜찮을까", "영화 B 95분\n20:10"]
+    assert problem(messages, "메가박스 코엑스", "영화 B", 20, 10) is not None
+
+
+async def test_confirmation_flow_passes_without_requests(client, agent, conversation, keys, fake_http):  # noqa: F811
+    await run_chat(client, agent, conversation, message="CGV 강남 영화 A 7:30 (110분)")  # 모델은 답만 함
+    step = await check(client, agent, conversation, fake_http, "오후 7:30이야", A_OK)
+    assert step["ok"]
+    assert fake_http.requests == []
