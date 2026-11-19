@@ -38,6 +38,7 @@ const CARD = {
       "누적 관객": "63,697명",
       평점: "6.0",
       "평가 수": 4,
+      "제작 연도": "2024",
     },
     {
       제목: "헝거게임 50번째 추첨의 날",
@@ -72,7 +73,10 @@ describe("MovieRecommendCard", () => {
     expect(screen.getByText("2026-11-18 박스오피스 기준 · 친구랑 가볍게")).toBeInTheDocument();
     const first = screen.getByRole("article", { name: "폭설" });
     expect(within(first).getByText("조용한 긴장감을 좋아하시면 맞아요")).toBeInTheDocument();
-    expect(within(first).getByText("미스터리, 드라마 · 88분 · 15세이상관람가")).toBeInTheDocument();
+    // 2026-11-19: 제작 연도(KOBIS)를 사실 칸 첫 줄에 함께 보인다.
+    expect(
+      within(first).getByText("미스터리, 드라마 · 88분 · 15세이상관람가 · 2024년 제작"),
+    ).toBeInTheDocument();
     // 2026-11-19: 평가 수가 작은 평점을 알아볼 수 있게 평가 수를 함께 보인다.
     expect(within(first).getByText("평점 6.0(평가 4건) · 누적 관객 63,697명")).toBeInTheDocument();
     expect(

@@ -81,6 +81,8 @@ def movie_row(movie: KobisMovie, info: TmdbInfo | None) -> dict[str, Any]:
         "등급": movie.grade or UNKNOWN,
         "감독": joined(movie.directors),
         "배우": joined(movie.actors),
+        # 2026-11-19: KOBIS prdtYear. 재개봉·늦은 개봉 영화의 "몇 년 작"을 모델이 자체 지식으로 말하지 않게 근거를 준다.
+        "제작 연도": movie.production_year or UNKNOWN,
     }
     if info is not None:
         if info.overview:
@@ -171,7 +173,7 @@ NEXT_STEP = "보고 싶은 영화의 시간표를 붙여 주시면 회차를 골
 NEED_LOOKUP = "먼저 상영작을 조회해야 합니다. list_now_showing을 부른 뒤 그 목록에서 골라 주세요."
 # 카드 사실 칸(정본은 단계 기록의 KOBIS 값, 평점만 TMDB). 줄거리는 넣지 않는다 — 외부 글을 카드로 다시 내보내지 않는다.
 # 2026-11-19 평가 수 추가: 평가 4건짜리 평점 6.8과 평가 1만 건짜리 평점이 똑같이 보이지 않게(화면이 함께 보인다).
-FACT_KEYS = ("장르", "상영 시간", "등급", "감독", "배우", "누적 관객", "평점", "평가 수")
+FACT_KEYS = ("장르", "상영 시간", "등급", "감독", "배우", "누적 관객", "평점", "평가 수", "제작 연도")
 # 예매는 극장 브랜드 공식 홈페이지 링크만(회차 고르기와 같은 목록, showtimes.BOOKING_SITES).
 BOOKING_LINKS = tuple({"극장": name, "주소": url} for name, url in BOOKING_SITES.items())
 

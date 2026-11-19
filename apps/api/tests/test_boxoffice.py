@@ -74,6 +74,7 @@ async def test_returns_wrapped_movies(tool_deps, fake_http):
     assert first["등급"] == "15세이상관람가"
     assert first["감독"] == "박선우, 홍의정"
     assert first["누적 관객"] == "63,697명"
+    assert first["제작 연도"] == "2024"  # 2026-11-19: KOBIS prdtYear(재개봉·늦은 개봉을 모델이 지어내지 않게)
     assert first["평점"] == "6.0"  # 검색으로 짝지은 2026년 "폭설"
     assert third["제목"] == "헝거게임 50번째 추첨의 날"
     assert third["평가 수"] == 29

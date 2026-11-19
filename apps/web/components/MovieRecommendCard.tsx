@@ -43,10 +43,16 @@ function ratingText(movie: Record<string, unknown>): string {
     : `평점 ${rating}`;
 }
 
+// '2024년 제작'(KOBIS 제작 연도, 2026-11-19). 모르면 빈 글자.
+function yearText(movie: Record<string, unknown>): string {
+  const year = movie["제작 연도"];
+  return typeof year === "string" && /^\d{4}$/.test(year) ? `${year}년 제작` : "";
+}
+
 function MovieItem({ movie }: { movie: Record<string, unknown> }) {
   const title = String(movie.제목 ?? "");
   const lines = [
-    line(movie, ["장르", "상영 시간", "등급"]),
+    [line(movie, ["장르", "상영 시간", "등급"]), yearText(movie)].filter(Boolean).join(" · "),
     [ratingText(movie), line(movie, ["누적 관객"], true)].filter(Boolean).join(" · "),
     line(movie, ["감독", "배우"], true),
   ].filter(Boolean);

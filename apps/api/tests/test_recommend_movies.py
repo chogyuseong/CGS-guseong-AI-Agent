@@ -29,6 +29,7 @@ SNOW = {
     "줄거리": "퇴직을 하루 앞둔 역장…",
     "평점": "6.0",
     "평가 수": 1,
+    "제작 연도": "2024",
 }
 HUNGER = {**SNOW, "code": "20267121", "제목": "헝거게임 50번째 추첨의 날", "장르": "액션, SF", "등급": "15세이상관람가"}
 CONCERT = {**SNOW, "code": "20268264", "제목": "공연 실황", "장르": "공연"}
@@ -110,6 +111,7 @@ async def test_facts_come_from_lookup(tool_deps, db_session):
     assert second["상영 시간"] == "88분"
     assert second["평점"] == "6.0"
     assert second["평가 수"] == 1  # 2026-11-19: 표본이 작은 평점을 알아볼 수 있게 평가 수도 함께
+    assert second["제작 연도"] == "2024"
     assert "줄거리" not in second  # 카드에는 줄거리를 넣지 않는다(외부 글을 새로 내보내지 않음)
     assert "시간표를 붙여 주시면" in data["다음"]
     assert data["예매"] == list(boxoffice.BOOKING_LINKS)
