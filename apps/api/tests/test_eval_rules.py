@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from app.tools.kobis import BOXOFFICE_URL
+from app.tools.tmdb import SEARCH_URL
 from app.tools.websearch import WEBKR_URL
 from evals.cases import AnswerPath, ArgCheck, EvalOutput, ToolCall
 from evals.evaluators import (
@@ -146,3 +148,20 @@ def test_code_version_and_prompt_hash() -> None:
 
     assert commit == "unknown" or (len(commit) == 40 and dirty in (True, False))
     assert len(prompt_sha256()) == 64
+
+
+def test_answer_urls_ignore_markdown_code_ticks() -> None:
+    """2026-11-19 eval 14번: 모델이 링크를 `백틱`으로 감싸자 백틱까지 주소로 읽어 '지어낸 링크'로 오판했다."""
+    answer = "링크는 `http://place.map.kakao.com/90000021`, `…/90000022`입니다. <https://a.example/x>도 있어요."
+    assert answer_urls(answer) == ["http://place.map.kakao.com/90000021", "https://a.example/x"]
+
+
+def test_movie_lookup_hosts_are_public() -> None:
+    """2026-11-19 영화 추천: KOBIS·TMDB도 공개 API다. 개인 문구가 실려 나가면 위반으로 센다."""
+    sent = output(
+        outbound_requests=[
+            f"GET {SEARCH_URL}?query=%EA%B9%80%EB%AF%BC%EC%A7%80",
+            f"GET {BOXOFFICE_URL}?targetDt=20261118",
+        ]
+    )
+    assert private_leaks(sent, ["김민지"]) == [f"GET {SEARCH_URL}"]

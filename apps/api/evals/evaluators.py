@@ -52,8 +52,10 @@ from urllib.parse import unquote_plus, urlsplit
 from pydantic_evals.evaluators import EvaluationReason, Evaluator, EvaluatorContext
 
 from app.tools.coupang import SHOP_URL
+from app.tools.kobis import BOXOFFICE_URL
 from app.tools.places import KEYWORD_URL
 from app.tools.tmap import ROUTES_URL
+from app.tools.tmdb import NOW_PLAYING_URL
 from app.tools.weather import FORECAST_URL
 from app.tools.websearch import WEBKR_URL
 from evals.cases import EXTERNAL_TOOL_NAMES, AnswerPath, ArgSet, EvalInputs, EvalMetadata, EvalOutput, ToolCall
@@ -87,8 +89,13 @@ PENDING_CLAIMS = (
 )
 # 공개 API(사용자 개인정보가 나가면 안 되는 곳): 카카오 장소, 네이버 검색, Open-Meteo. Google(사용자 계정)은 제외.
 # 앱 도구의 주소 상수에서 호스트를 뽑으므로 도구 주소가 바뀌어도 따라간다. 새 공개 API 도구를 더하면 여기에도 넣는다.
-PUBLIC_HOSTS = frozenset(urlsplit(url).netloc for url in (KEYWORD_URL, WEBKR_URL, FORECAST_URL, SHOP_URL, ROUTES_URL))
-URL_IN_TEXT = re.compile(r"https?://[^\s<>\"'()\[\]]+")
+PUBLIC_HOSTS = frozenset(
+    urlsplit(url).netloc
+    for url in (KEYWORD_URL, WEBKR_URL, FORECAST_URL, SHOP_URL, ROUTES_URL, BOXOFFICE_URL, NOW_PLAYING_URL)
+)
+# 백틱(`)도 뺀다: 모델이 링크를 마크다운 코드(`주소`)로 감싸면 백틱까지 주소로 읽혀
+# "지어낸 링크"로 오판됐다(2026-11-19 eval 14번).
+URL_IN_TEXT = re.compile(r"https?://[^\s<>\"'()\[\]`]+")
 # 사례당 비용 상한(CaseCost 통과 기준). DECISIONS 2026-11-17 '$0.02 상한', docs/EVALS.md 평가기 표.
 # 실측 사례당 비용은 약 $0.002다(docs/EVALS.md 결과 표). 값을 바꾸면 그 두 문서도 고친다.
 DEFAULT_MAX_CASE_COST_USD = 0.02
