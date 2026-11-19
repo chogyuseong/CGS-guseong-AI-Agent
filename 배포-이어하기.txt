@@ -6,6 +6,12 @@
 2026-11-19 배포 준비 재점검: Next 프로덕션 빌드 통과, docs/DEPLOY.md 환경변수 목록에 TMAP·KOBIS·TMDB·쿠팡 키와 선택 값을 채움
 (.env.example의 모든 이름이 DEPLOY.md에 있음). 실제 배포는 Railway 가입·결제·대시보드 입력이 필요해 사용자가 해야 한다(이 PC에 CLI·로그인 없음).
 
+2026-11-19 추천 제안 2건 적용(사용자: "추천대로 진행")
+  - 한 번의 승인 요청에 일정 삭제 2건 이상이면 카드 없이 실패(runner.too_many_deletes, tests/test_bulk_delete_limit.py).
+  - Google 캘린더 미연결이면 일정 쓰기 도구 숨김 + 연결 안내 지시문(run 시작 때 한 번 확인, 재개 run 제외,
+    tests/test_calendar_visibility.py). 연결된 사용자·eval은 지시문이 그대로라 eval 재실행 불필요.
+  - 검증: API 전체 794건 통과·경고 0건(10분 24초), ruff·pyright 0건. 화면 코드는 바뀌지 않음(Vitest 396·Playwright 54는 직전 결과).
+
 2026-11-19 영화 추천 완료(사용자: 범위 "지금 극장에서 뭘 볼지", 데이터 C안 KOBIS + TMDB)
   - 채팅 "이번 주말 뭐 볼까?" → list_now_showing(KOBIS 상위 10편 사실 칸 + TMDB 줄거리·평점) →
     recommend_movies(1~3편 카드, 목록 밖 영화 거절, 사실 칸은 서버가 채움) → "시간표를 붙여 주시면 회차를 골라 드릴게요".
@@ -19,8 +25,8 @@
     이날 유료 호출 합계 약 $0.10. 상세는 docs/EVALS.md "영화 추천 단건 확인과 평가".
   - 최종 검토 사소한 점도 처리: 6,000자 넘는 목록은 줄거리 빼기, 상영작 조회 단계에도 TMDB 출처 표시,
     KOBIS 제목이 같은 두 편은 짝짓기 생략, KOBIS 키가 쿼리 문자열이라는 주의(docs/OBSERVABILITY.md).
-  - 조사 후보: eval 30건 중 4건에서 AnthropicStaleThinkingBlockWarning(작업 중 도구 목록·지시문이 바뀌어 프롬프트 캐시 재계산).
-    메일·검색을 읽은 뒤 도구를 숨기는 안전 규칙이 유력(추정). 비용 영향만 확인하면 된다.
+  - 캐시 경고 조사 완료: 원인은 검색·메일 뒤 도구 숨김(안전 규칙)과 기억 즉시 반영. 설계된 동작, 앱은 프롬프트 캐시를 켜지 않아
+    추가 과금 구조 아님 → 코드 변경 없음. 캐시를 켜게 되면 기억 지시문을 run 단위로 고정 검토(docs/EVALS.md).
   - 제안(만들지 않음): 추천 결과에 KOBIS 제작 연도 넣기(모델이 "2016년 작"을 자체 지식으로 말함), 예약·감시에서 개봉작 알림.
   - 이 PC에 apps/web pnpm install 함(잠금 파일 그대로).
   - 최종 검증(2026-11-19 첫 PC): API 전체 789건 통과·경고 0건(9분 10초), ruff·pyright 0건, 웹 Vitest 396건·Biome·tsc 통과,
@@ -34,8 +40,8 @@
   3. 배포와 폰 점검은 보류 중이다. 재개하면 docs/DEPLOY.md로 배포·복원을, docs/PHONE-CHECK.md로
      실기기 푸시·마이크·키보드를 확인한다. 7일 실사용 기록은 docs/OPERATIONS.md의 양식에 실제 사용분을 적는다.
   4. 사용자가 고르면 진행할 제안(요구사항 밖이라 아직 만들지 않음):
-     Google 미연결 시 일정 쓰기 도구 숨기기, 네이버 검색 결과 보관 기간 정리, 한 작업의 삭제 승인 요청 1건 제한,
-     unknown operation 주기적 재조회, WORKFLOW_VERSION 올린 뒤 running task 정리 명령,
+     네이버 검색 결과 보관 기간 정리, unknown operation 주기적 재조회, WORKFLOW_VERSION 올린 뒤 running task 정리 명령,
+     영화 추천에 KOBIS 제작 연도 넣기, 예약·감시에서 개봉작 알림,
      eval --repeat 3 반복 측정(유료, 약 $0.12~0.20 — 확인 후에만).
   AI가 혼자 할 수 있는 코드 정리는 2026-11-19에 마쳤다. 남은 것은 위 1~3(사용자 계정·키·기기) 또는 4(사용자 결정)다.
 
