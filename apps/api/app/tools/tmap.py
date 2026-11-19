@@ -33,6 +33,8 @@
 변경 이력:
 - 2026-11-18 처음 작성.
 - 2026-11-19 빈 응답·오류 본문·모르는 상태·0초 이하 소요를 "경로 없음"이 아니라 응답 확인 실패(bad_response)로 바꿈.
+- 2026-11-19 실제 출발이 첫 조회 시각과 30분 이상 다르면 그 시각으로 한 번 다시 조회(refine_plan).
+  다시 못 하면 차이를 기준 줄에 밝힘.
 """
 
 from datetime import datetime, timedelta
@@ -51,6 +53,7 @@ from app.tools.departure import (
     DeparturePlan,
     RouteOption,
     ambiguous_places,
+    hhmm,
     minutes_from_seconds,
     plan_departure_times,
     route_difference,
@@ -70,6 +73,10 @@ PLACE_CANDIDATES = 5
 ROUTE_COUNT = 5
 # 첫 추정 이동 시간(분). searchDttm에 "도착 목표 - 이 값"을 넣어 그 무렵 운행 기준으로 조회한다(한 번만 조회).
 FIRST_GUESS_MINUTES = 60
+# 실제로 나갈 시각이 첫 조회 시각과 이만큼(분) 이상 다르면 그 시각으로 한 번 다시 조회한다(2026-11-19).
+# 배차·막차는 시각에 따라 달라 18:00 운행 기준 소요로 17:20 출발을 권하면 근거가 맞지 않는다. 하루 10건 한도를 아끼려고
+# 한 번만, 차이가 클 때만 다시 묻는다. 바꾸면 tests/test_tmap.py의 test_*_guess_* 를 같이 본다.
+REQUERY_GAP_MINUTES = 30
 # TMAP Free 요금제의 대중교통 하루 호출 수(2026-11-18 사용자가 확인한 요금표, 넘으면 TMAP이 자동 차단).
 # 앱도 최근 24시간 호출을 세어 넘기 전에 멈춘다(달력 하루보다 보수적). 단일 API 프로세스 기준이라 재시작하면
 # 카운터가 비고, 다른 클라이언트의 호출은 세지 못한다. 요금제를 바꾸면 이 값과 docs/TOOLS.md를 같이 고친다.
@@ -218,8 +225,13 @@ def route_row(route: RouteOption) -> dict[str, str]:
     }
 
 
-def plan_content(plan: DeparturePlan, start: dict[str, Any], end: dict[str, Any], when: datetime) -> dict[str, Any]:
-    """카드 내용: 결론·이유·(다른 경로)·장소·기준·경로 목록·지도 링크."""
+def plan_content(
+    plan: DeparturePlan, start: dict[str, Any], end: dict[str, Any], when: datetime, gap_note: str | None = None
+) -> dict[str, Any]:
+    """카드 내용: 결론·이유·(다른 경로)·장소·기준·경로 목록·지도 링크.
+
+    gap_note는 다시 조회하지 못했을 때 조회 시각과 실제 출발의 차이 설명(기준 줄 끝에 붙는다).
+    """
     routes = [plan.fastest] + ([plan.fewer_transfers] if plan.fewer_transfers else [])
     content: dict[str, Any] = {"결론": plan.conclusion, "이유": plan.reason}
     if plan.fewer_transfers:
@@ -228,11 +240,40 @@ def plan_content(plan: DeparturePlan, start: dict[str, Any], end: dict[str, Any]
         "출발지": clip(start.get("place_name")),
         "도착지": clip(end.get("place_name")),
         "기준": f"TMAP 대중교통, {when.astimezone(SEOUL):%Y-%m-%d %H:%M} 운행 기준 예상 소요"
-        "(실제 교통 상황에 따라 달라질 수 있음)",
+        "(실제 교통 상황에 따라 달라질 수 있음)" + (f". {gap_note}" if gap_note else ""),
         "경로": [route_row(r) for r in routes],
         "지도": map_link(start, end),
     }
     return content
+
+
+def leave_time(plan: DeparturePlan, previous: datetime | None) -> datetime:
+    """실제로 나갈 시각: 앞 일정 때문에 권장 출발에 못 나가면(여유부족·지각) 앞 일정 종료, 아니면 권장 출발."""
+    return previous if previous is not None and plan.status in ("여유부족", "지각") else plan.depart_at
+
+
+async def refine_plan(
+    deps: AgentDeps,
+    places: tuple[dict[str, Any], dict[str, Any]],
+    plan: DeparturePlan,
+    when: datetime,
+    times: tuple[datetime, int, datetime | None],
+) -> tuple[DeparturePlan, datetime, str | None]:
+    """(계획, 조회 기준 시각, 차이 설명). 실제 출발이 조회 시각과 REQUERY_GAP_MINUTES 이상 다르면 그 시각으로 한 번 더
+    조회해 다시 계산한다. 한도·오류·경로 없음으로 다시 못 하면 첫 계획을 쓰고 몇 분 차이인지 밝힌다.
+    부수 효과: TMAP 조회 0~1회(하루 한도에 센다)."""
+    arrive, early, previous = times
+    leave = leave_time(plan, previous)
+    gap = abs(int((leave - when).total_seconds() // 60))
+    if gap < REQUERY_GAP_MINUTES:
+        return plan, when, None
+    note = f"운행 정보는 {hhmm(when)} 출발 기준으로 조회해 권장 출발({hhmm(leave)})과 {gap}분 차이가 있습니다"
+    try:
+        routes, _ = parse_routes(await fetch_routes(deps, places[0], places[1], leave))
+    except ExternalApiError:
+        return plan, when, note
+    second = plan_departure_times(arrive, early_minutes=early, routes=routes, previous_end=previous)
+    return (second, leave, None) if second is not None else (plan, when, note)
 
 
 def place_question(role: str, name: str, candidates: list[dict[str, str]]) -> ToolResult:
@@ -272,7 +313,8 @@ async def plan_departure_result(
     plan = plan_departure_times(arrive, early_minutes=early_minutes, routes=routes, previous_end=previous)
     if plan is None:
         return ToolResult.external({"결론": "대중교통 경로를 찾지 못했습니다.", "이유": no_route or ""})
-    content = plan_content(plan, start, end, when)
+    plan, when, gap_note = await refine_plan(deps, (start, end), plan, when, (arrive, early_minutes, previous))
+    content = plan_content(plan, start, end, when, gap_note)
     return ToolResult.external(content, [content["지도"]])
 
 

@@ -247,3 +247,63 @@ async def test_unreadable_response_fails_without_departure_card(keys, fake_http,
     assert not result.ok
     assert result.error_code == "bad_response"
     assert "경로가 없다는 뜻은 아닙니다" in (result.user_message or "")
+
+
+# ---- 2026-11-19: 실제 출발 시각과 조회 기준 시각이 크게 다르면 그 시각으로 한 번 다시 조회한다 ----
+
+LONG_TRIP = {"origin": "역삼역", "destination": "잠실역", "arrive_by": "2026-11-19T19:00"}
+
+
+def one_route(minutes: int) -> httpx.Response:
+    itinerary = {"totalTime": minutes * 60, "transferCount": 1, "totalWalkTime": 300, "legs": []}
+    return json_response(200, {"metaData": {"plan": {"itineraries": [itinerary]}}})
+
+
+def search_times(fake_http) -> list[str]:
+    return [json.loads(r.content)["searchDttm"] for r in fake_http.sent("POST", tmap.ROUTES_URL)]
+
+
+async def test_close_guess_needs_one_query(keys, fake_http, tool_deps):
+    route_places(fake_http)
+    fake_http.route("POST", tmap.ROUTES_URL, one_route(55))
+
+    result = await tmap.plan_departure_result(tool_deps, **LONG_TRIP)
+
+    assert search_times(fake_http) == ["202611191800"]  # 첫 추정(도착-60분)과 실제 출발 18:05가 5분 차이
+    assert content_of(result)["결론"] == "18:05에 출발하면 19:00에 도착합니다."
+
+
+async def test_far_guess_is_queried_again_at_real_departure(keys, fake_http, tool_deps):
+    route_places(fake_http)
+    fake_http.route("POST", tmap.ROUTES_URL, one_route(100), one_route(90))
+
+    result = await tmap.plan_departure_result(tool_deps, **LONG_TRIP)
+
+    assert search_times(fake_http) == ["202611191800", "202611191720"]  # 17:20 출발 기준으로 다시
+    content = content_of(result)
+    assert content["결론"] == "17:30에 출발하면 19:00에 도착합니다."  # 다시 조회한 소요(90분)로 계산
+    assert "2026-11-19 17:20 운행 기준" in content["기준"]
+
+
+async def test_far_guess_without_quota_says_the_gap(keys, fake_http, tool_deps, monkeypatch):
+    monkeypatch.setattr(tmap, "LIMITER", tmap.SlidingWindowRateLimiter(limit=1, window_seconds=86400))
+    route_places(fake_http)
+    fake_http.route("POST", tmap.ROUTES_URL, one_route(100))
+
+    result = await tmap.plan_departure_result(tool_deps, **LONG_TRIP)
+
+    assert len(fake_http.sent("POST", tmap.ROUTES_URL)) == 1
+    content = content_of(result)
+    assert content["결론"] == "17:20에 출발하면 19:00에 도착합니다."
+    assert "18:00 출발 기준으로 조회해 권장 출발(17:20)과 40분 차이" in content["기준"]
+
+
+async def test_late_case_requeries_at_previous_end(keys, fake_http, tool_deps):
+    """앞 일정 때문에 늦게 나가면 실제로 나가는 시각(앞 일정 종료)으로 다시 묻는다."""
+    route_places(fake_http)
+    fake_http.route("POST", tmap.ROUTES_URL, one_route(55), one_route(55))
+    late = {**LONG_TRIP, "early_minutes": 15, "previous_end": "2026-11-19T18:40"}
+
+    await tmap.plan_departure_result(tool_deps, **late)
+
+    assert search_times(fake_http) == ["202611191745", "202611191840"]
