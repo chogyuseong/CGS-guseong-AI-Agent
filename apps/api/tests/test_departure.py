@@ -4,7 +4,7 @@
 모델이 아니라 이 계산이 정한다. 숫자는 명세 예시 그대로다(19시 면접, 15분 전 도착, 이동 55분 → 17:50 출발, 여유 10분).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -144,3 +144,33 @@ def test_exits_of_one_station_are_not_ambiguous() -> None:
 @pytest.mark.parametrize("documents", [[], [place("강남역 2호선", 37.4979, 127.0276)]])
 def test_zero_or_one_result_is_not_ambiguous(documents: list[dict]) -> None:
     assert ambiguous_places("강남역", documents) == []
+
+
+# ---- 2026-11-19(15번): 오늘이 아닌 출발은 날짜를 붙인다. 오래 지난 카드가 지금 유효한 지시처럼 보이지 않게 ----
+
+
+def test_other_day_departure_shows_date() -> None:
+    plan = plan_departure_times(
+        at(19, 0), early_minutes=0, routes=[route(55)], previous_end=None, today=date(2026, 11, 18)
+    )
+
+    assert plan is not None
+    assert plan.conclusion == "11월 19일(목) 18:05에 출발하면 19:00에 도착합니다."
+
+
+def test_same_day_departure_keeps_short_form() -> None:
+    plan = plan_departure_times(
+        at(19, 0), early_minutes=0, routes=[route(55)], previous_end=None, today=date(2026, 11, 19)
+    )
+
+    assert plan is not None
+    assert plan.conclusion == "18:05에 출발하면 19:00에 도착합니다."
+
+
+def test_other_day_shortage_shows_date() -> None:
+    plan = plan_departure_times(
+        at(19, 0), early_minutes=15, routes=[route(55)], previous_end=at(18, 20), today=date(2026, 11, 18)
+    )
+
+    assert plan is not None
+    assert plan.conclusion == "앞 일정이 끝나는 11월 19일(목) 18:20에 바로 출발하면 19:15 도착 예상입니다."

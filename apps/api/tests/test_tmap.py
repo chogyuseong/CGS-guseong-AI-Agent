@@ -71,7 +71,8 @@ async def test_chat_shows_departure_and_map_link(client, agent, conversation, ke
     assert step["ok"] and step["risk_level"] == "READ"
     content = step["output"]["data"]["content"]
     # 빠른 경로 3270초 = 55분(올림) → 18:45 - 55분 = 17:50, 교육 종료 17:40 뒤 10분 여유
-    assert content["결론"] == "17:50에 출발하면 18:45에 도착합니다(19:00보다 15분 일찍)."
+    assert content["결론"] == "11월 19일(목) 17:50에 출발하면 18:45에 도착합니다(19:00보다 15분 일찍)."
+    assert content["출발"] == "2026-11-19T17:50:00+09:00"  # 화면이 지난 출발인지 판단하는 값(15번)
     assert content["이유"] == "앞 일정이 끝나고 10분 여유가 있습니다."
     assert content["다른 경로"] == "6분 늦지만 환승이 1번 적습니다."
     assert content["출발지"] == "역삼역 2호선" and content["도착지"] == "잠실역 2호선"
@@ -271,7 +272,7 @@ async def test_close_guess_needs_one_query(keys, fake_http, tool_deps):
     result = await tmap.plan_departure_result(tool_deps, **LONG_TRIP)
 
     assert search_times(fake_http) == ["202611191800"]  # 첫 추정(도착-60분)과 실제 출발 18:05가 5분 차이
-    assert content_of(result)["결론"] == "18:05에 출발하면 19:00에 도착합니다."
+    assert content_of(result)["결론"] == "11월 19일(목) 18:05에 출발하면 19:00에 도착합니다."
 
 
 async def test_far_guess_is_queried_again_at_real_departure(keys, fake_http, tool_deps):
@@ -282,7 +283,7 @@ async def test_far_guess_is_queried_again_at_real_departure(keys, fake_http, too
 
     assert search_times(fake_http) == ["202611191800", "202611191720"]  # 17:20 출발 기준으로 다시
     content = content_of(result)
-    assert content["결론"] == "17:30에 출발하면 19:00에 도착합니다."  # 다시 조회한 소요(90분)로 계산
+    assert content["결론"] == "11월 19일(목) 17:30에 출발하면 19:00에 도착합니다."  # 다시 조회한 소요(90분)로 계산
     assert "2026-11-19 17:20 운행 기준" in content["기준"]
 
 
@@ -295,7 +296,7 @@ async def test_far_guess_without_quota_says_the_gap(keys, fake_http, tool_deps, 
 
     assert len(fake_http.sent("POST", tmap.ROUTES_URL)) == 1
     content = content_of(result)
-    assert content["결론"] == "17:20에 출발하면 19:00에 도착합니다."
+    assert content["결론"] == "11월 19일(목) 17:20에 출발하면 19:00에 도착합니다."
     assert "18:00 출발 기준으로 조회해 권장 출발(17:20)과 40분 차이" in content["기준"]
 
 

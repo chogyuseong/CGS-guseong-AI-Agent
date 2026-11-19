@@ -9,6 +9,7 @@
 // - 출발 계산 카드(travel)의 칸 이름(결론·이유·다른 경로·출발지·도착지·기준·경로·지도·확인 필요·후보)은 서버
 //   apps/api/app/tools/tmap.py plan_content·place_question과 맞물린다. 링크 이름 "지도에서 경로 열기"는 e2e travel.spec.ts가 찾는다.
 // 변경 이력:
+// - 2026-11-19 이동 카드: 이미 지난 출발 시각이면 "이미 지난 출발 시각입니다" 표시(서버 content.출발).
 // - 2026-11-18 이동 비서 B 출발 계산 카드(TravelCard). 결론 한 줄 / 이유 한 줄 / 조회 시각 / 다음 행동(지도) 하나,
 //   경로 비교·기준은 펼쳐서 본다(생활 비서 명세 7절 카드 기본 표시).
 // - 2026-11-18 영화 비서 C 회차 카드(MovieCard). 결론·이유·차이·좌석 안내·예매 열기, 계산 표·제외 이유·조건은 펼쳐서.
@@ -140,6 +141,11 @@ function TravelCard({ content }: { content: Record<string, unknown> }) {
   const href = safeHttpUrl(content.지도);
   return (
     <>
+      {isPastDeparture(content.출발) && (
+        <p className="font-medium text-warning">
+          이미 지난 출발 시각입니다. 지금 다시 계산하려면 같은 요청을 다시 보내 주세요.
+        </p>
+      )}
       {text("결론") && <p className="text-sm font-medium">{text("결론")}</p>}
       {text("이유") && <p>{text("이유")}</p>}
       {href && (
@@ -150,6 +156,14 @@ function TravelCard({ content }: { content: Record<string, unknown> }) {
       <TravelDetails content={content} />
     </>
   );
+}
+
+// 2026-11-19(15번): 서버가 준 실제 출발 시각(ISO)이 지금보다 이르면 지난 계산이다. 칸이 없는 예전 기록은 표시하지 않는다.
+// 지난 카드의 결론("17:50에 출발하면…")이 지금 따를 지시처럼 보이지 않게 한다. 칸 이름은 서버 tmap.plan_content와 맞물린다.
+function isPastDeparture(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const at = Date.parse(value);
+  return Number.isFinite(at) && at < Date.now();
 }
 
 // 영화 회차 카드. 서버가 계산한 문장을 그대로 보인다(화면은 시각을 다시 계산하지 않는다).

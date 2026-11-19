@@ -134,6 +134,22 @@ describe("StepTimeline", () => {
     expect(screen.queryByText("입력")).toBeNull(); // 입력 JSON 대신 카드만
   });
 
+  // 2026-11-19(15번): 이미 지난 출발 시각의 카드는 지금 따를 지시처럼 보이지 않게 표시한다.
+  it("지난 출발 시각의 카드에는 지난 계산이라고 표시한다", () => {
+    render(<StepTimeline steps={[travelStep({ ...TRAVEL, 출발: "2020-01-01T17:50:00+09:00" })]} />);
+    expect(screen.getByText(/이미 지난 출발 시각입니다/)).toBeVisible();
+  });
+
+  it("앞으로의 출발이거나 출발 칸이 없는 예전 기록에는 표시하지 않는다", () => {
+    const { unmount } = render(
+      <StepTimeline steps={[travelStep({ ...TRAVEL, 출발: "2999-01-01T17:50:00+09:00" })]} />,
+    );
+    expect(screen.queryByText(/이미 지난 출발 시각입니다/)).toBeNull();
+    unmount();
+    render(<StepTimeline steps={[travelStep(TRAVEL)]} />);
+    expect(screen.queryByText(/이미 지난 출발 시각입니다/)).toBeNull();
+  });
+
   it("같은 이름 지점이 여러 곳이면 후보를 보여 주고 지도 링크는 만들지 않는다", () => {
     const content = {
       "확인 필요": "출발지 '스타벅스'가 여러 곳입니다. 어느 곳인지 알려 주세요.",

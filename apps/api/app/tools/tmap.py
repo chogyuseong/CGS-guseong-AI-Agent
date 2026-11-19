@@ -226,7 +226,12 @@ def route_row(route: RouteOption) -> dict[str, str]:
 
 
 def plan_content(
-    plan: DeparturePlan, start: dict[str, Any], end: dict[str, Any], when: datetime, gap_note: str | None = None
+    plan: DeparturePlan,
+    start: dict[str, Any],
+    end: dict[str, Any],
+    when: datetime,
+    gap_note: str | None = None,
+    leave: datetime | None = None,
 ) -> dict[str, Any]:
     """카드 내용: 결론·이유·(다른 경로)·장소·기준·경로 목록·지도 링크.
 
@@ -244,6 +249,10 @@ def plan_content(
         "경로": [route_row(r) for r in routes],
         "지도": map_link(start, end),
     }
+    if leave is not None:
+        # 실제로 나갈 시각(ISO, 서울). 화면이 이미 지난 출발인지 판단해 "지난 계산"을 표시한다(2026-11-19, 15번).
+        # 칸 이름을 바꾸면 apps/web ExternalContent TravelCard와 테스트를 같이 고친다.
+        content["출발"] = leave.isoformat()
     return content
 
 
@@ -263,6 +272,7 @@ async def refine_plan(
     조회해 다시 계산한다. 한도·오류·경로 없음으로 다시 못 하면 첫 계획을 쓰고 몇 분 차이인지 밝힌다.
     부수 효과: TMAP 조회 0~1회(하루 한도에 센다)."""
     arrive, early, previous = times
+    today = clock.now_utc().astimezone(SEOUL).date()
     leave = leave_time(plan, previous)
     gap = abs(int((leave - when).total_seconds() // 60))
     if gap < REQUERY_GAP_MINUTES:
@@ -272,7 +282,7 @@ async def refine_plan(
         routes, _ = parse_routes(await fetch_routes(deps, places[0], places[1], leave))
     except ExternalApiError:
         return plan, when, note
-    second = plan_departure_times(arrive, early_minutes=early, routes=routes, previous_end=previous)
+    second = plan_departure_times(arrive, early_minutes=early, routes=routes, previous_end=previous, today=today)
     return (second, leave, None) if second is not None else (plan, when, note)
 
 
@@ -310,11 +320,12 @@ async def plan_departure_result(
         routes, no_route = parse_routes(await fetch_routes(deps, start, end, when))
     except ExternalApiError as error:
         return ToolResult.from_api_error(error)
-    plan = plan_departure_times(arrive, early_minutes=early_minutes, routes=routes, previous_end=previous)
+    today = clock.now_utc().astimezone(SEOUL).date()
+    plan = plan_departure_times(arrive, early_minutes=early_minutes, routes=routes, previous_end=previous, today=today)
     if plan is None:
         return ToolResult.external({"결론": "대중교통 경로를 찾지 못했습니다.", "이유": no_route or ""})
     plan, when, gap_note = await refine_plan(deps, (start, end), plan, when, (arrive, early_minutes, previous))
-    content = plan_content(plan, start, end, when, gap_note)
+    content = plan_content(plan, start, end, when, gap_note, leave_time(plan, previous))
     return ToolResult.external(content, [content["지도"]])
 
 
