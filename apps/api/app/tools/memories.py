@@ -45,6 +45,7 @@ app/agent/prompts.py(지시문의 최근 30줄: select_memories).
 
 import re
 from collections.abc import Callable
+from datetime import datetime
 from typing import Annotated, Any
 
 from pydantic import Field
@@ -258,18 +259,19 @@ async def chat_trigger_message(session: AsyncSession, deps: AgentDeps) -> Messag
     return message
 
 
-async def select_memories(session: AsyncSession, user_id: int, limit: int) -> list[Memory]:
+async def select_memories(
+    session: AsyncSession, user_id: int, limit: int, *, created_by: datetime | None = None
+) -> list[Memory]:
     """최근 것부터 limit개(user_id 조건). 읽기만 한다.
 
     지시문의 최근 30줄(prompts.py PROMPT_MEMORY_LINES), list_memories, 중복 검사가 함께 쓴다. 정렬을 바꾸면
     지시문에 들어가는 기억이 바뀐다.
+    created_by를 주면 그 시각까지 만든 기억만(작업 상세의 '함께 보낸 기억', 2026-11-19).
     """
-    rows = await session.scalars(
-        select(Memory)
-        .where(Memory.user_id == user_id)
-        .order_by(Memory.created_at.desc(), Memory.id.desc())
-        .limit(limit)
-    )
+    query = select(Memory).where(Memory.user_id == user_id)
+    if created_by is not None:
+        query = query.where(Memory.created_at <= created_by)
+    rows = await session.scalars(query.order_by(Memory.created_at.desc(), Memory.id.desc()).limit(limit))
     return list(rows)
 
 

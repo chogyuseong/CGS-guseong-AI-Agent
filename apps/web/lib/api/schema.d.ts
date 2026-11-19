@@ -993,6 +993,16 @@ export interface components {
             source: components["schemas"]["MemorySourceOut"] | null;
         };
         /**
+         * MemorySentOut
+         * @description 작업을 시작할 때 모델 지시문에 함께 들어간 기억 한 줄(2026-11-19, 분석 38번).
+         */
+        MemorySentOut: {
+            /** Id */
+            id: number;
+            /** Content */
+            content: string;
+        };
+        /**
          * MemorySourceOut
          * @description 기억의 출처: 그 기억을 만든 task를 시작한 사용자 메시지("원래 메시지 보기").
          */
@@ -1235,6 +1245,8 @@ export interface components {
             steps: components["schemas"]["StepOut"][];
             /** Approvals */
             approvals: components["schemas"]["ApprovalOut"][];
+            /** Memories Sent */
+            memories_sent?: components["schemas"]["MemorySentOut"][];
         };
         /**
          * TaskOrigin

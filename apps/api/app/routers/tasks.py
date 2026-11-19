@@ -32,12 +32,14 @@ from sqlalchemy import ColumnElement, and_, func, or_, select
 
 from app import clock
 from app.agent.cancel import CancelNotAllowedError, request_cancel
+from app.agent.prompts import PROMPT_MEMORY_LINES
 from app.db import DbSession
 from app.models import Message, Step, Task
 from app.models.enums import TaskStatus
 from app.routers.approvals import approvals_of_task
-from app.schemas.tasks import CancelOut, StepOut, TaskDetail, TaskSummary
+from app.schemas.tasks import CancelOut, MemorySentOut, StepOut, TaskDetail, TaskSummary
 from app.security import CurrentUser
+from app.tools.memories import select_memories
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -120,7 +122,18 @@ async def get_task(task_id: int, user: CurrentUser, session: DbSession) -> TaskD
         updated_at=task.updated_at,
         steps=[StepOut.model_validate(step) for step in steps],
         approvals=await approvals_of_task(session, task.id),
+        memories_sent=await memories_sent(session, task),
     )
+
+
+async def memories_sent(session: DbSession, task: Task) -> list[MemorySentOut]:
+    """작업을 시작할 때 있던 기억 중 최근 PROMPT_MEMORY_LINES개를 지시문 순서(오래된 것부터)로(2026-11-19, 분석 38번).
+
+    prompts.memory_instruction과 같은 기준이다. 작업 도중 remember로 만든 기억은 다음 요청부터 들어가므로 빠진다.
+    읽기만 하고, 남의 기억은 select_memories의 user_id 조건으로 막힌다.
+    """
+    rows = await select_memories(session, task.user_id, PROMPT_MEMORY_LINES, created_by=task.created_at)
+    return [MemorySentOut(id=row.id, content=row.content) for row in reversed(rows)]
 
 
 # 작업 취소. request_cancel이 user_id 조건으로 task를 찾고 상태를 바꾼다(잠금·커밋은 app/agent/cancel.py).

@@ -140,6 +140,13 @@ class ApprovalErrorOut(BaseModel):
     detail: ApprovalErrorDetail
 
 
+class MemorySentOut(BaseModel):
+    """작업을 시작할 때 모델 지시문에 함께 들어간 기억 한 줄(2026-11-19, 분석 38번)."""
+
+    id: int
+    content: str
+
+
 class TaskDetail(BaseModel):
     id: int
     conversation_id: int
@@ -154,6 +161,9 @@ class TaskDetail(BaseModel):
     steps: list[StepOut]
     # 이 작업의 모든 승인(대기·승인·거절·만료, step 순서). 승인 카드는 status가 pending인 것만 그린다.
     approvals: list[ApprovalOut]
+    # 작업을 시작할 때 있던 기억 중 지시문에 들어간 것(최근 30개, 오래된 것부터). 모델이 '실제로 쓴' 기억이 아니라
+    # '함께 보낸' 기억이다. 저장하지 않고 읽을 때 계산하므로 지운 기억은 빠진다(2026-11-19).
+    memories_sent: list[MemorySentOut] = Field(default_factory=list)
 
 
 class TaskSummary(BaseModel):
