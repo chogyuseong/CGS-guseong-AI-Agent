@@ -151,3 +151,17 @@ async def test_kobis_failure_retryable(tool_deps, fake_http):
 
 def test_label() -> None:
     assert boxoffice.list_now_showing_label({}) == "상영작 확인하는 중"
+
+
+async def test_no_votes_hides_rating(tool_deps, fake_http):
+    """2026-11-19 실제 조회에서 평가 0건인 영화가 '평점 0.0'으로 보였다(낮은 평점처럼 오해).
+
+    평가가 없으면 평점 칸을 뺀다.
+    """
+    playing = fixture_json("tmdb_now_playing_kr.json")
+    for item in playing["results"]:
+        item["vote_average"], item["vote_count"] = 0.0, 0
+    route_all(fake_http, tmdb_reply=json_response(200, playing))
+    hunger = content_of(await lookup(tool_deps))["영화"][2]
+    assert "줄거리" in hunger
+    assert "평점" not in hunger and "평가 수" not in hunger

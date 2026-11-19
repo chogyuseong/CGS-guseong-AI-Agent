@@ -83,8 +83,11 @@ def movie_row(movie: KobisMovie, info: TmdbInfo | None) -> dict[str, Any]:
     if info is not None:
         if info.overview:
             row["줄거리"] = clip(info.overview)
-        row["평점"] = f"{info.vote_average:.1f}"
-        row["평가 수"] = info.vote_count
+        # 평가가 0건이면 평점 0.0은 "낮은 평점"이 아니라 "아직 평가 없음"이다. 오해를 막으려고 칸을 뺀다
+        # (2026-11-19 실제 조회에서 개봉 직후 영화 두 편이 0.0으로 보였다).
+        if info.vote_count > 0:
+            row["평점"] = f"{info.vote_average:.1f}"
+            row["평가 수"] = info.vote_count
     return row
 
 
