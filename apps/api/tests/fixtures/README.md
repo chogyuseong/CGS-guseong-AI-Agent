@@ -50,3 +50,4 @@ TMAP fixture는 문서의 칸 이름(metaData.plan.itineraries, totalTime·trans
 문서에 오류 응답 본문 모양이 없어서 `test_no_route_is_not_an_api_failure`의 `{"result": {"status": 11}}`은 추정이다. 실제 키로 확인하면 고친다. 2026-11-18 실제 정상 응답 1건으로 정상 응답 칸 이름(metaData.plan.itineraries 등)은 문서와 같음을 확인했다.
 
 | `kobis_daily_boxoffice.json`, `kobis_movie_info.json` | (2026-11-19 영화 추천) **실제 KOBIS 응답**(2026-11-18 일별 박스오피스, 1위 영화 상세)을 줄인 것. 박스오피스는 3편만, 상세는 배우 3명·영화사·스태프 1명만 남겼다. 키 값은 들어 있지 않다 |
+| `tmdb_now_playing_kr.json`, `tmdb_search_movie.json` | (2026-11-19 영화 추천) **실제 TMDB 응답**. now_playing(region=KR, ko-KR) 1쪽에서 3편만 남기고 total_pages를 1로 고침. 검색은 "폭설" 결과 4건 그대로(같은 제목 2026·2024·2019년 — 연도 짝짓기 시험) |

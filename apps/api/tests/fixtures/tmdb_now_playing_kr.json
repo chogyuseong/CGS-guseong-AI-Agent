@@ -1,0 +1,71 @@
+{
+ "dates": {
+  "maximum": "2026-11-25",
+  "minimum": "2026-10-14"
+ },
+ "page": 1,
+ "results": [
+  {
+   "adult": false,
+   "backdrop_path": "/yE766yhgg98tKwTKd8CyNvAtmn6.jpg",
+   "genre_ids": [
+    12,
+    53
+   ],
+   "id": 1263337,
+   "title": "하트 오브 비스트",
+   "original_language": "en",
+   "original_title": "Heart of the Beast",
+   "overview": "특수부대에서 은퇴한 주임원사 제임스 벨몬트와 그의 군견 오딘. 전장에서 서로의 목숨을 지켜온 두 전우는 전쟁이 끝난 뒤에도 악몽과 트라우마에 시달린다. 둘은 수상비행기를 타고 알래스카의 외딴 호숫가를 찾아 잠시 고요한 시간을 보내지만, 돌아오는 하늘길에서 비행기가 추락하면서 문명과 단절된 광활한 황야 한가운데에 고립되고 만다. 가장 가까운 사람의 흔적까지는 무려 93킬로미터. 부상당한 몸을 이끌고 구조를 향해 걸음을 내딛은 제임스와 오딘 앞에는 거센 급류와 깎아지른 협곡, 굶주린 회색곰과 늑대 무리가 기다리고 있다. 인간의 잔혹함을 견뎌낸 개와 상처투성이가 된 사내, 이제 서로가 유일한 버팀목이 된 두 영혼은 과연 집으로 돌아갈 수 있을까?",
+   "popularity": 507.5043,
+   "poster_path": "/zC4E522V1n3H4SGdYOaiqhF5DnS.jpg",
+   "release_date": "2026-10-28",
+   "softcore": false,
+   "video": false,
+   "vote_average": 7.728,
+   "vote_count": 1003
+  },
+  {
+   "adult": false,
+   "backdrop_path": "/smZ8BT4Vzw4iCEppTLCnN8jNYtn.jpg",
+   "genre_ids": [
+    27
+   ],
+   "id": 1400837,
+   "title": "아더 마미",
+   "original_language": "en",
+   "original_title": "Other Mommy",
+   "overview": "여덟 살 소녀 벨라의 집은 겉보기엔 평온하지만, 일에 쫓겨 늘 집을 비우는 엄마 어슐라와 집안을 돌보는 아빠 러스 사이에는 말하지 못한 균열이 깊어져 간다. 부모의 다툼을 숨죽여 듣는 밤이 늘어갈 무렵, 벨라의 방 옷장 속에서 엄마와 똑같은 얼굴을 한 존재가 모습을 드러낸다. 벨라가 '아더 마미'라 부르게 된 그것은 자주 비어 있던 엄마의 자리를 대신하듯 아이의 곁을 맴돌며 끊임없이 속삭인다. \"네 마음속에 들어가도 될까?\" 벨라는 그때마다 고개를 젓지만 차마 그것을 쫓아내지는 못한다. 그리고 러스가 아내와 똑같이 생긴 낯선 침입자를 목격하면서, 옷장 속에 머물던 기척은 집 안 곳곳으로 번져가기 시작한다. 눈앞의 엄마가 진짜인지조차 분간할 수 없게 된 가족, 아이의 마음을 원하는 그것이 노리는 것은 과연 무엇일까.",
+   "popularity": 411.8403,
+   "poster_path": "/fGRNCssTRrhYZxNzykGGCoMsAVq.jpg",
+   "release_date": "2026-11-18",
+   "softcore": false,
+   "video": false,
+   "vote_average": 6.455,
+   "vote_count": 505
+  },
+  {
+   "adult": false,
+   "backdrop_path": "/aqFZcr2dxSZ2UwWSo1WC6C0rwDf.jpg",
+   "genre_ids": [
+    878,
+    28,
+    12
+   ],
+   "id": 1300968,
+   "title": "헝거게임 50번째 추첨의 날",
+   "original_language": "en",
+   "original_title": "The Hunger Games: Sunrise on the Reaping",
+   "overview": "캐피톨을 비웃어 ‘역대 최하점’을 받은 흙수저 소년 헤이미치. 모두가 소년이 가장 먼저 죽을 것이라며 돈을 걸 때, 1점짜리 천재의 머릿속엔 이미 데스게임의 룰을 부술 완벽한 설계가 끝나 있었다. 생존율 0%, 맹독의 숲에 던져진 48명의 희생양, 오직 완력만 믿고 돌진하는 엘리트들 사이에서 헤이미치의 진짜 사냥감은 다른 참가자가 아닌 ‘시스템’ 그 자체다. 무기는 필요 없다. 오직 지능으로 판을 지배하는 1점짜리 천재의 뇌지컬 생존기가 폭발한다.",
+   "popularity": 122.6519,
+   "poster_path": "/6ehDHRVDtwe1oMu6EMtKC3SoVER.jpg",
+   "release_date": "2026-11-18",
+   "softcore": false,
+   "video": false,
+   "vote_average": 7.448,
+   "vote_count": 29
+  }
+ ],
+ "total_pages": 1,
+ "total_results": 3
+}

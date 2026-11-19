@@ -1,0 +1,88 @@
+{
+ "page": 1,
+ "results": [
+  {
+   "adult": false,
+   "backdrop_path": "/3UXmXTfkekS0Dchl8iIqK7XJt0t.jpg",
+   "genre_ids": [
+    53,
+    9648,
+    18
+   ],
+   "id": 1244809,
+   "title": "폭설",
+   "original_language": "ko",
+   "original_title": "폭설",
+   "overview": "퇴직을 하루 앞둔 역장 갑수는 마지막 열차를 통과시키고 평생을 지켜오던 설오역을 떠날 준비를 한다. 하지만 하필 폭설이 쏟아지며 후임의 도착이 늦어지고, 설오역은 눈 속에 고립되고 만다. 다음 날, 후임이라는 놈이 설오역에 도착하지만 어딘가 수상하다. 그렇게 찝찝한 기분으로 인수인계를 이어가던 두 사람 앞에 의문의 시신이 나타나는데...",
+   "popularity": 2.1328,
+   "poster_path": "/xiBYIFWBrLD7Z7jWrt0e7YLLmfC.jpg",
+   "release_date": "2026-11-18",
+   "softcore": false,
+   "video": false,
+   "vote_average": 6.0,
+   "vote_count": 1
+  },
+  {
+   "adult": false,
+   "backdrop_path": "/wfP2iVp5K7Qm72V4vegAVfi6tl5.jpg",
+   "genre_ids": [
+    18,
+    10749
+   ],
+   "id": 1104331,
+   "title": "폭설",
+   "original_language": "ko",
+   "original_title": "폭설",
+   "overview": "강릉의 예술 고등학교를 다니는 열아홉 배우 지망생 수안. 어느 날 폭설처럼 갑자기 다가온 아역배우 출신 스타 설이를 만나 서로 마음을 나누며 특별한 존재가 되지만 사소한 오해로 멀어지게 된다. 어느덧 어른이 되어 어엿한 배우가 된 수안은 설이를 향한 사무치는 그리움에 겨울바다로 돌아가서 기억 속 설이를 다시 찾아 나선다.",
+   "popularity": 1.3137,
+   "poster_path": "/4qOON2DLJ9vuF1TW18glCJ68MwP.jpg",
+   "release_date": "2024-10-23",
+   "softcore": false,
+   "video": false,
+   "vote_average": 6.5,
+   "vote_count": 13
+  },
+  {
+   "adult": false,
+   "backdrop_path": "/xBKV71iDqN2aFTVsnksTiYtLiwe.jpg",
+   "genre_ids": [
+    28,
+    80,
+    53
+   ],
+   "id": 591051,
+   "title": "폭설",
+   "original_language": "zh",
+   "original_title": "雪暴",
+   "overview": "경찰 '샤오송'은 설산에서 범죄 조직에 살해당하고, 그를 목격한 동료 '캉하오'는 친구의 복수를 위해 조직의 두목을 찾아 나선다. 그런 '캉하오'를 애틋한 마음으로 기다리던 '쑨옌'은 위험에 빠지게 되는데... 눈으로 뒤덮인 백두산, 금괴를 차지하려는 범죄 조직, 그리고 사랑하는 사람을 지키기 위해 그들을 쫓는 '캉하오'의 숨 막히는 대립이 시작된다.",
+   "popularity": 0.8536,
+   "poster_path": "/yD5iDtYwAJ2maLZ91qC3jYaLpL4.jpg",
+   "release_date": "2019-09-05",
+   "softcore": false,
+   "video": false,
+   "vote_average": 5.8,
+   "vote_count": 24
+  },
+  {
+   "adult": false,
+   "backdrop_path": "/tnnSGfglOSQmKL4nAnwccHrWg79.jpg",
+   "genre_ids": [
+    99
+   ],
+   "id": 1046749,
+   "title": "폭설의 기억",
+   "original_language": "ku",
+   "original_title": "Aşît",
+   "overview": "체스를 파시즘에서 살아남는 수단으로 묘사한 슈테판 츠바이크의 소설에서 영감을 얻은 <폭설의 기억>은 튀르키예 정부가 저지른 아르메니아인 집단학살 사건과 그에 대한 논란을 재조명한다. 감독은 아르메니아 지역의 기록 영상과 현재의 모습을 촬영한 영상을 통해 아르메니아인들이 사는 풍경과 기억 속에 남아있는 트라우마를 드러낸다.",
+   "popularity": 0.2115,
+   "poster_path": "/aUwwImoOSmCt4CoHIxefLVS1PxW.jpg",
+   "release_date": "2023-10-22",
+   "softcore": false,
+   "video": false,
+   "vote_average": 0.0,
+   "vote_count": 0
+  }
+ ],
+ "total_pages": 1,
+ "total_results": 4
+}
