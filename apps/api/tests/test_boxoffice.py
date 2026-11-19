@@ -36,9 +36,16 @@ async def lookup(deps):
     return await boxoffice.list_now_showing(tool_context(deps, "list_now_showing"))
 
 
+def wrapped(result) -> dict:
+    """ToolResult.external의 data(notice·content·truncated). data는 JSON 값 타입이라 dict인지 확인해 꺼낸다."""
+    assert isinstance(result.data, dict)
+    return result.data
+
+
 def content_of(result) -> dict:
-    assert isinstance(result.data, dict) and isinstance(result.data["content"], dict)
-    return result.data["content"]
+    content = wrapped(result)["content"]
+    assert isinstance(content, dict)
+    return content
 
 
 async def test_no_kobis_key_guides_without_request(tool_deps, fake_http):
@@ -54,7 +61,7 @@ async def test_returns_wrapped_movies(tool_deps, fake_http):
     route_all(fake_http)
     result = await lookup(tool_deps)
     assert result.ok
-    assert result.data["truncated"] is False
+    assert wrapped(result)["truncated"] is False
     content = content_of(result)
     assert content["기준일"] == "2026-11-18"
     assert content["출처"] == {"KOBIS": True, "TMDB": True}
@@ -110,9 +117,9 @@ async def test_ten_movies_fit_external_limit(tool_deps, fake_http):
     fake_http.route("GET", kobis.BOXOFFICE_URL, json_response(200, box))
     fake_http.route("GET", kobis.MOVIE_INFO_URL, json_response(200, info))
     result = await lookup(tool_deps)
-    assert result.data["truncated"] is False
+    assert wrapped(result)["truncated"] is False
     assert len(content_of(result)["영화"]) == 10
-    assert len(json.dumps(result.data["content"], ensure_ascii=False)) <= MAX_EXTERNAL_CHARS
+    assert len(json.dumps(content_of(result), ensure_ascii=False)) <= MAX_EXTERNAL_CHARS
 
 
 async def test_overview_clipped(tool_deps, fake_http):
