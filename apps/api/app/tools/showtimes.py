@@ -2,7 +2,8 @@
 
 공식 회차 API가 없다(2026-11-18 확인: KOBIS 오픈API는 박스오피스·영화·영화사·영화인 정보뿐, 극장 시간표·잔여 좌석 없음).
 그래서 사용자가 붙여 넣은 시간표로 계산한다. 모델은 시간표를 회차 목록으로 옮기기만 하고, 계산·판정은 movie.py가 한다.
-- 지어낸 회차 막기: 회차의 시작(·종료) 시각과 상영 시간 숫자가 이 대화의 최근 사용자 메시지에 실제로 있어야 한다.
+- 지어낸 회차 막기(2026-11-19 보강): 최근 사용자 메시지를 timetable.parse로 회차 목록(극장·영화·시작·종료·상영 시간)으로
+  읽고, 모델이 옮긴 회차가 그중 한 회차와 모두 맞아야 한다(다른 줄의 시각·상영 시간, 문장 속 숫자는 근거가 아니다).
 - 이동 시간: 사용자가 말한 값(to_theater_minutes·home_minutes)을 그대로 쓰고, 없는 구간만 TMAP으로 조회한다
   (극장마다 가는 길·귀가 한 번씩, tmap.LIMITER 하루 10건 공유). 지어낸 기본 이동 시간은 쓰지 않는다.
 - 좌석은 확인할 수 없어 '좌석은 극장에서 확인'으로, 예매는 극장 브랜드의 공식 홈페이지 링크만
@@ -20,6 +21,8 @@ docs/DECISIONS.md.
 
 변경 이력:
 - 2026-11-18 처음 작성.
+- 2026-11-19 시간표 검증을 숫자 포함 검사에서 회차 단위 대조로 바꿈(timetable.py, tests/test_showtime_paste.py).
+  recent_user_messages 추가(recent_user_text는 같은 결과를 그대로 돌려줌 — jobprep이 씀).
 """
 
 from datetime import datetime, timedelta
@@ -33,7 +36,7 @@ from app.agent.deps import AgentDeps
 from app.agent.results import ToolResult
 from app.models import Message, Task
 from app.models.enums import MessageRole
-from app.tools import tmap
+from app.tools import timetable, tmap
 from app.tools.http import ExternalApiError
 from app.tools.movie import Conditions, Evaluation, Legs, Showing, evaluate, pick, showing_difference
 
@@ -45,6 +48,9 @@ BOOKING_SITES = {
 }
 # 지어낸 회차 검사에 쓰는 최근 사용자 메시지 수. 시간표를 붙여 넣고 몇 번 대화한 뒤 물어도 찾도록.
 RECENT_USER_MESSAGES = 5
+# 시간표 검증 실패 문구(2026-11-19). 모호한 항목은 timetable.showing_problem이 짧게 적는다.
+PASTE_PREFIX = "붙여 넣은 시간표로 확정할 수 없는 회차가 있습니다: "
+PASTE_HINT = "극장·영화·시각이 한 줄에 함께 있도록 다시 붙여 넣거나, 모호한 부분을 알려 주세요"
 LIMIT_MESSAGE = (
     "TMAP 무료 조회(하루 10건)를 다 썼습니다. "
     "식당에서 극장까지, 극장에서 집까지 이동 시간을 알려 주시면 그 값으로 계산하겠습니다."
@@ -71,8 +77,11 @@ def booking_url(theater: str) -> str | None:
     return next((url for brand, url in BOOKING_SITES.items() if brand in theater), None)
 
 
-async def recent_user_text(deps: AgentDeps) -> str:
-    """이 작업의 대화방에서 최근 사용자 메시지들(지어낸 회차 검사용). 읽기만 한다. user_id 조건을 건다."""
+async def recent_user_messages(deps: AgentDeps) -> list[str]:
+    """이 작업의 대화방에서 최근 사용자 메시지들(새 것부터). 읽기만 한다. user_id 조건을 건다.
+
+    2026-11-19: 시간표 검증(timetable.parse)이 메시지마다 극장·영화 문맥을 새로 시작하도록 메시지 단위로 돌려준다.
+    """
     async with deps.db() as session:
         conversation_id = await session.scalar(
             select(Task.conversation_id).where(Task.id == deps.task_id, Task.user_id == deps.user_id)
@@ -83,22 +92,28 @@ async def recent_user_text(deps: AgentDeps) -> str:
             .order_by(Message.id.desc())
             .limit(RECENT_USER_MESSAGES)
         )
-        return "\n".join(rows)
+        return list(rows)
 
 
-def appears(moment: datetime, text: str) -> bool:
-    """'19:30'·'9:30'처럼 시각이 글에 있는지."""
-    return f"{moment:%H:%M}" in text or f"{moment.hour}:{moment:%M}" in text
+async def recent_user_text(deps: AgentDeps) -> str:
+    """최근 사용자 메시지들을 줄바꿈으로 이은 글(새 것부터). 취업 준비(jobprep)가 공고 인용 검사에 쓴다.
+
+    고칠 때 주의: 반환 모양(새 것부터, 줄바꿈으로 이음)을 바꾸면 jobprep 테스트를 같이 본다.
+    """
+    return "\n".join(await recent_user_messages(deps))
 
 
-def not_in_paste(showing: Showing, text: str) -> str | None:
-    """붙여 넣은 글에 없는 값(지어낸 회차)이면 그 설명, 없으면 None."""
-    if not appears(showing.start, text):
-        return f"{showing.theater} {showing.start:%H:%M}"
-    if showing.end is not None and not appears(showing.end, text):
-        return f"{showing.theater} 종료 {showing.end:%H:%M}"
-    if showing.runtime_minutes is not None and str(showing.runtime_minutes) not in text:
-        return f"{showing.theater} 상영 시간 {showing.runtime_minutes}분"
+async def paste_problem(deps: AgentDeps, items: list[tuple[ShowingIn, Showing]]) -> str | None:
+    """모델이 옮긴 회차마다 붙여 넣은 시간표의 한 회차와 극장·영화·시작·종료·상영 시간이 맞는지 본다(timetable).
+
+    처음 맞지 않는 회차의 짧은 이유, 모두 맞으면 None. 읽기만 하고 외부 호출은 없다(경로 조회 전에 부른다).
+    """
+    theaters = [s.theater for _, s in items]
+    movies = [s.movie for _, s in items]
+    slots = timetable.parse(await recent_user_messages(deps), theaters, movies)
+    for _, s in items:
+        if problem := timetable.showing_problem(slots, s.theater, s.movie, s.start, s.end, s.runtime_minutes):
+            return problem
     return None
 
 
@@ -202,11 +217,9 @@ async def compare_showtimes_result(
     if any(s is None for _, s in pairs):
         return ToolResult.failure(tmap.TIME_FORMAT_MESSAGE, error_code="invalid")
     items = [(item, s) for item, s in pairs if s is not None]
-    pasted = await recent_user_text(deps)
-    if missing := next((m for _, s in items if (m := not_in_paste(s, pasted))), None):
-        return ToolResult.failure(
-            f"붙여 넣은 시간표에서 '{missing}'을 찾지 못했습니다. 시간표를 다시 붙여 넣어 주세요.", error_code="invalid"
-        )
+    if problem := await paste_problem(deps, items):
+        # 추천·예매 링크를 만들지 않고 카카오·TMAP도 부르지 않는다(지어내거나 섞인 회차로 계산하지 않게).
+        return ToolResult.failure(f"{PASTE_PREFIX}{problem}. {PASTE_HINT}", error_code="invalid")
     try:
         legs, used_tmap = await legs_for(deps, items, meet_place, home, cond)
     except ExternalApiError as error:
