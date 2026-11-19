@@ -9,6 +9,8 @@ remember(content, quote)는 아래를 모두 통과해야 저장한다. 걸리�
     4. quote(사용자 말을 그대로 옮긴 부분)가 그 메시지 안에 실제로 있다(QUOTE_NOT_FOUND).
        검색 결과·메일·메모·이전 대화의 글은 이 메시지에 없으므로 여기서 걸린다.
     5. quote가 따옴표 안(남의 말 인용)이거나 가정(만약, ~라면)이면 저장하지 않고 확인을 요청한다(NEEDS_CONFIRMATION).
+    5-1. quote에 일회성 표현(오늘만, 이번에는 등)이 있으면 저장하지 않는다(ONE_TIME, 2026-11-19).
+         이 대화에서만 반영한다.
     6. quote가 남의 정보(엄마는, 친구가)면 content에도 그 관계 말이 있어야 한다(OTHERS_INFO). 남의 사실을 사용자
        본인 사실로 바꿔 적지 않게 한다.
     7. content는 quote에서 나온 말이다: quote에 없는 숫자가 없고, 글자(공백·문장부호 제외)의 70% 이상이 quote에 있다
@@ -67,6 +69,11 @@ ONLY_USER_WORDS = "사용자가 직접 말한 내용만 기억할 수 있다."
 NO_REQUEST = "사용자가 이번 메시지에서 기억해 달라고 하지 않았다. 기억할지 사용자에게 먼저 물어라."
 QUOTE_NOT_FOUND = "quote가 사용자 메시지에 그대로 있지 않다. 사용자가 이번 메시지에서 한 말만 그대로 옮겨라."
 NEEDS_CONFIRMATION = "인용이나 가정으로 보여 저장하지 않았다. 사용자 본인의 사실인지 확인을 요청하라."
+# 2026-11-19(분석 39번): 오늘·이번에만 해당하는 말. 기억은 이후 모든 대화에 들어가므로 다음 날 잘못 쓰인다.
+ONE_TIME = (
+    "오늘·이번에만 해당하는 말이라 기억으로 저장하지 않았다. "
+    "이 대화에서만 반영하고, 앞으로도 계속 그런지 확인을 요청하라."
+)
 OTHERS_INFO = "다른 사람에 대한 정보다. 누구의 정보인지 content에 그대로 남겨라(사용자 본인 정보로 바꾸지 않는다)."
 NOT_DERIVED = "content에 quote에 없는 내용이 있다. 사용자가 한 말에 없는 사실을 덧붙이지 말라."
 SENSITIVE_REFUSAL = "비밀번호, PIN, 카드 번호, 주민등록번호 같은 정보는 기억에 저장하지 않는다."
@@ -109,6 +116,9 @@ LONG_NUMBER = re.compile(r"\d(?:[\s-]?\d){12,}")
 MEMORY_REQUEST = re.compile(r"기억|잊지\s*마|외워")
 # 가정 표현(규칙 5). "만약 내가 채식주의자라면"을 "채식주의자"로 저장하는 일을 막는다.
 HYPOTHETICAL = re.compile(r"만약|가정|예를\s*들어|[라다]면\b|[라다]면\s")
+# 일회성 표현(2026-11-19, 분석 39번). "오늘만 매운 거 괜찮아"를 "매운 거 괜찮음"으로 영구 저장하는 일을 막는다.
+# 바꾸면 tests/test_memory_quotes.py의 ONE_TIME 사례를 같이 본다.
+ONE_TIME_WORDS = re.compile(r"오늘만|오늘은|오늘\s*하루|이번만|이번에만|이번에는|이번\s*한\s*번|지금만|이번\s*주만")
 # 따옴표(규칙 5). 따옴표 안은 남의 말 인용으로 본다.
 QUOTE_PAIRS = {"“": "”", "‘": "’", "「": "」", "『": "』"}
 STRAIGHT_QUOTES = "\"'"
@@ -222,6 +232,9 @@ def quote_problem(source: str, quote: str, content: str) -> str | None:
     # 인용·가정: 남의 말이나 "만약 ~라면"을 사실로 저장하는 일을 막는다. 거부가 아니라 사용자 확인 요청이다.
     if inside_quotes(source_line, start) or any(m in quote_line for m in marks) or HYPOTHETICAL.search(quote_line):
         return NEEDS_CONFIRMATION
+    # 일회성: 오늘·이번에만 해당하는 말은 이후 모든 대화의 지시문에 들어가면 다음 날 잘못 쓰인다.
+    if ONE_TIME_WORDS.search(quote_line):
+        return ONE_TIME
     # 남의 정보: "엄마는 땅콩 알레르기"를 content에서 "땅콩 알레르기"(사용자 본인)로 바꿔 적는 일을 막는다.
     relation = RELATION.search(quote_line)
     if relation is not None and relation.group(1) not in content:

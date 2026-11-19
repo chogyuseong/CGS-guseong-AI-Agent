@@ -83,6 +83,9 @@ async def test_spicy_food_is_saved_with_source_quote(
         ("나 아침 일찍 일어나, 기억해", "아침 6시 기상", "나 아침 일찍 일어나", memories.NOT_DERIVED),
         # quote와 다른 말로 바꿔 적음
         ("나 매운 거 못 먹어, 기억해", "한식 좋아하고 운동함", "나 매운 거 못 먹어", memories.NOT_DERIVED),
+        # 2026-11-19(분석 39번): 오늘·이번에만 해당하는 조건은 앞으로의 대화에 남기지 않는다(다음 날 잘못 쓰이지 않게)
+        ("오늘만 매운 거 괜찮아, 기억해", "매운 거 괜찮음", "오늘만 매운 거 괜찮아", memories.ONE_TIME),
+        ("이번에는 혼자 갈 거야, 기억해 둬", "혼자 감", "이번에는 혼자 갈 거야", memories.ONE_TIME),
     ],
 )
 async def test_unsupported_memories_are_refused(
