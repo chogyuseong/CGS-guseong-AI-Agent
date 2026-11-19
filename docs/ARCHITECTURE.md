@@ -66,7 +66,7 @@ apps/web  Next.js 16 ── rewrites: /api/* ──▶ apps/api  FastAPI (127.0.
 | GET | `/api/usage/daily?days=14` | 8단계(9단계 2번 비용 화면). `days` 1~90(기본 14). 200 `{timezone: "Asia/Seoul", days: [{date, input_tokens, output_tokens, total_tokens, cost_usd, calls}] (오래된 날부터, 사용 없는 날도 0, 길이 = days), by_purpose: [{purpose(agent·guard·watch·eval 항상 4개), …합계}], by_model: [{model, …합계}] (비용 큰 순), total: {…합계}, today: {date, cost_usd, limit_usd, remaining_usd(0 아래 없음), exceeded}}`. 금액은 달러 숫자(소수 6자리). 날짜는 하루 비용 상한 검사와 같은 서울 0시 경계 |
 | POST | `/api/conversations/{id}/messages` | 202 `{"task_id"}`. 본문 `{"content"}`(1~4,000자). **3단계: run_task 워크플로를 시작만 하고 바로 응답**(그 시점 task는 보통 queued). 분당 20회 초과 429 |
 | GET | `/api/tasks` | 최근 작업 목록(`?limit=1~100`, 기본 30) |
-| GET | `/api/tasks/{id}` | 상태, steps, final_answer, error, approvals(그 작업의 모든 승인, step 순서). 화면은 이것을 1초마다 폴링한다 |
+| GET | `/api/tasks/{id}` | 상태, steps, final_answer, error, approvals(그 작업의 모든 승인, step 순서. 2026-11-19부터 각 승인에 '고쳐서 다시'로 거절된 바로 앞 카드와의 변경점 `changes[{field, before, after}]`). 화면은 이것을 1초마다 폴링한다 |
 | POST | `/api/approvals/{id}/approve` | 200 `{approval, changed, task_status}`. 본문 `{"confirm_mismatch"?: bool}`(생략 가능). **3단계: 마지막 결정이면 resume_task 워크플로를 시작만 하고 바로 응답**(task_status는 그 시점 상태, 보통 waiting_approval·running). 이미 결정됨 → 200 `changed=false`. 404 `not_found` / 409 `mismatch_confirmation_required`·`task_not_waiting` / 410 `approval_expired` |
 | POST | `/api/approvals/{id}/reject` | 승인과 같은 응답. 오류는 404 `not_found` / 409 `task_not_waiting` / 410 `approval_expired`. 모델은 '사용자가 거절함'을 받는다 |
 | GET | `/api/push/public-key` | 200 `{"enabled": bool, "public_key": str \| null}`. enabled는 VAPID 세 값(공개 키, 개인 키, VAPID_SUBJECT)이 모두 있을 때만 true |

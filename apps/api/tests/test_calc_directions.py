@@ -83,13 +83,15 @@ def test_later_deadline_never_removes_showings() -> None:
 # ---- 쇼핑 ----
 
 OFFERS = [
-    Offer(
-        title=f"무선 키보드 한글 {i}",
-        store="판매처",
-        url=f"https://example.com/{i}",
-        price=price,
-        shipping=0,
-        condition="신품",
+    Offer.model_validate(  # url 문자열을 HttpUrl로 검증해 넣는다
+        {
+            "title": f"무선 키보드 한글 {i}",
+            "store": "판매처",
+            "url": f"https://example.com/{i}",
+            "price": price,
+            "shipping": 0,
+            "condition": "신품",
+        }
     )
     for i, price in enumerate([25_000, 29_000, 31_000, 45_000, 60_000])
 ]
