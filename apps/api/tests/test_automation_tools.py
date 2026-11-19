@@ -146,6 +146,10 @@ async def test_watch_created_with_30_day_expiry(tool_deps: AgentDeps, db_session
     assert timedelta(days=29, hours=23) < watch.expires_at - before < timedelta(days=30, minutes=5)
     assert watch.next_run_at <= datetime.now(UTC) + timedelta(minutes=1)  # 첫 확인은 다음 검사 때
     assert data["interval_minutes"] == 30 and data["expires_on"]
+    # 2026-11-19(46번): 첫 확인 시각을 요일까지 알려 준다("다음 검사 때"만으로는 언제인지 알 수 없다).
+    local = watch.next_run_at.astimezone(rules.SEOUL)
+    weekday = "월화수목금토일"[local.weekday()]
+    assert data["next_check"] == f"{local:%Y-%m-%d}({weekday}) {local:%H:%M}"
 
 
 async def test_duplicate_watch_is_rejected(tool_deps: AgentDeps, db_session: AsyncSession) -> None:
@@ -183,6 +187,8 @@ async def test_create_schedule_computes_next_run(tool_deps: AgentDeps, db_sessio
     assert (local.weekday(), local.hour, local.minute) == (6, 21, 0)
     assert job.next_run_at > datetime.now(UTC)
     assert payload(result)["repeat_text"] == "매주 일요일 21:00"
+    # 2026-11-19(46번): 다음 실행을 요일까지 붙여 준다(모델이 요일을 직접 계산하지 않게).
+    assert payload(result)["next_run"] == f"{local:%Y-%m-%d}(일) 21:00"
 
 
 @pytest.mark.parametrize(

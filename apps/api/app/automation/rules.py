@@ -137,3 +137,13 @@ def repeat_text(time_of_day: time, weekdays: Sequence[int]) -> str:
 def seoul_text(moment: datetime) -> str:
     """'2026-11-18 07:30'(서울). 도구 결과에서 모델이 그대로 말할 수 있게."""
     return moment.astimezone(SEOUL).strftime("%Y-%m-%d %H:%M")
+
+
+def seoul_day_text(moment: datetime) -> str:
+    """'2026-11-18(수) 07:30'(서울). 다음 실행·확인처럼 요일이 중요한 값(2026-11-19, 분석 46번).
+
+    요일을 붙여 모델이 날짜에서 요일을 직접 계산하다 틀리지 않게 한다. seoul_text는 [:10]으로 날짜만 자르는 곳이 있어
+    모양을 바꾸지 않고 따로 둔다.
+    """
+    local = moment.astimezone(SEOUL)
+    return f"{local:%Y-%m-%d}({'월화수목금토일'[local.weekday()]}) {local:%H:%M}"

@@ -126,7 +126,7 @@ def schedule_view(job: ScheduledJob) -> dict[str, Any]:
         "prompt_text": job.prompt_text,
         "repeat_text": rules.repeat_text(job.time_of_day, job.weekdays),
         "is_active": job.is_active,
-        "next_run": rules.seoul_text(job.next_run_at) if job.is_active else None,
+        "next_run": rules.seoul_day_text(job.next_run_at) if job.is_active else None,
     }
 
 
@@ -146,6 +146,8 @@ def watch_view(watch: Watch) -> dict[str, Any]:
         "repeat": watch.repeat,
         "is_active": watch.is_active,
         "expires_on": rules.seoul_text(watch.expires_at)[:10],
+        # 2026-11-19: 다음(첫) 확인 시각. 꺼진 감시는 None(확인하지 않는다고 말하게).
+        "next_check": rules.seoul_day_text(watch.next_run_at) if watch.is_active else None,
     }
 
 
