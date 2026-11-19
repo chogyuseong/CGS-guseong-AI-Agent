@@ -109,6 +109,7 @@ async def test_facts_come_from_lookup(tool_deps, db_session):
     assert first["장르"] == "액션, SF"
     assert second["상영 시간"] == "88분"
     assert second["평점"] == "6.0"
+    assert second["평가 수"] == 1  # 2026-11-19: 표본이 작은 평점을 알아볼 수 있게 평가 수도 함께
     assert "줄거리" not in second  # 카드에는 줄거리를 넣지 않는다(외부 글을 새로 내보내지 않음)
     assert "시간표를 붙여 주시면" in data["다음"]
     assert data["예매"] == list(boxoffice.BOOKING_LINKS)
@@ -121,6 +122,7 @@ async def test_no_tmdb_no_notice(tool_deps, db_session):
     data = card(await recommend(tool_deps, [{"code": "20247221", "reason": "a"}]))
     assert "출처 표기" not in data
     assert data["추천"][0]["평점"] == "정보 없음"
+    assert data["추천"][0]["평가 수"] == "정보 없음"
 
 
 async def test_uses_latest_lookup(tool_deps, db_session):

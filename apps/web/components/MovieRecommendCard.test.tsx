@@ -37,6 +37,7 @@ const CARD = {
       배우: "김윤석, 구교환",
       "누적 관객": "63,697명",
       평점: "6.0",
+      "평가 수": 4,
     },
     {
       제목: "헝거게임 50번째 추첨의 날",
@@ -72,7 +73,8 @@ describe("MovieRecommendCard", () => {
     const first = screen.getByRole("article", { name: "폭설" });
     expect(within(first).getByText("조용한 긴장감을 좋아하시면 맞아요")).toBeInTheDocument();
     expect(within(first).getByText("미스터리, 드라마 · 88분 · 15세이상관람가")).toBeInTheDocument();
-    expect(within(first).getByText("평점 6.0 · 누적 관객 63,697명")).toBeInTheDocument();
+    // 2026-11-19: 평가 수가 작은 평점을 알아볼 수 있게 평가 수를 함께 보인다.
+    expect(within(first).getByText("평점 6.0(평가 4건) · 누적 관객 63,697명")).toBeInTheDocument();
     expect(
       within(first).getByText("감독 박선우, 홍의정 · 배우 김윤석, 구교환"),
     ).toBeInTheDocument();

@@ -33,11 +33,21 @@ function line(movie: Record<string, unknown>, keys: string[], prefix = false): s
     .join(" · ");
 }
 
+// '평점 6.8(평가 4건)'. 평가 수를 함께 보여 표본이 작은 평점을 알아볼 수 있게 한다(2026-11-19). 평점이 없으면 빈 글자.
+function ratingText(movie: Record<string, unknown>): string {
+  const rating = movie.평점;
+  if (typeof rating !== "string" || rating === UNKNOWN) return "";
+  const votes = movie["평가 수"];
+  return typeof votes === "number"
+    ? `평점 ${rating}(평가 ${votes.toLocaleString("ko-KR")}건)`
+    : `평점 ${rating}`;
+}
+
 function MovieItem({ movie }: { movie: Record<string, unknown> }) {
   const title = String(movie.제목 ?? "");
   const lines = [
     line(movie, ["장르", "상영 시간", "등급"]),
-    line(movie, ["평점", "누적 관객"], true),
+    [ratingText(movie), line(movie, ["누적 관객"], true)].filter(Boolean).join(" · "),
     line(movie, ["감독", "배우"], true),
   ].filter(Boolean);
   return (
