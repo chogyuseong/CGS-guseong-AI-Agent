@@ -1,0 +1,68 @@
+{
+ "boxOfficeResult": {
+  "boxofficeType": "일별 박스오피스",
+  "showRange": "20261118~20261118",
+  "dailyBoxOfficeList": [
+   {
+    "rnum": "1",
+    "rank": "1",
+    "rankInten": "19",
+    "rankOldAndNew": "OLD",
+    "movieCd": "20247221",
+    "movieNm": "폭설",
+    "openDt": "2026-11-18",
+    "salesAmt": "561492840",
+    "salesShare": "28.5",
+    "salesInten": "555480840",
+    "salesChange": "9239.5",
+    "salesAcc": "613134840",
+    "audiCnt": "58038",
+    "audiInten": "57417",
+    "audiChange": "9245.9",
+    "audiAcc": "63697",
+    "scrnCnt": "1039",
+    "showCnt": "3846"
+   },
+   {
+    "rnum": "2",
+    "rank": "2",
+    "rankInten": "0",
+    "rankOldAndNew": "NEW",
+    "movieCd": "20268264",
+    "movieNm": "임영웅ㅣ아임 히어로 더 스타디움 2",
+    "openDt": "2026-11-18",
+    "salesAmt": "571165000",
+    "salesShare": "29.0",
+    "salesInten": "571165000",
+    "salesChange": "100",
+    "salesAcc": "571165000",
+    "audiCnt": "21257",
+    "audiInten": "21257",
+    "audiChange": "100",
+    "audiAcc": "21257",
+    "scrnCnt": "160",
+    "showCnt": "569"
+   },
+   {
+    "rnum": "3",
+    "rank": "3",
+    "rankInten": "0",
+    "rankOldAndNew": "NEW",
+    "movieCd": "20267121",
+    "movieNm": "헝거게임 50번째 추첨의 날",
+    "openDt": "2026-11-18",
+    "salesAmt": "196923150",
+    "salesShare": "10.0",
+    "salesInten": "196923150",
+    "salesChange": "100",
+    "salesAcc": "215196900",
+    "audiCnt": "20071",
+    "audiInten": "20071",
+    "audiChange": "100",
+    "audiAcc": "21589",
+    "scrnCnt": "827",
+    "showCnt": "1819"
+   }
+  ]
+ }
+}

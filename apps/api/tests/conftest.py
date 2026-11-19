@@ -336,6 +336,9 @@ def configure_external_keys(settings: Settings) -> None:
     settings.token_encryption_key = SecretStr(TEST_FERNET_KEY)
     # 7단계 보강: 이 키가 있어야 메일 기능이 켜진다(기능 플래그, app/google_auth.py mail_enabled).
     settings.payload_encryption_key = SecretStr(TEST_PAYLOAD_KEY)
+    # 2026-11-19 영화 추천: 상영작 조회(KOBIS)와 줄거리·평점(TMDB). 가짜 HTTP로만 쓴다.
+    settings.kobis_api_key = SecretStr("test-kobis-key")
+    settings.tmdb_read_token = SecretStr("test-tmdb-token")
 
 
 @pytest.fixture

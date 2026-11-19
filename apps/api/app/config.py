@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     # 2026-11-18 이동 비서 B: SK Open API에서 TMAP 대중교통 상품을 받은 앱 키(app/tools/tmap.py).
     # 없으면 조회하지 않는다.
     tmap_app_key: SecretStr = SecretStr("")
+    # 2026-11-19 영화 비서 C 둘째 단계(상영작 추천, app/tools/kobis.py·tmdb.py).
+    # KOBIS 오픈API 키가 없으면 상영작을 조회하지 않고 안내만 한다(외부 요청 없음).
+    kobis_api_key: SecretStr = SecretStr("")
+    # TMDB "API Read Access Token"(Bearer 헤더). 없으면 줄거리·평점 없이 KOBIS 정보로만 추천한다.
+    # 짧은 v3 API Key가 아니다(그건 주소에 붙어 로그에 남기 쉽다).
+    tmdb_read_token: SecretStr = SecretStr("")
     naver_client_secret: SecretStr = SecretStr("")
     google_client_id: str = ""
     google_client_secret: SecretStr = SecretStr("")
