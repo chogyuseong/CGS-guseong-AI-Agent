@@ -6,6 +6,7 @@ TMAP 응답은 tests/fixtures/tmap_routes_two.json(공식 문서 형식으로 �
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -251,7 +252,7 @@ async def test_unreadable_response_fails_without_departure_card(keys, fake_http,
 
 # ---- 2026-11-19: 실제 출발 시각과 조회 기준 시각이 크게 다르면 그 시각으로 한 번 다시 조회한다 ----
 
-LONG_TRIP = {"origin": "역삼역", "destination": "잠실역", "arrive_by": "2026-11-19T19:00"}
+LONG_TRIP: dict[str, Any] = {"origin": "역삼역", "destination": "잠실역", "arrive_by": "2026-11-19T19:00"}
 
 
 def one_route(minutes: int) -> httpx.Response:
